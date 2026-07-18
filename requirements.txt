@@ -1,0 +1,13 @@
+streamlit>=1.35
+pandas
+matplotlib
+fpdf2
+weasyprint
+jinja2
+PyMuPDF
+openai
+python-dotenv
+plotly
+seaborn
+google-cloud-vision
+psycopg2-binary

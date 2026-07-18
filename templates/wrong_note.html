@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <title>{{ title }}</title>
+  {# MathJax: browser preview용. PDF 분수는 서버에서 HTML/CSS (.fraction) 로 렌더링 #}
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true,
+      },
+      svg: { fontCache: 'global' },
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    {{ font_face_css | safe }}
+    @page { size: A4; margin: 18mm; }
+    body {
+      font-family: 'NanumGothic', 'Malgun Gothic', sans-serif;
+      font-size: 10pt;
+      color: rgb({{ body_color }});
+      line-height: 1.6;
+    }
+    h1 {
+      text-align: center;
+      color: rgb({{ accent_color }});
+      font-size: 16pt;
+      margin: 0 0 6mm;
+    }
+    .subtitle {
+      text-align: center;
+      color: rgb({{ muted_color }});
+      margin-bottom: 8mm;
+    }
+    .section-title {
+      background: rgb(234, 240, 255);
+      color: rgb({{ accent_color }});
+      padding: 3mm 4mm;
+      margin: 8mm 0 4mm;
+      font-size: 12pt;
+      font-weight: bold;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6mm;
+    }
+    .card {
+      border: 1px solid rgb({{ border_color }});
+      background: #fff;
+      padding: 4mm;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .similar-card {
+      border-color: rgb({{ accent_color }});
+      background: rgb(248, 250, 255);
+    }
+    .card-head { margin-bottom: 3mm; }
+    .q-num {
+      color: rgb({{ accent_color }});
+      font-size: 11pt;
+      margin-right: 2mm;
+    }
+    .meta {
+      color: rgb({{ muted_color }});
+      font-size: 9pt;
+    }
+    .content {
+      margin: 0 0 3mm;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+    .content.math-block { margin-bottom: {{ section_gap_mm }}mm; }
+    .fraction {
+      display: inline-block;
+      vertical-align: middle;
+      text-align: center;
+      margin: 0 2px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.88em;
+      line-height: 1.15;
+    }
+    .fraction .numerator {
+      display: block;
+      border-bottom: 1px solid rgb({{ body_color }});
+      padding: 0 3px 1px;
+      text-align: center;
+    }
+    .fraction .denominator {
+      display: block;
+      padding: 1px 3px 0;
+      text-align: center;
+    }
+    .muted { color: rgb({{ muted_color }}); }
+  </style>
+</head>
+<body>
+  <h1>{{ title }}</h1>
+  <p class="subtitle">{{ subtitle }}</p>
+
+  {% if empty_wrong_message %}
+  <p class="muted">{{ empty_wrong_message }}</p>
+  {% elif wrong_cards %}
+  <div class="grid-2">
+    {% for card in wrong_cards %}
+    <article class="card">
+      <header class="card-head">
+        <strong class="q-num">{{ card.number }}번</strong>
+        <span class="meta">{{ card.topic }} · {{ card.difficulty }}</span>
+      </header>
+      <div class="card-body">
+        {% for line_html in card.detail_lines_html %}
+        <p class="content">{{ line_html | safe }}</p>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if similar_questions %}
+  <h2 class="section-title">유사문제 (문제은행)</h2>
+  <div class="grid-2 similar-grid">
+    {% for item in similar_questions %}
+    <article class="card similar-card">
+      <header class="card-head">
+        <strong class="q-num">{{ item.related_wrong_number }}번 유사문제 {{ item.index }}</strong>
+        <span class="meta">{{ item.topic }} · {{ item.difficulty }}</span>
+      </header>
+      <div class="card-body">
+        {% if item.stem_html %}
+        <p class="content math-block">{{ item.stem_html | safe }}</p>
+        {% endif %}
+        {% if item.answer_html %}
+        <p class="content math-block"><strong>정답:</strong> {{ item.answer_html | safe }}</p>
+        {% endif %}
+        {% if item.explanation_html %}
+        <p class="content"><strong>해설:</strong> {{ item.explanation_html | safe }}</p>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+</body>
+</html>

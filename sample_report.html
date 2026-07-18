@@ -1,0 +1,380 @@
+```html
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>학습 보고서 - 김민준</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+      background: #f0f2f8;
+      color: #1B2A5E;
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: linear-gradient(135deg, #1B2A5E 0%, #2c4299 100%);
+      color: #fff;
+      padding: 32px 24px 28px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    header::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 200px; height: 200px;
+      border-radius: 50%;
+      background: rgba(201,168,76,.15);
+    }
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: -80px; left: -40px;
+      width: 240px; height: 240px;
+      border-radius: 50%;
+      background: rgba(201,168,76,.10);
+    }
+    .header-badge {
+      display: inline-block;
+      background: rgba(201,168,76,.25);
+      color: #C9A84C;
+      border: 1px solid #C9A84C;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      padding: 4px 14px;
+      margin-bottom: 10px;
+    }
+    header h1 {
+      font-size: clamp(22px, 5vw, 32px);
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+    header h1 span { color: #C9A84C; }
+    header p {
+      margin-top: 6px;
+      font-size: 14px;
+      color: rgba(255,255,255,.75);
+    }
+
+    /* ── WRAPPER ── */
+    .wrapper {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 28px 16px 48px;
+    }
+
+    /* ── SECTION TITLE ── */
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #C9A84C;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(to right, #C9A84C44, transparent);
+    }
+
+    /* ── KPI GRID ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    @media (max-width: 600px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .kpi-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 20px 16px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(27,42,94,.08);
+      border-top: 4px solid #1B2A5E;
+      transition: transform .2s, box-shadow .2s;
+    }
+    .kpi-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 28px rgba(27,42,94,.14);
+    }
+    .kpi-card.highlight { border-top-color: #C9A84C; }
+
+    .kpi-icon {
+      font-size: 22px;
+      margin-bottom: 8px;
+    }
+    .kpi-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .8px;
+      color: #8897be;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .kpi-value {
+      font-size: clamp(26px, 5vw, 34px);
+      font-weight: 800;
+      color: #1B2A5E;
+      line-height: 1;
+    }
+    .kpi-card.highlight .kpi-value { color: #C9A84C; }
+    .kpi-unit {
+      font-size: 13px;
+      font-weight: 600;
+      color: #aab;
+      margin-left: 2px;
+    }
+    .kpi-sub {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #8897be;
+    }
+    .badge-up {
+      display: inline-block;
+      background: #e8f5e9;
+      color: #2e7d32;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      margin-top: 4px;
+    }
+
+    /* ── CHART CARDS ── */
+    .chart-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+    @media (max-width: 680px) {
+      .chart-grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 4px 20px rgba(27,42,94,.08);
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1B2A5E;
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #f0f2f8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title span { font-size: 18px; }
+
+    .chart-wrap {
+      position: relative;
+      height: 220px;
+    }
+
+    /* ── WRONG ITEMS ── */
+    .wrong-section {
+      margin-bottom: 28px;
+    }
+    .wrong-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .wrong-item {
+      background: #fff;
+      border: 2px solid #e8ecf8;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-weight: 700;
+      color: #1B2A5E;
+      font-size: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      min-width: 72px;
+      box-shadow: 0 2px 8px rgba(27,42,94,.06);
+      transition: border-color .2s, transform .2s;
+    }
+    .wrong-item:hover {
+      border-color: #C9A84C;
+      transform: translateY(-2px);
+    }
+    .wrong-item .num {
+      font-size: 20px;
+      font-weight: 800;
+      color: #C9A84C;
+    }
+    .wrong-item .label {
+      font-size: 10px;
+      color: #8897be;
+      font-weight: 600;
+      letter-spacing: .5px;
+    }
+
+    /* ── COMMENT ── */
+    .comment-card {
+      background: linear-gradient(135deg, #1B2A5E 0%, #243580 100%);
+      border-radius: 16px;
+      padding: 28px;
+      color: #fff;
+      box-shadow: 0 8px 32px rgba(27,42,94,.22);
+      position: relative;
+      overflow: hidden;
+    }
+    .comment-card::before {
+      content: '✏️';
+      position: absolute;
+      right: 24px; top: 20px;
+      font-size: 48px;
+      opacity: .12;
+    }
+    .comment-card .ct-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #C9A84C;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .comment-card .ct-label::before { content: '✏️'; font-size: 14px; }
+    .comment-card p {
+      font-size: 15px;
+      line-height: 1.8;
+      color: rgba(255,255,255,.92);
+      word-break: keep-all;
+    }
+    .comment-card p strong { color: #C9A84C; }
+    .comment-sig {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,.15);
+      font-size: 13px;
+      color: rgba(255,255,255,.6);
+      text-align: right;
+    }
+    .comment-sig strong { color: #C9A84C; }
+
+    /* ── FOOTER ── */
+    footer {
+      text-align: center;
+      font-size: 12px;
+      color: #aab;
+      padding: 16px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="header-badge">📋 학습 성취 보고서</div>
+  <h1>김민준 <span>학생</span> 보고서</h1>
+  <p>고2 심화반 &nbsp;|&nbsp; 2026년 06월 22일</p>
+</header>
+
+<div class="wrapper">
+
+  <!-- KPI -->
+  <div class="section-title">이번 회차 핵심 지표</div>
+  <div class="kpi-grid">
+
+    <div class="kpi-card highlight">
+      <div class="kpi-icon">🎯</div>
+      <div class="kpi-label">오늘 점수</div>
+      <div class="kpi-value">78<span class="kpi-unit">점</span></div>
+      <div class="badge-up">▲ 반평균 +7점</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-icon">📊</div>
+      <div class="kpi-label">반 평균</div>
+      <div class="kpi-value">71<span class="kpi-unit">점</span></div>
+      <div class="kpi-sub">전체 8명 평균</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-icon">🏅</div>
+      <div class="kpi-label">반 석차</div>
+      <div class="kpi-value">3<span class="kpi-unit">위</span></div>
+      <div class="kpi-sub">8명 중</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-icon">📅</div>
+      <div class="kpi-label">월 평균</div>
+      <div class="kpi-value">74<span class="kpi-unit">점</span></div>
+      <div class="kpi-sub">이번 달 누적</div>
+    </div>
+
+  </div>
+
+  <!-- CHARTS -->
+  <div class="section-title">성적 분석 차트</div>
+  <div class="chart-grid">
+
+    <div class="card">
+      <div class="card-title"><span>📈</span> 최근 8회 점수 추이</div>
+      <div class="chart-wrap">
+        <canvas id="lineChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>📚</span> 단원별 정답률</div>
+      <div class="chart-wrap">
+        <canvas id="barChart"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- WRONG ITEMS -->
+  <div class="wrong-section">
+    <div class="section-title">오답 문항 목록</div>
+    <div class="wrong-list">
+      <div class="wrong-item"><span class="num">2</span><span class="label">번</span></div>
+      <div class="wrong-item"><span class="num">5</span><span class="label">번</span></div>
+      <div class="wrong-item"><span class="num">8</span><span class="label">번</span></div>
+      <div class="wrong-item"><span class="num">11</span><span class="label">번</span></div>
+      <div class="wrong-item"><span class="num">14</span><span class="label">번</span></div>
+    </div>
+  </div>
+
+  <!-- COMMENT -->
+  <div class="section-title">선생님 코멘트</div>
+  <div class="comment-card">
+    <div class="ct-label">담당 선생님 메시지</div>
+    <p>
+      민준이가 이번 회차에서 <strong>78점</strong>으로 반 평균보다 <strong>7점 높은 성과</strong>를 거두었으며,
+      최근 8회 동안 꾸준히 점수가 오르는 훌륭한 성장세를 보여주고 있습니다. 🎉<br/><br/>
+      특히 <strong>부등식(85%) · 이차함수(75%)</strong> 영역에서 탄탄한 실력을 발휘하고 있어 매우 인상적입니다.
+      다만 <strong>경우의 수(50%)</strong>와 이번 오답 문항인 <strong>2, 5, 8, 11, 14번</strong>을
+      집중적으로 복습한다면 충분히 <strong>상위권 진입</strong>이 가능할 것으로 기대됩니다.<br/><br/>
+      앞으로도 민준이의 성실한 태도를 믿고 응원하겠습

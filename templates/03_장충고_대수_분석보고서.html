@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>장충고 대수 분석보고서</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --blue:#2563EB; --blue-dark:#1E40AF; --blue-light:#DBEAFE;
+    --orange:#F97316; --red:#DC2626; --purple:#7C3AED;
+    --gray:#6B7280; --gray-light:#F3F4F6; --gray-bg:#F9FAFB;
+    --black:#111827; --border:#E5E7EB;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Noto Sans KR',sans-serif;background:#EFF3FB;color:var(--black);font-size:13px;line-height:1.6;}
+  .page-wrap{max-width:860px;margin:32px auto;display:flex;flex-direction:column;}
+
+  /* 페이지 */
+  .page{background:#fff;padding:36px 40px;margin-bottom:16px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.07);position:relative;overflow:hidden;}
+  .page-badge{position:absolute;top:20px;right:20px;background:var(--blue);color:#fff;font-weight:700;font-size:13px;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+
+  /* 헤더 */
+  .report-header{border-bottom:2px solid var(--blue);padding-bottom:16px;margin-bottom:6px;}
+  .report-title{font-size:22px;font-weight:900;}
+  .report-sub{font-size:12px;color:var(--gray);margin-top:4px;}
+
+  /* 섹션 제목 */
+  .section-title{font-size:15px;font-weight:700;color:var(--blue-dark);margin:22px 0 10px;padding-left:10px;border-left:4px solid var(--blue);}
+
+  /* 기본정보 */
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:10px;}
+  .info-cell{padding:10px 14px;border-bottom:1px solid var(--border);}
+  .info-cell:nth-child(odd){border-right:1px solid var(--border);}
+  .info-label{font-size:11px;color:var(--gray);margin-bottom:3px;}
+  .info-value{font-weight:700;font-size:13px;}
+  .tag-row{display:flex;gap:8px;flex-wrap:wrap;padding:9px 14px;background:var(--gray-bg);border-top:1px solid var(--border);grid-column:span 2;align-items:center;}
+  .tag-label{font-size:11px;color:var(--gray);margin-right:4px;}
+  .tag{background:var(--blue-light);color:var(--blue-dark);font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;}
+
+  /* 텍스트박스 */
+  .trend-box{background:var(--gray-bg);border:1px solid var(--border);border-radius:6px;padding:14px 16px;margin-bottom:10px;font-size:12.5px;line-height:1.7;}
+  .trend-title{font-weight:700;font-size:13px;margin-bottom:8px;}
+  .bullet-list{list-style:none;padding:0;}
+  .bullet-list li{padding:3px 0 3px 16px;position:relative;font-size:12px;color:#374151;}
+  .bullet-list li::before{content:'•';position:absolute;left:0;color:var(--blue);font-weight:700;}
+
+  /* 난이도표 */
+  .diff-table{width:100%;border-collapse:collapse;margin-bottom:10px;}
+  .diff-table td{padding:8px 12px;border:1px solid var(--border);vertical-align:top;font-size:12px;}
+  .diff-table td:first-child{background:var(--gray-bg);font-weight:700;width:100px;white-space:nowrap;}
+  .diff-level{font-size:15px;font-weight:900;color:var(--orange);}
+
+  /* ══ 문항별 분석표 (PAGE 2) ══
+     A4 기준 가로 780px 내에서 깨지지 않도록 고정폭 설정 */
+  .q-table{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;}
+  .q-table th{background:var(--blue);color:#fff;padding:7px 6px;text-align:center;font-weight:700;border:1px solid var(--blue-dark);line-height:1.3;}
+  .q-table td{padding:6px 6px;border:1px solid var(--border);vertical-align:middle;line-height:1.4;word-break:keep-all;overflow-wrap:break-word;}
+  .q-table tr:nth-child(even) td{background:var(--gray-bg);}
+  /* 번호·유형·난이도·정답률 열은 가운데 정렬 */
+  .q-table .tc{text-align:center;}
+  /* 문항 내용 요약 열은 왼쪽 정렬, 줄바꿈 허용 */
+  .q-table .tl{text-align:left;}
+
+  /* 배지 */
+  .badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;}
+  .badge-low    {background:#D1FAE5;color:#065F46;}
+  .badge-midlow {background:#FEF3C7;color:#92400E;}
+  .badge-mid    {background:#FEF3C7;color:#92400E;}
+  .badge-midhigh{background:#FFEDD5;color:#9A3412;}
+  .badge-high   {background:#FEE2E2;color:#991B1B;}
+  .badge-killer {background:#DC2626;color:#fff;}
+  .badge-obj    {background:#EFF6FF;color:var(--blue-dark);}
+  .badge-sub    {background:#F5F3FF;color:var(--purple);}
+
+  /* 핵심문항 */
+  .key-q{border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:18px;}
+  .key-q-header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--blue-light);}
+  .key-q-title{font-weight:700;font-size:14px;color:var(--blue-dark);}
+  .key-q-tag{padding:3px 12px;border-radius:12px;font-size:11px;font-weight:700;color:#fff;white-space:nowrap;}
+  .tag-high   {background:var(--red);}
+  .tag-killer {background:var(--purple);}
+  .tag-midhigh{background:var(--orange);}
+  .key-q-body{display:grid;grid-template-columns:1fr 1fr;}
+  .key-q-left,.key-q-right{padding:14px 16px;}
+  .key-q-left{border-right:1px solid var(--border);}
+  .kq-subtitle{font-weight:700;font-size:12px;margin-bottom:6px;}
+  .kq-text{font-size:12px;line-height:1.65;color:#374151;margin-bottom:10px;}
+  .step-list{list-style:none;padding:0;counter-reset:step;}
+  .step-list li{counter-increment:step;padding:5px 0 5px 28px;position:relative;font-size:12px;color:#374151;border-bottom:1px dashed var(--border);}
+  .step-list li:last-child{border-bottom:none;}
+  .step-list li::before{content:counter(step);position:absolute;left:0;background:var(--blue);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;top:6px;}
+
+  /* ══ PAGE 4 레이아웃 개선 ══ */
+  /* 상단: 차트 2개 나란히 */
+  .p4-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;}
+  .chart-card{border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+  .chart-title{font-weight:700;font-size:12px;color:var(--gray);margin-bottom:10px;text-align:center;}
+
+  /* 유형별 + 등급 막대를 가로로 나란히 */
+  .p4-bottom{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;align-items:start;}
+  .p4-section-label{font-weight:700;font-size:13px;margin-bottom:10px;}
+
+  /* 가로 바 */
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  .bar-label{width:56px;font-size:12px;font-weight:600;text-align:right;flex-shrink:0;}
+  .bar-track{flex:1;background:var(--gray-light);border-radius:4px;height:22px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;}
+  .bar-pct{font-size:11px;font-weight:700;color:#fff;}
+  .bar-note{font-size:11px;color:var(--gray);line-height:1.5;margin-top:6px;}
+
+  /* 등급 분포표 */
+  .grade-table{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;}
+  .grade-table th{background:var(--blue);color:#fff;padding:7px 8px;text-align:center;border:1px solid var(--blue-dark);}
+  .grade-table td{padding:7px 8px;border:1px solid var(--border);text-align:center;vertical-align:middle;white-space:normal;word-break:keep-all;overflow-wrap:break-word;}
+  .grade-table td:last-child{text-align:left;font-size:11px;}
+  .grade-table tr:nth-child(even) td{background:var(--gray-bg);}
+  .grade-badge{display:inline-block;width:52px;padding:3px 0;border-radius:12px;font-weight:700;font-size:10.5px;color:#fff;text-align:center;}
+  .g1{background:#1E3A8A;} .g2{background:#2563EB;} .g3{background:#60A5FA;}
+  .g4{background:#93C5FD;color:#1E3A8A!important;} .g5{background:#BFDBFE;color:#1E3A8A!important;}
+  .cut{font-weight:700;color:var(--blue-dark);white-space:nowrap;}
+
+  /* ══ PAGE 5 ══ */
+  /* 전략 */
+  .strat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:20px;}
+  .strat-header{background:var(--blue-light);font-weight:700;font-size:12px;color:var(--blue-dark);padding:10px 12px;border-bottom:1px solid var(--border);}
+  .strat-header:not(:last-child){border-right:1px solid var(--border);}
+  .strat-body{padding:12px;font-size:11.5px;line-height:1.6;color:#374151;}
+  .strat-body:not(:last-child){border-right:1px solid var(--border);}
+
+  /* 6주 플랜 — 주차별 타임라인 테이블 */
+  .plan-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:20px;}
+  .plan-table th{padding:9px 12px;text-align:left;font-weight:700;font-size:12px;border:1px solid var(--border);}
+  .plan-table td{padding:9px 12px;border:1px solid var(--border);vertical-align:top;line-height:1.55;}
+  .plan-table tr:nth-child(even) td,.plan-table tr:nth-child(even) th{background:var(--gray-bg);}
+  .week-badge{display:inline-block;background:var(--blue);color:#fff;font-weight:700;font-size:11px;padding:2px 10px;border-radius:12px;margin-right:6px;white-space:nowrap;}
+  .week-goal{font-weight:700;color:var(--blue-dark);font-size:11.5px;margin-bottom:4px;}
+  .week-items{font-size:11px;color:#374151;}
+
+  /* 조언 */
+  .advice-box{background:var(--blue-light);border:1px solid var(--blue);border-radius:8px;padding:16px 20px;margin-bottom:14px;font-size:12.5px;line-height:1.7;}
+  .advice-title{font-weight:700;font-size:14px;margin-bottom:8px;color:var(--blue-dark);}
+  .summary-box{background:#1E293B;color:#fff;border-radius:8px;padding:16px 20px;font-size:12.5px;line-height:1.7;}
+  .summary-title{font-weight:700;font-size:14px;margin-bottom:8px;color:#93C5FD;}
+
+  @media print{
+    body{background:#fff;}
+    .page{box-shadow:none;margin-bottom:0;border-radius:0;page-break-after:always;}
+    .page-wrap{margin:0;max-width:100%;}
+  }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+<!-- ══ PAGE 1 — 기본정보 + 출제경향 ══ -->
+<div class="page">
+  <div class="page-badge">1/5</div>
+  <div class="report-header">
+    <div class="report-title">2026학년도 수학 시험지 분석 보고서</div>
+    <div class="report-sub">장충고등학교 고2 1학기 중간고사 심층 분석</div>
+  </div>
+
+  <div class="section-title">1. 기본 정보</div>
+  <div class="info-grid">
+    <div class="info-cell"><div class="info-label">학교 및 학년</div><div class="info-value">장충고등학교 고2</div></div>
+    <div class="info-cell"><div class="info-label">시험 종류</div><div class="info-value">1학기 중간고사 대수</div></div>
+    <div class="info-cell" style="border-bottom:none"><div class="info-label">시험 일자</div><div class="info-value">2026년 04월 28일</div></div>
+    <div class="info-cell" style="border-bottom:none"><div class="info-label">문항 구성</div><div class="info-value">총 23문항 (선택형 19문항, 서술형 4문항)</div></div>
+    <div class="tag-row">
+      <span class="tag-label">시험 범위</span>
+      <span class="tag">지수와 로그</span>
+      <span class="tag">지수·로그함수</span>
+      <span class="tag">삼각함수</span>
+      <span class="tag">실생활 응용</span>
+    </div>
+  </div>
+
+  <div class="section-title">2. 전체 구성 및 출제 경향</div>
+  <div class="trend-box">
+    <div class="trend-title">📊 출제 경향 요약</div>
+    <p style="margin-bottom:10px;">본 시험지는 지수와 로그의 기본 계산 능력부터 삼각함수의 기초 개념, 지수·로그함수의 그래프 성질, 실생활 응용까지 대수 과목의 전반적인 이해도를 묻는 문항들로 고르게 구성되었습니다. 특히 함수 단원에서는 그래프의 3사분면 통과 여부, 대칭성, 역함수 관계를 활용하는 추론형 문항이 출제되어 그래프 해석 능력이 요구됩니다.</p>
+    <ul class="bullet-list">
+      <li>지수와 로그의 연산 규칙을 정확히 알고 적용하는 기본 계산 문항이 전반부에 주로 출제되었습니다.</li>
+      <li>지수·로그함수의 그래프 성질(접근선, 대칭성 등)을 활용하여 추론하는 문항의 비중이 높습니다.</li>
+      <li>삼각함수의 기본 성질(sin, cos, tan)을 이용하여 각 사분면에서의 부호 판별 및 식의 값을 도출하는 문항이 출제되었습니다.</li>
+      <li>서술형 문항에서는 부채꼴 넓이, 로그 법칙 증명, 지수·로그함수 최대최솟값, 삼각함수 부등식 범위 문제가 배치되었습니다.</li>
+    </ul>
+  </div>
+
+  <table class="diff-table">
+    <tr><td>⚖ 전체 난이도</td><td><span class="diff-level">중상</span></td></tr>
+    <tr><td>킬러 문항</td><td>18번 (로그 부등식 정수 개수), 서술형3 (지수·로그함수 합성 최대최솟값), 서술형4 (삼각함수 부등식)</td></tr>
+    <tr><td>변별력 요소</td><td>역함수·그래프 대칭성 파악, 복합 연산 처리 능력, 서술형 정확한 풀이 과정 서술 능력</td></tr>
+  </table>
+
+  <div class="trend-box" style="margin-top:10px;">
+    <div class="trend-title">📌 문항 구성 비율</div>
+    <p style="font-size:12px;">선택형 19문항, 서술형 4문항으로 구성되어 있으며, 내용 영역별로는 지수와 로그 단원 약 35%, 지수·로그함수 단원 약 30%, 삼각함수 단원 약 20%, 실생활 응용 및 복합 문항이 약 15%를 차지합니다. 전반부(1~10번)는 기본 개념과 단순 계산 위주로 평이하게 전개되며, 후반부 선택형(11~19번)과 서술형에 고난도 문항이 집중 배치되어 시간 안배가 매우 중요한 시험입니다.</p>
+  </div>
+</div>
+
+<!-- ══ PAGE 2 — 문항별 분석표 ══ -->
+<div class="page">
+  <div class="page-badge">2/5</div>
+  <div class="section-title">3. 문항별 상세 분석</div>
+  <table class="q-table">
+    <!-- 번호:40 / 유형:46 / 핵심개념:110 / 문항내용:나머지 / 난이도:52 / 정답률:54 -->
+    <colgroup>
+      <col style="width:40px">
+      <col style="width:46px">
+      <col style="width:110px">
+      <col>
+      <col style="width:52px">
+      <col style="width:54px">
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="tc">번호</th>
+        <th class="tc">유형</th>
+        <th class="tc">핵심 개념</th>
+        <th class="tc">문항 내용 요약</th>
+        <th class="tc">난이도</th>
+        <th class="tc">예상<br>정답률</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="tc">1</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">지수의 연산</td>
+        <td class="tl">5⁴ × 5⁻² 지수 연산 기본 계산</td>
+        <td class="tc"><span class="badge badge-low">하</span></td>
+        <td class="tc">92%</td>
+      </tr>
+      <tr>
+        <td class="tc">2</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">로그 방정식</td>
+        <td class="tl">log₃(2x−1)=1 기본 로그 방정식 풀이</td>
+        <td class="tc"><span class="badge badge-low">하</span></td>
+        <td class="tc">90%</td>
+      </tr>
+      <tr>
+        <td class="tc">3</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">삼각함수 값</td>
+        <td class="tl">tan(5π/6) 삼각함수 값 계산</td>
+        <td class="tc"><span class="badge badge-midlow">중하</span></td>
+        <td class="tc">80%</td>
+      </tr>
+      <tr>
+        <td class="tc">4</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">로그 정의역</td>
+        <td class="tl">log₍ₓ₊₁₎(6−x) 정의되는 정수 x의 개수</td>
+        <td class="tc"><span class="badge badge-mid">중</span></td>
+        <td class="tc">75%</td>
+      </tr>
+      <tr>
+        <td class="tc">5</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">지수함수 그래프</td>
+        <td class="tl">y = aˣ⁻¹+1 이 항상 지나는 점의 좌표 추론</td>
+        <td class="tc"><span class="badge badge-mid">중</span></td>
+        <td class="tc">78%</td>
+      </tr>
+      <tr>
+        <td class="tc">6</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">동경과 삼각비</td>
+        <td class="tl">0≤θ≤π/2에서 각 θ와 5θ의 동경이 직각을 이룰 때 θ의 크기</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">60%</td>
+      </tr>
+      <tr>
+        <td class="tc">7</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">지수함수 그래프</td>
+        <td class="tl">보기 4가지 지수함수 중 제3사분면을 지나지 않는 것 선택</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">58%</td>
+      </tr>
+      <tr>
+        <td class="tc">8</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">로그 방정식 응용</td>
+        <td class="tl">1보다 큰 두 실수 a, b 조건에서 log_a(b) 값 추론</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">55%</td>
+      </tr>
+      <tr>
+        <td class="tc">9</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">합성함수·역함수</td>
+        <td class="tl">f(x)=(3ˣ−3⁻ˣ)/(3ˣ+3⁻ˣ)에서 f(a)=½일 때 f(2a) 값 계산</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">50%</td>
+      </tr>
+      <tr>
+        <td class="tc">10</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">지수 연산 복합</td>
+        <td class="tl">A+B+C 값 계산 (거듭제곱근·지수·로그 종합 연산)</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">48%</td>
+      </tr>
+      <tr>
+        <td class="tc">11</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">지수 실생활·상용로그</td>
+        <td class="tl">세균 개체 수 매시간 5% 증가 → 4배 이상 되는 최솟값 k 구하기 (log2=0.301, log1.05=0.0212 사용)</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">52%</td>
+      </tr>
+      <tr>
+        <td class="tc">12</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">지수방정식·실근</td>
+        <td class="tl">5²ˣ−10×5ˣ+16=0의 두 실근 α, β에 대해 4^(1/α) × 4^(1/β) 값 계산</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">48%</td>
+      </tr>
+      <tr>
+        <td class="tc">13</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">삼각 부등식·범위</td>
+        <td class="tl">0≤x&lt;2π에서 sin(x−π/3)&gt;√3/2 만족하는 범위가 α&lt;x&lt;β일 때 α+β 계산</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">50%</td>
+      </tr>
+      <tr>
+        <td class="tc">14</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">n제곱근·실수 존재</td>
+        <td class="tl">2≤n≤12 자연수 n에서 n²−9n+14의 n제곱근 중 음의 실수 존재하는 n 값의 합</td>
+        <td class="tc"><span class="badge badge-high">상</span></td>
+        <td class="tc">38%</td>
+      </tr>
+      <tr>
+        <td class="tc">15</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">지수함수·내분점</td>
+        <td class="tl">제2·4사분면 위 점 A, B가 y=2^(x−1)−2−2 위에 있고 AB를 2:1 내분하는 점이 원점 O → AB² 값</td>
+        <td class="tc"><span class="badge badge-high">상</span></td>
+        <td class="tc">35%</td>
+      </tr>
+      <tr>
+        <td class="tc">16</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">삼각방정식·합산</td>
+        <td class="tl">0≤x&lt;2π, x≠π/2, 3π/2일 때 cosx−sinx=cos(π/3)×(1−tanx) 만족하는 모든 x 값의 합</td>
+        <td class="tc"><span class="badge badge-high">상</span></td>
+        <td class="tc">32%</td>
+      </tr>
+      <tr>
+        <td class="tc">17</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">로그함수·삼각형 넓이</td>
+        <td class="tl">y=log₂x 위 점 A(2,1), 기울기 −1인 직선과 y=2ˣ의 교점 B, y=log₂x와 x축의 교점 C → 삼각형 ABC 넓이</td>
+        <td class="tc"><span class="badge badge-high">상</span></td>
+        <td class="tc">30%</td>
+      </tr>
+      <tr>
+        <td class="tc">18</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">로그 부등식·정수 개수</td>
+        <td class="tl">x²−x·log₃3n+log₃n≤0을 만족하는 정수 x가 3개가 되도록 하는 자연수 n의 개수</td>
+        <td class="tc"><span class="badge badge-killer">최상</span></td>
+        <td class="tc">22%</td>
+      </tr>
+      <tr>
+        <td class="tc">19</td>
+        <td class="tc"><span class="badge badge-obj">객관</span></td>
+        <td class="tl">삼각함수 최대최솟값</td>
+        <td class="tl">0≤x≤π에서 sin·cos 합성 함수의 최댓값 M, 최솟값 m → M×m 계산</td>
+        <td class="tc"><span class="badge badge-high">상</span></td>
+        <td class="tc">38%</td>
+      </tr>
+      <tr>
+        <td class="tc">서술1</td>
+        <td class="tc"><span class="badge badge-sub">서술</span></td>
+        <td class="tl">부채꼴 넓이</td>
+        <td class="tl">중심각 ²⁄₃ rad, 호의 길이 4인 부채꼴의 넓이를 구하시오. [3점]</td>
+        <td class="tc"><span class="badge badge-mid">중</span></td>
+        <td class="tc">65%</td>
+      </tr>
+      <tr>
+        <td class="tc">서술2</td>
+        <td class="tc"><span class="badge badge-sub">서술</span></td>
+        <td class="tl">로그 밑 변환 증명</td>
+        <td class="tl">log_a(b) = log_c(b)/log_c(a) 임을 증명하시오. [5점]</td>
+        <td class="tc"><span class="badge badge-midhigh">중상</span></td>
+        <td class="tc">45%</td>
+      </tr>
+      <tr>
+        <td class="tc">서술3</td>
+        <td class="tc"><span class="badge badge-sub">서술</span></td>
+        <td class="tl">지수·로그함수 최대최솟값</td>
+        <td class="tl">10≤x≤100에서 f(x)=2^(log₂x)²−4×2^(log₁₀₀x)의 최댓값 M, 최솟값 m → M+m [6점]</td>
+        <td class="tc"><span class="badge badge-high">상</span></td>
+        <td class="tc">30%</td>
+      </tr>
+      <tr>
+        <td class="tc">서술4</td>
+        <td class="tc"><span class="badge badge-sub">서술</span></td>
+        <td class="tl">삼각함수 부등식</td>
+        <td class="tl">모든 실수 x에 대해 x²+2xsinθ+1&gt;0이 성립하는 θ의 범위 (0≤θ&lt;2π) [6점]</td>
+        <td class="tc"><span class="badge badge-killer">최상</span></td>
+        <td class="tc">20%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══ PAGE 3 — 핵심 문항 심층 분석 ══ -->
+<div class="page">
+  <div class="page-badge">3/5</div>
+  <div class="section-title">4. 핵심 문항 심층 분석</div>
+  <p style="font-size:12px;color:var(--gray);margin-bottom:14px;">이번 시험에서 오답률이 가장 높고 등급을 가르는 결정적인 역할을 한 핵심 문항을 선정하여 상세히 분석합니다.</p>
+
+  <!-- 18번 -->
+  <div class="key-q">
+    <div class="key-q-header">
+      <span class="key-q-title">🔢 18번 &nbsp; 로그 부등식 — 정수 x의 개수 조건</span>
+      <span class="key-q-tag tag-killer">최상</span>
+    </div>
+    <div class="key-q-body">
+      <div class="key-q-left">
+        <div class="kq-subtitle">💡 핵심 포인트</div>
+        <p class="kq-text">x²−x·log₃3n+log₃n≤0을 만족하는 정수 x의 개수가 정확히 3이 되도록 하는 자연수 n의 개수를 구하는 문제입니다. A=log₃n으로 치환 후 이차부등식의 근 사이 정수 개수를 분석해야 합니다.</p>
+        <div class="kq-subtitle">🔎 왜 어려웠을까?</div>
+        <p class="kq-text">A=log₃n 치환 후 두 근 사이에 정수 x가 정확히 3개가 되는 A 범위를 설정하고, 이를 다시 n 범위로 역변환하는 이중 치환 과정이 복잡합니다.</p>
+        <div class="kq-subtitle">📚 필요 개념</div>
+        <ul class="bullet-list">
+          <li>이차부등식의 해 (두 근의 위치)</li>
+          <li>로그를 이용한 치환 (A = log₃n)</li>
+          <li>근과 계수의 관계 (근의 합·곱)</li>
+        </ul>
+      </div>
+      <div class="key-q-right">
+        <div class="kq-subtitle">🚀 단계별 공략 솔루션</div>
+        <ol class="step-list">
+          <li>A=log₃n으로 치환 → x²−x(A+1)+A≤0 변환</li>
+          <li>인수분해: (x−1)(x−A)≤0 → 두 근은 1과 A</li>
+          <li>두 근 사이 정수가 3개인 A의 범위 탐색</li>
+          <li>A=log₃n의 범위를 n 범위로 역변환 후 자연수 n 개수 산출</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <!-- 서술형3 -->
+  <div class="key-q">
+    <div class="key-q-header">
+      <span class="key-q-title">📐 서술형3 &nbsp; 지수·로그함수 합성 최대최솟값</span>
+      <span class="key-q-tag tag-high">상</span>
+    </div>
+    <div class="key-q-body">
+      <div class="key-q-left">
+        <div class="kq-subtitle">💡 핵심 포인트</div>
+        <p class="kq-text">10≤x≤100 범위에서 f(x)=2^(log₂x)²−4×2^(log₁₀₀x)의 최대·최솟값을 구하는 문제입니다. 로그를 치환하여 이차 형태로 변환하는 핵심 아이디어를 찾는 것이 관건입니다.</p>
+        <div class="kq-subtitle">🔎 왜 어려웠을까?</div>
+        <p class="kq-text">단순 대입으로는 풀 수 없고, t=log₂x로 치환하여 이차함수 형태로 바꾸는 과정과 x의 범위를 t의 범위로 변환하는 논리적 연결이 어렵습니다.</p>
+        <div class="kq-subtitle">📚 필요 개념</div>
+        <ul class="bullet-list">
+          <li>지수·로그함수 합성</li>
+          <li>치환을 통한 이차함수 변환</li>
+          <li>범위 변환 (x → t)</li>
+        </ul>
+      </div>
+      <div class="key-q-right">
+        <div class="kq-subtitle">🚀 단계별 공략 솔루션</div>
+        <ol class="step-list">
+          <li>t=log₂x 치환 → x:10~100이면 t 범위 설정</li>
+          <li>f를 t에 대한 이차식으로 변환</li>
+          <li>구간 내 최대·최솟값 탐색 (꼭짓점·경계값 비교)</li>
+          <li>M, m 도출 후 M+m 계산</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <!-- 서술형4 -->
+  <div class="key-q">
+    <div class="key-q-header">
+      <span class="key-q-title">🔺 서술형4 &nbsp; 삼각함수 부등식 — θ의 범위</span>
+      <span class="key-q-tag tag-killer">최상</span>
+    </div>
+    <div class="key-q-body">
+      <div class="key-q-left">
+        <div class="kq-subtitle">💡 핵심 포인트</div>
+        <p class="kq-text">모든 실수 x에 대해 x²+2x·sinθ+1&gt;0이 항상 성립하는 θ의 범위를 구하는 문제입니다. 이차부등식이 모든 실수에서 성립할 조건인 판별식 D&lt;0을 이용합니다.</p>
+        <div class="kq-subtitle">🔎 왜 어려웠을까?</div>
+        <p class="kq-text">이차부등식의 "항상 성립" 조건을 삼각함수와 연결하는 발상이 필요하며, D&lt;0에서 sinθ의 범위, 단위원에서 θ의 범위로 변환하는 과정이 복잡합니다.</p>
+        <div class="kq-subtitle">📚 필요 개념</div>
+        <ul class="bullet-list">
+          <li>이차부등식의 항상 성립 조건 (D&lt;0)</li>
+          <li>삼각함수 부등식 |sinθ|&lt;1</li>
+          <li>삼각함수 범위 → θ 범위 변환</li>
+        </ul>
+      </div>
+      <div class="key-q-right">
+        <div class="kq-subtitle">🚀 단계별 공략 솔루션</div>
+        <ol class="step-list">
+          <li>판별식 D=(2sinθ)²−4&lt;0 설정</li>
+          <li>4sin²θ&lt;4 → |sinθ|&lt;1</li>
+          <li>sinθ≠±1 → θ≠π/2, 3π/2 (0≤θ&lt;2π)</li>
+          <li>최종: 0≤θ&lt;π/2 또는 π/2&lt;θ&lt;3π/2 또는 3π/2&lt;θ&lt;2π</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PAGE 4 — 시험 분석 그래프 + 등급 분포 (레이아웃 개선) ══ -->
+<div class="page">
+  <div class="page-badge">4/5</div>
+  <div class="section-title">5. 시험 분석 그래프</div>
+
+  <!-- 차트 2개 나란히 -->
+  <div class="p4-charts">
+    <div class="chart-card">
+      <div class="chart-title">핵심 영역별 예상 정답률</div>
+      <div style="position:relative;height:180px;">
+        <canvas id="domainChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">난이도별 문항 분포</div>
+      <div style="position:relative;height:180px;">
+        <canvas id="diffChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 유형별 정답률 + 등급 막대 나란히 -->
+  <div class="p4-bottom">
+    <div>
+      <div class="p4-section-label">유형별 예상 정답률</div>
+      <div class="bar-row">
+        <div class="bar-label">선택형</div>
+        <div class="bar-track"><div class="bar-fill" style="width:58%;background:var(--blue);"><span class="bar-pct">58%</span></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">서술형</div>
+        <div class="bar-track"><div class="bar-fill" style="width:38%;background:var(--orange);"><span class="bar-pct">38%</span></div></div>
+      </div>
+      <p class="bar-note">객관식 전반부에 비해 후반부 객관식(14~18번)과 서술형에서 복합 개념과 계산 요구가 높아 정답률이 낮게 나타납니다.</p>
+    </div>
+    <div>
+      <div class="p4-section-label">등급별 예상 분포</div>
+      <div style="position:relative;height:130px;">
+        <canvas id="gradeChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">6. 예상 등급 분포 (고등학교 5등급제)</div>
+  <p style="font-size:11.5px;color:var(--gray);margin-bottom:10px;">※ 2028학년도 대입 개편안에 따른 5등급제 기준의 예상 등급컷입니다.</p>
+  <table class="grade-table">
+    <colgroup>
+      <col style="width:66px">
+      <col style="width:74px">
+      <col style="width:94px">
+      <col>
+    </colgroup>
+    <thead>
+      <tr><th>등급</th><th>누적 비율</th><th>예상 원점수 컷</th><th>해당 등급 특징 분석</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="grade-badge g1">1등급</span></td>
+        <td>상위 10%</td>
+        <td><span class="cut">88점 이상</span></td>
+        <td>서술형 고난도 포함 전 문항 완벽 해결 가능한 최상위권</td>
+      </tr>
+      <tr>
+        <td><span class="grade-badge g2">2등급</span></td>
+        <td>10%~34%</td>
+        <td><span class="cut">74점 이상</span></td>
+        <td>기본/실력 문항 모두 맞추고, "상" 난이도 서술형에서 부분 점수 획득 구간</td>
+      </tr>
+      <tr>
+        <td><span class="grade-badge g3">3등급</span></td>
+        <td>34%~66%</td>
+        <td><span class="cut">56점 이상</span></td>
+        <td>기본 개념은 갖추나, 서술형 고난도와 후반 객관식 일부에서 실점 발생</td>
+      </tr>
+      <tr>
+        <td><span class="grade-badge g4">4등급</span></td>
+        <td>66%~90%</td>
+        <td><span class="cut">38점 이상</span></td>
+        <td>기초 지수·로그 개념 위주로 득점. 삼각함수 및 함수 단원 보완 필요</td>
+      </tr>
+      <tr>
+        <td><span class="grade-badge g5">5등급</span></td>
+        <td>90%~100%</td>
+        <td><span class="cut">38점 미만</span></td>
+        <td>기초 개념 이해와 연산 훈련이 부족한 상태. 교과서부터 재학습 필요</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══ PAGE 5 — 등급별 전략 + 6주 플랜 + 조언 ══ -->
+<div class="page">
+  <div class="page-badge">5/5</div>
+  <div class="section-title">7. 등급별 맞춤 전략 (고등학교 5등급제)</div>
+  <div class="strat-grid">
+    <div class="strat-header">1~2등급 [최상위·상위권]</div>
+    <div class="strat-header">3~4등급 [중위권]</div>
+    <div class="strat-header">5등급 [기초·하위권]</div>
+    <div class="strat-body">
+      <ul class="bullet-list">
+        <li>서술형3·4 유형의 치환, 판별식 연결 공식을 반복 훈련합니다.</li>
+        <li>미지수 설정부터 최종 결론까지 감점 없이 작성하는 연습이 필요합니다.</li>
+        <li>12번·18번처럼 계산이 긴 문제에서 중간 부호와 지수 값의 실수를 차단해야 합니다.</li>
+      </ul>
+    </div>
+    <div class="strat-body">
+      <ul class="bullet-list">
+        <li>지수·로그 연산 공식과 그래프 성질을 바르게 풀 수 있도록 훈련합니다.</li>
+        <li>y=aˣ, y=logₐx의 기본 그래프를 직접 그리며 점근선과 교점을 찾는 연습을 합니다.</li>
+        <li>틀린 문제의 전형 유형을 파악하고 동 유형의 유사 문제를 3회 이상 풀어 체화합니다.</li>
+      </ul>
+    </div>
+    <div class="strat-body">
+      <ul class="bullet-list">
+        <li>교과서와 기본서의 예제·유제를 반복해서 풀어 연산의 두려움을 없애는 것이 1순위입니다.</li>
+        <li>거듭제곱근, 로그의 밑/진수 조건, 라디안(호도법) 개념을 백지에 적어 연습합니다.</li>
+        <li>전반부 기본 개념 문항에 시간 낭비 없이 빠르게 답을 내는 것을 목표로 합니다.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 6주 단기 집중 플랜 -->
+  <div class="section-title">8. 단기 6주 집중 학습 플랜</div>
+  <table class="plan-table">
+    <colgroup>
+      <col style="width:90px">
+      <col style="width:130px">
+      <col>
+      <col style="width:160px">
+    </colgroup>
+    <thead>
+      <tr>
+        <th style="background:var(--blue);color:#fff;text-align:center;">주차</th>
+        <th style="background:var(--blue);color:#fff;">학습 목표</th>
+        <th style="background:var(--blue);color:#fff;">핵심 학습 내용</th>
+        <th style="background:var(--blue);color:#fff;">이번 시험 연결 문항</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:center;"><span class="week-badge">1주차</span></td>
+        <td>
+          <div class="week-goal">지수·로그 연산 완성</div>
+        </td>
+        <td class="week-items">
+          • 지수법칙과 로그의 기본 성질 집중 복습<br>
+          • 거듭제곱근 정의와 실근 개수 판별<br>
+          • 상용로그 활용 계산 (log 2, log 3 암기)
+        </td>
+        <td style="font-size:11px;color:var(--blue-dark);font-weight:600;">1번, 2번, 10번, 11번</td>
+      </tr>
+      <tr>
+        <td style="text-align:center;"><span class="week-badge">2주차</span></td>
+        <td>
+          <div class="week-goal">지수·로그함수 그래프</div>
+        </td>
+        <td class="week-items">
+          • y=aˣ, y=logₐx 기본 그래프 개형 완벽 이해<br>
+          • 평행이동·대칭이동 적용 후 그래프 변환<br>
+          • 3사분면 통과 조건, 수직점근선 파악
+        </td>
+        <td style="font-size:11px;color:var(--blue-dark);font-weight:600;">5번, 7번, 15번, 17번</td>
+      </tr>
+      <tr>
+        <td style="text-align:center;"><span class="week-badge">3주차</span></td>
+        <td>
+          <div class="week-goal">삼각함수 기초·동경</div>
+        </td>
+        <td class="week-items">
+          • 호도법과 부채꼴 넓이 공식 완벽 암기<br>
+          • 동경 개념과 사분면 각도 판별 훈련<br>
+          • sin·cos·tan 값과 부호 사분면 정리
+        </td>
+        <td style="font-size:11px;color:var(--blue-dark);font-weight:600;">3번, 6번, 서술1</td>
+      </tr>
+      <tr>
+        <td style="text-align:center;"><span class="week-badge">4주차</span></td>
+        <td>
+          <div class="week-goal">삼각함수 방정식·부등식</div>
+        </td>
+        <td class="week-items">
+          • 삼각 방정식 풀이 (일반해 → 범위 제한)<br>
+          • 삼각 부등식과 단위원 활용 범위 설정<br>
+          • 합성 삼각함수의 최대·최솟값 구하기
+        </td>
+        <td style="font-size:11px;color:var(--blue-dark);font-weight:600;">13번, 16번, 19번, 서술4</td>
+      </tr>
+      <tr>
+        <td style="text-align:center;"><span class="week-badge">5주차</span></td>
+        <td>
+          <div class="week-goal">복합·고난도 문항 공략</div>
+        </td>
+        <td class="week-items">
+          • 역함수·합성함수 연계 문제 집중 훈련<br>
+          • 지수방정식의 치환(t=5ˣ) 기법 반복<br>
+          • 로그 부등식 + 정수 개수 조건 유형 연습
+        </td>
+        <td style="font-size:11px;color:var(--blue-dark);font-weight:600;">9번, 12번, 14번, 18번</td>
+      </tr>
+      <tr>
+        <td style="text-align:center;"><span class="week-badge">6주차</span></td>
+        <td>
+          <div class="week-goal">서술형 완성 + 실전 모의</div>
+        </td>
+        <td class="week-items">
+          • 서술형3·4 유형 치환·판별식 반복 풀이<br>
+          • 실제 시험 시간(50분) 내 OMR 마킹 모의 훈련<br>
+          • 오답 노트 정리 및 핵심 공식 최종 점검
+        </td>
+        <td style="font-size:11px;color:var(--blue-dark);font-weight:600;">서술형 전체, 취약 문항 재풀이</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">9. 학부모님께 드리는 제언</div>
+  <div class="advice-box">
+    <div class="advice-title">💡 이번 시험, 점수 이면의 '과정'을 칭찬해주세요.</div>
+    <p>이번 대수 시험은 단순한 연산 능력을 넘어, 함수의 그래프를 직접 그리고 기하학적인 대칭성과 교점의 의미를 추론해야 하는 매우 까다로운 시험이었습니다. 복합적인 시각적 사고를 요구했으므로 체감 난이도가 상당히 높았을 것입니다. 단순히 몇 점을 맞았느냐보다는, 어느 단원에서 개념이 흔들렸는지, 시간이 부족했는지 함께 분석하는 과정이 필요합니다.</p>
+  </div>
+  <div class="summary-box">
+    <div class="summary-title">📋 종합 총평</div>
+    <p>이번 1학기 중간고사는 대수 과목의 본질인 '식의 계산'과 '함수 그래프의 해석' 능력을 심도 있게 평가하는 수준 높은 시험이었습니다. 전체적으로 중상~상 난이도의 문항이 절반 이상 배치되어 변별력이 매우 컸습니다. 특히 역함수 관계를 직선과 연결한 17번, 로그 부등식과 정수 개수 조건을 결합한 18번, 삼각함수 부등식 서술형4는 수학적 직관과 논리적 식 전개 능력을 동시에 요구했습니다.</p>
+    <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">
+      <span style="background:rgba(96,165,250,0.2);color:#93C5FD;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;">#고난도_그래프추론</span>
+      <span style="background:rgba(96,165,250,0.2);color:#93C5FD;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;">#역함수_대칭성</span>
+      <span style="background:rgba(96,165,250,0.2);color:#93C5FD;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;">#시간관리필수</span>
+      <span style="background:rgba(96,165,250,0.2);color:#93C5FD;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;">#수능형기출대비</span>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+new Chart(document.getElementById('domainChart'),{
+  type:'bar',
+  data:{
+    labels:['지수와 로그','지수·로그함수','삼각함수','실생활·추론'],
+    datasets:[{data:[72,48,55,40],backgroundColor:['#2563EB','#F97316','#16A34A','#9333EA'],borderRadius:4}]
+  },
+  options:{
+    indexAxis:'y',responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{max:100,grid:{color:'#F3F4F6'},ticks:{callback:v=>v+'%',font:{size:10}}},
+      y:{grid:{display:false},ticks:{font:{size:10},color:'#374151'}}
+    }
+  }
+});
+
+new Chart(document.getElementById('diffChart'),{
+  type:'doughnut',
+  data:{
+    labels:['하 (9%)','중 (39%)','상 (52%)'],
+    datasets:[{data:[9,39,52],backgroundColor:['#86EFAC','#FCD34D','#F87171'],borderWidth:2,borderColor:'#fff'}]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{position:'bottom',labels:{font:{size:10},padding:8}}}
+  }
+});
+
+new Chart(document.getElementById('gradeChart'),{
+  type:'bar',
+  data:{
+    labels:['1등급','2등급','3등급','4등급','5등급'],
+    datasets:[{data:[10,24,32,24,10],backgroundColor:['#1E3A8A','#2563EB','#60A5FA','#93C5FD','#BFDBFE'],borderRadius:4}]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      y:{max:40,ticks:{callback:v=>v+'%',font:{size:9}},grid:{color:'#F3F4F6'}},
+      x:{grid:{display:false},ticks:{font:{size:10}}}
+    }
+  }
+});
+</script>
+</body>
+</html>
