@@ -3821,7 +3821,13 @@ def _render_ocr_class_student_picker(
                         fname = fname.replace(" ", "_").replace("/", "-")
                         fpath = report_dir / fname
                         fpath.write_text(html_content, encoding="utf-8")
-                        generated.append({"name": sname, "fname": fname, "html": html_content})
+                        generated.append({
+                            "name": sname,
+                            "fname": fname,
+                            "html": html_content,
+                            "student_id": sid,
+                            "parent_phone": str(profile.get("parent_phone", "") or ""),
+                        })
                     except Exception as e:
                         st.error(f"{sname} 보고서 생성 실패: {e}")
                     progress2.progress((i + 1) / total2, text=f"보고서 생성 중... ({i+1}/{total2}명)")
@@ -3839,6 +3845,59 @@ def _render_ocr_class_student_picker(
                         mime="text/html",
                         key=f"batch_dl_{rep['fname']}",
                     )
+
+                # ⑥ 학부모 문자(SMS) 일괄 발송
+                st.markdown("---")
+                st.markdown("##### 📱 학부모에게 문자 일괄 발송")
+                batch_reports = st.session_state["batch_generated_reports"]
+                _n_no_phone = sum(1 for r in batch_reports if not r.get("parent_phone"))
+                if _n_no_phone:
+                    st.warning(
+                        f"연락처가 등록되지 않은 학생이 {_n_no_phone}명 있습니다. "
+                        "해당 학생은 발송에서 제외됩니다. (학생 명부에서 연락처를 등록하세요)"
+                    )
+                batch_report_type = st.selectbox(
+                    "보고서 종류 (문자 문구에 표시됩니다)",
+                    ["단원평가 성적표", "월말평가 성적표", "수시평가 성적표", "성적표"],
+                    key="batch_sms_report_type",
+                )
+                if st.button(
+                    f"📤 전원 문자 발송 ({len(batch_reports) - _n_no_phone}명)",
+                    type="primary",
+                    use_container_width=True,
+                    key="batch_sms_send_btn",
+                ):
+                    from database import save_report_link
+                    from sms_sender import send_report_sms
+
+                    progress3 = st.progress(0, text="문자 발송 중...")
+                    ok_count = 0
+                    fail_msgs = []
+                    targets = [r for r in batch_reports if r.get("parent_phone")]
+                    for i, rep in enumerate(targets):
+                        try:
+                            token = save_report_link(rep["html"], student_name=rep["name"])
+                            url = f"{APP_BASE_URL}/?report={token}"
+                            result = send_report_sms(
+                                phone=rep["parent_phone"],
+                                student_name=rep["name"],
+                                report_url=url,
+                                report_type=batch_report_type,
+                            )
+                            if result["success"]:
+                                ok_count += 1
+                            else:
+                                fail_msgs.append(f"{rep['name']}: {result['message']}")
+                        except Exception as e:
+                            fail_msgs.append(f"{rep['name']}: {e}")
+                        progress3.progress(
+                            (i + 1) / len(targets),
+                            text=f"문자 발송 중... ({i+1}/{len(targets)}명)",
+                        )
+                    progress3.empty()
+                    st.success(f"✅ 문자 발송 완료 — 성공 {ok_count}명 / 대상 {len(targets)}명")
+                    for msg in fail_msgs:
+                        st.error(msg)
 
         return True
 
