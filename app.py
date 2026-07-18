@@ -8501,7 +8501,15 @@ def _nav_teacher_selectbox() -> None:
         if teachers_df.empty:
             st.info("등록된 강사가 없습니다.")
             return
-        teacher_opts = {r["name"]: int(r["id"]) for _, r in teachers_df.iterrows()}
+        # "테스트 강사"는 로그인 목록에서 숨김 (데이터 유지용 내부 계정)
+        teacher_opts = {
+            r["name"]: int(r["id"])
+            for _, r in teachers_df.iterrows()
+            if r["name"] != TEST_CLASS_NAME and r["name"] != "테스트 강사"
+        }
+        if not teacher_opts:
+            st.info("등록된 강사가 없습니다.")
+            return
         sel_name = st.selectbox("이름 선택", list(teacher_opts.keys()), key="nav_login_name")
         pw = st.number_input("비밀번호 (4자리)", min_value=0, max_value=9999,
                              step=1, format="%04d", key="nav_login_pw")
