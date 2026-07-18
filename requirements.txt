@@ -11,3 +11,5 @@ plotly
 seaborn
 google-cloud-vision
 psycopg2-binary
+solapi
+requests

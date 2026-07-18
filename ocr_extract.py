@@ -1158,7 +1158,7 @@ def refine_and_analyze_with_gpt(
     try:
         response = client.chat.completions.create(
             model=model,
-            max_tokens=8192,
+            max_tokens=16000,  # 문항 많은 시험지에서 JSON 잘림 방지 (gpt-4o 최대 16384)
             temperature=0,
             messages=[
                 {"role": "system", "content": COMBINED_REFINE_ANALYZE_PROMPT},
@@ -1182,7 +1182,27 @@ def refine_and_analyze_with_gpt(
     try:
         result = _json.loads(raw_resp)
     except Exception:
-        return raw_pages, []
+        # JSON 파싱 실패 → 문항 분석(questions 배열)만 정규식으로 별도 추출 시도
+        gpt_questions_fallback: list[dict] = []
+        try:
+            m = re.search(r'"questions"\s*:\s*\[', raw_resp)
+            if m:
+                seg = raw_resp[m.end():]
+                for qm in re.finditer(r"\{[^{}]*\}", seg):
+                    try:
+                        gpt_questions_fallback.append(_json.loads(qm.group(0)))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        try:
+            st.session_state["_topic_debug_log"] = [
+                "⚠️ GPT 통합분석 JSON 파싱 실패 — "
+                f"부분 복구로 문항 {len(gpt_questions_fallback)}개 추출",
+            ]
+        except Exception:
+            pass
+        return raw_pages, gpt_questions_fallback
 
     refined_text = result.get("refined_text", full_text)
     gpt_questions = result.get("questions", [])
@@ -1234,7 +1254,7 @@ def analyze_topics_with_gpt(
             client = _build_openai_client(api_key)
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=8192,
+                max_tokens=16000,
                 temperature=0,
                 messages=[
                     {"role": "system", "content": TOPIC_ANALYSIS_SYSTEM_PROMPT},

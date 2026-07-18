@@ -1264,6 +1264,9 @@ DEFAULT_KAKAO_MESSAGE = (
     "학생의 오답 노트 리포트입니다. 확인 부탁드립니다."
 )
 
+# Streamlit Cloud에 배포된 앱의 실제 주소. 문자(SMS)로 보내는 보고서 링크에 사용됩니다.
+APP_BASE_URL = "https://academy-manager-v2-36428o4i69sqpda2yc5xpg.streamlit.app"
+
 
 def _public_base_url() -> str:
     """Return the externally-reachable base URL of this Streamlit app.
@@ -3968,9 +3971,18 @@ def _parent_report_preview_dialog(
                 fname = fname.replace(" ", "_").replace("/", "-")
                 fpath = report_dir / fname
                 fpath.write_text(html_content, encoding="utf-8")
+
+                # DB에 보고서를 저장하고, 학부모에게 문자로 보낼 링크를 만듭니다.
+                from database import save_report_link
+                report_token = save_report_link(html_content, student_name=student_name)
+                report_url = f"{APP_BASE_URL}/?report={report_token}"
+
                 st.session_state["claude_report_html"] = html_content
                 st.session_state["claude_report_fname"] = fname
-                st.success("보고서 생성 완료! 아래에서 다운로드하세요.")
+                st.session_state["claude_report_url"] = report_url
+                st.session_state["claude_report_student_id"] = student_id
+                st.session_state["claude_report_student_name"] = student_name
+                st.success("보고서 생성 완료! 아래에서 다운로드하거나 문자로 보내세요.")
                 st.download_button(
                     label="⬇️ HTML 보고서 다운로드",
                     data=html_content.encode("utf-8"),
@@ -3982,6 +3994,48 @@ def _parent_report_preview_dialog(
                 components.html(html_content, height=700, scrolling=True)
             except Exception as exc:
                 st.error(f"보고서 생성 실패: {exc}")
+
+    # 생성된 보고서가 있으면 문자(SMS) 발송 UI를 보여줍니다.
+    if st.session_state.get("claude_report_url") and st.session_state.get(
+        "claude_report_student_id"
+    ) == student_id:
+        st.markdown("---")
+        st.markdown("##### 📱 학부모에게 문자로 보내기")
+        st.caption(f"링크: {st.session_state['claude_report_url']}")
+
+        from sms_sender import send_report_sms
+
+        sms_col1, sms_col2 = st.columns([2, 1])
+        with sms_col1:
+            report_type_choice = st.selectbox(
+                "보고서 종류",
+                ["단원평가 성적표", "월말평가 성적표", "수시평가 성적표", "성적표"],
+                key="rpt_sms_report_type",
+            )
+        with sms_col2:
+            default_phone = profile.get("parent_phone", "") or ""
+            sms_phone = st.text_input(
+                "학부모 연락처",
+                value=default_phone,
+                placeholder="010-0000-0000",
+                key="rpt_sms_phone",
+            )
+
+        if st.button("📤 문자 발송", type="primary", key="rpt_sms_send_btn"):
+            if not sms_phone.strip():
+                st.error("학부모 연락처를 입력해 주세요.")
+            else:
+                with st.spinner("문자 발송 중..."):
+                    result = send_report_sms(
+                        phone=sms_phone,
+                        student_name=st.session_state["claude_report_student_name"],
+                        report_url=st.session_state["claude_report_url"],
+                        report_type=report_type_choice,
+                    )
+                if result["success"]:
+                    st.success(result["message"])
+                else:
+                    st.error(result["message"])
 
 
 def _render_db_pdf_report_buttons() -> None:
@@ -7721,6 +7775,10 @@ def page_ai_test_analysis() -> None:
                             parsed,
                             _preanalyzed_questions=gpt_questions,
                         )
+                    else:
+                        # 통합 분석 실패(JSON 잘림 등) → 문항 분석만 GPT 재시도
+                        with st.spinner("문항 분석 재시도 중…"):
+                            parsed = analyze_topics_with_gpt(parsed)
                     st.session_state["ocr_parsed_questions"] = parsed
                     st.session_state.pop("ocr_questions_editor", None)
                     st.session_state.pop("ocr_selected_collected", None)
@@ -8815,6 +8873,31 @@ def page_attendance_sheet() -> None:
             st.error(f"PDF 생성 실패: {e}")
 
 
+def _render_parent_report_view(token: str) -> None:
+    """학부모용 보고서 전용 페이지. 로그인·사이드바·메뉴 없이 보고서만 표시합니다."""
+    from database import get_report_link
+
+    st.markdown(
+        """
+        <style>
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        div[data-testid="stToolbar"] {visibility: hidden;}
+        div[data-testid="stDecoration"] {visibility: hidden;}
+        div[data-testid="stStatusWidget"] {visibility: hidden;}
+        .block-container {padding-top: 0 !important; padding-bottom: 0 !important; max-width: 100% !important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    html_content = get_report_link(token)
+    if not html_content:
+        st.error("보고서를 찾을 수 없거나 만료되었습니다. 학원으로 문의해 주세요.")
+        return
+    components.html(html_content, height=2600, scrolling=True)
+
+
 def main():
     st.set_page_config(
         page_title="압구정 페르마 수학 · 교육 관리 대시보드",
@@ -8822,6 +8905,13 @@ def main():
         initial_sidebar_state="collapsed",
     )
     init_db()
+
+    # 학부모용 보고서 링크 (?report=토큰) — 로그인 없이 보고서만 바로 표시
+    _report_token = st.query_params.get("report")
+    if _report_token:
+        _render_parent_report_view(_report_token)
+        return
+
     sync_all_csvs()
     _init_app_settings_session()
     _register_korean_font()

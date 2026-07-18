@@ -840,7 +840,8 @@ def get_student_profile(student_id: int) -> dict[str, Any] | None:
         row = conn.execute(
             """
             SELECT s.id, s.name, s.class_id, COALESCE(c.name, '—') AS class_name,
-                   COALESCE(c.description, '') AS class_description
+                   COALESCE(c.description, '') AS class_description,
+                   COALESCE(s.parent_phone, '') AS parent_phone
             FROM students s
             LEFT JOIN classes c ON c.id = s.class_id
             WHERE s.id = ?
@@ -857,7 +858,64 @@ def get_student_profile(student_id: int) -> dict[str, Any] | None:
         "class_id": row[2],
         "class_name": str(row[3]),
         "class_description": str(row[4]),
+        "parent_phone": str(row[5] or ""),
     }
+
+
+def ensure_report_links_table(conn: sqlite3.Connection | None = None) -> None:
+    """학부모에게 문자로 보내는 보고서 링크 저장용 테이블."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS report_links (
+                token        TEXT PRIMARY KEY,
+                html_content TEXT NOT NULL,
+                student_name TEXT DEFAULT '',
+                created_at   TEXT NOT NULL
+            )
+            """
+        )
+        if own_conn:
+            conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def save_report_link(html_content: str, student_name: str = "") -> str:
+    """보고서 HTML을 DB에 저장하고, 조회용 토큰(짧은 문자열)을 반환합니다."""
+    import uuid
+
+    token = uuid.uuid4().hex[:16]
+    conn = get_conn()
+    try:
+        ensure_report_links_table(conn)
+        conn.execute(
+            """INSERT INTO report_links (token, html_content, student_name, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (token, html_content, student_name, datetime.now().strftime("%Y-%m-%d %H:%M")),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return token
+
+
+def get_report_link(token: str) -> str | None:
+    """토큰으로 저장된 보고서 HTML을 가져옵니다. 없으면 None."""
+    conn = get_conn()
+    try:
+        ensure_report_links_table(conn)
+        row = conn.execute(
+            "SELECT html_content FROM report_links WHERE token = ?",
+            (token,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return str(row[0]) if row else None
 
 
 def get_student_test_entry(
