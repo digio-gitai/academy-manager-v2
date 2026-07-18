@@ -8971,6 +8971,15 @@ def main():
         _render_parent_report_view(_report_token)
         return
 
+    # 로그인 게이트 — 로그인 전에는 관리 화면에 접근 불가 (학부모 접근 차단)
+    if _current_teacher_id() is None:
+        _l, _c, _r = st.columns([1, 1.2, 1])
+        with _c:
+            st.markdown("## 🔐 강사 로그인")
+            st.caption("관리 프로그램은 로그인 후 사용할 수 있습니다.")
+            _nav_teacher_selectbox()
+        return
+
     sync_all_csvs()
     _init_app_settings_session()
     _register_korean_font()
