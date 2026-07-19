@@ -53,19 +53,42 @@ def _get_service():
     return _message_service
 
 
+def _try_tinyurl(long_url: str) -> str | None:
+    res = requests.get(
+        "https://tinyurl.com/api-create.php",
+        params={"url": long_url},
+        timeout=8,
+    )
+    if res.status_code == 200 and res.text.startswith("http"):
+        return res.text.strip()
+    return None
+
+
+def _try_isgd(long_url: str) -> str | None:
+    res = requests.get(
+        "https://is.gd/create.php",
+        params={"format": "simple", "url": long_url},
+        timeout=8,
+    )
+    if res.status_code == 200 and res.text.startswith("http"):
+        return res.text.strip()
+    return None
+
+
 def shorten_url(long_url: str) -> str:
-    """TinyURL로 링크를 짧게 줄여줍니다 (문자 글자수를 아끼기 위함).
-    실패하면 원래 링크를 그대로 반환합니다."""
-    try:
-        res = requests.get(
-            "https://tinyurl.com/api-create.php",
-            params={"url": long_url},
-            timeout=5,
-        )
-        if res.status_code == 200 and res.text.startswith("http"):
-            return res.text.strip()
-    except Exception:
-        pass
+    """링크를 짧게 줄여줍니다 (단문 90바이트 유지용).
+
+    TinyURL → is.gd 순서로 시도하고, 전부 실패하면 한 번 더 재시도.
+    그래도 실패하면 원래 링크를 반환합니다 (이 경우 장문 LMS로 발송될 수 있음).
+    """
+    for _attempt in range(2):          # 전체 2회 재시도
+        for provider in (_try_tinyurl, _try_isgd):
+            try:
+                short = provider(long_url)
+                if short:
+                    return short
+            except Exception:
+                pass
     return long_url
 
 
@@ -98,6 +121,7 @@ def send_report_sms(
         return {"success": False, "message": f"연락처가 올바르지 않습니다: {phone!r}"}
 
     short_url = shorten_url(report_url)
+    _shorten_failed = short_url == report_url
     text = (
         f"{SMS_GREETING}\n"
         f"{student_name} 학생 {report_type} 도착\n"
@@ -113,9 +137,10 @@ def send_report_sms(
     try:
         service = _get_service()
         response = service.send(message)
+        _note = " ⚠️ 링크 단축 실패 → 장문(LMS)으로 발송됨" if _shorten_failed else ""
         return {
             "success": True,
-            "message": f"발송 완료 (성공 {response.group_info.count.registered_success}건)",
+            "message": f"발송 완료 (성공 {response.group_info.count.registered_success}건){_note}",
         }
     except Exception as e:
         return {"success": False, "message": f"발송 실패: {str(e)}"}
