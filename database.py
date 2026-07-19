@@ -893,6 +893,18 @@ def ensure_report_links_table(conn: sqlite3.Connection | None = None) -> None:
             )
             """
         )
+        # 마이그레이션: 과거 보고서 탭용 컬럼 추가 (학생ID·시험유형·시험일·시험명)
+        rl_cols = [row[1] for row in conn.execute(
+            "SELECT ordinal_position, column_name FROM information_schema.columns WHERE table_name = 'report_links'"
+        ).fetchall()]
+        if "student_id" not in rl_cols:
+            conn.execute("ALTER TABLE report_links ADD COLUMN student_id INTEGER")
+        if "test_type" not in rl_cols:
+            conn.execute("ALTER TABLE report_links ADD COLUMN test_type TEXT DEFAULT ''")
+        if "test_date" not in rl_cols:
+            conn.execute("ALTER TABLE report_links ADD COLUMN test_date TEXT DEFAULT ''")
+        if "test_name" not in rl_cols:
+            conn.execute("ALTER TABLE report_links ADD COLUMN test_name TEXT DEFAULT ''")
         if own_conn:
             conn.commit()
         _ENSURED_ONCE.add("report_links")
@@ -901,8 +913,19 @@ def ensure_report_links_table(conn: sqlite3.Connection | None = None) -> None:
             conn.close()
 
 
-def save_report_link(html_content: str, student_name: str = "") -> str:
-    """보고서 HTML을 DB에 저장하고, 조회용 토큰(짧은 문자열)을 반환합니다."""
+def save_report_link(
+    html_content: str,
+    student_name: str = "",
+    student_id: int | None = None,
+    test_type: str = "",
+    test_date: str = "",
+    test_name: str = "",
+) -> str:
+    """보고서 HTML을 DB에 저장하고, 조회용 토큰(짧은 문자열)을 반환합니다.
+
+    student_id·test_type을 함께 저장하면 학부모 열람 페이지에서
+    같은 학생의 다른 보고서를 시험유형별 탭으로 볼 수 있습니다.
+    """
     import uuid
 
     token = uuid.uuid4().hex[:16]
@@ -910,9 +933,19 @@ def save_report_link(html_content: str, student_name: str = "") -> str:
     try:
         ensure_report_links_table(conn)
         conn.execute(
-            """INSERT INTO report_links (token, html_content, student_name, created_at)
-               VALUES (?, ?, ?, ?)""",
-            (token, html_content, student_name, datetime.now().strftime("%Y-%m-%d %H:%M")),
+            """INSERT INTO report_links
+               (token, html_content, student_name, created_at, student_id, test_type, test_date, test_name)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                token,
+                html_content,
+                student_name,
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                int(student_id) if student_id is not None else None,
+                (test_type or "").strip(),
+                (test_date or "").strip(),
+                (test_name or "").strip(),
+            ),
         )
         conn.commit()
     finally:
@@ -932,6 +965,122 @@ def get_report_link(token: str) -> str | None:
     finally:
         conn.close()
     return str(row[0]) if row else None
+
+
+def get_report_link_meta(token: str) -> dict[str, Any] | None:
+    """토큰으로 보고서 HTML + 메타정보(학생ID·시험유형 등)를 가져옵니다."""
+    conn = get_conn()
+    try:
+        ensure_report_links_table(conn)
+        row = conn.execute(
+            """SELECT html_content, student_id, test_type, test_date, test_name, student_name, created_at
+               FROM report_links WHERE token = ?""",
+            (token,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {
+        "html_content": str(row[0]),
+        "student_id": int(row[1]) if row[1] is not None else None,
+        "test_type": str(row[2] or ""),
+        "test_date": str(row[3] or ""),
+        "test_name": str(row[4] or ""),
+        "student_name": str(row[5] or ""),
+        "created_at": str(row[6] or ""),
+    }
+
+
+def get_student_report_links(student_id: int) -> list[dict[str, Any]]:
+    """학생의 모든 보고서 링크 목록(HTML 제외)을 최신순으로 반환합니다.
+
+    학부모 열람 페이지의 시험유형 탭·날짜 선택에 사용됩니다.
+    """
+    conn = get_conn()
+    try:
+        ensure_report_links_table(conn)
+        rows = conn.execute(
+            """SELECT token, test_type, test_date, test_name, created_at
+               FROM report_links
+               WHERE student_id = ?
+               ORDER BY created_at DESC""",
+            (int(student_id),),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        {
+            "token": str(r[0]),
+            "test_type": str(r[1] or ""),
+            "test_date": str(r[2] or ""),
+            "test_name": str(r[3] or ""),
+            "created_at": str(r[4] or ""),
+        }
+        for r in rows
+    ]
+
+
+def get_student_month_topic_stats(student_id: int, year_month: str) -> list[dict[str, Any]]:
+    """학생의 특정 달(YYYY-MM) 전체 시험 기준 단원별 누적 정답률 집계.
+
+    반환: [{"topic": 단원명, "correct": 맞은 문항 수, "total": 전체 문항 수}, ...]
+    프리미엄(월간) 보고서의 '단원별 누적 정답률' 섹션에 사용됩니다.
+    """
+    ensure_ai_test_tables()
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT sr.test_id, sr.wrong_numbers
+               FROM student_results sr
+               JOIN tests t ON t.test_id = sr.test_id
+               WHERE sr.student_id = ? AND t.date LIKE ?""",
+            (int(student_id), f"{year_month}%"),
+        ).fetchall()
+        stats: dict[str, dict[str, int]] = {}
+        for test_id, wrong_json in rows:
+            try:
+                wrongs = {int(x) for x in json.loads(wrong_json or "[]")}
+            except Exception:
+                wrongs = set()
+            qrows = conn.execute(
+                "SELECT question_number, topic FROM test_questions WHERE test_id = ?",
+                (int(test_id),),
+            ).fetchall()
+            for qnum, topic in qrows:
+                tp = (str(topic or "")).strip() or "미분류"
+                s = stats.setdefault(tp, {"correct": 0, "total": 0})
+                s["total"] += 1
+                if int(qnum) not in wrongs:
+                    s["correct"] += 1
+    finally:
+        conn.close()
+    return [
+        {"topic": t, "correct": v["correct"], "total": v["total"]}
+        for t, v in stats.items()
+    ]
+
+
+def prev_year_month(year_month: str) -> str:
+    """'2026-07' → '2026-06' (1월이면 전년 12월)"""
+    try:
+        y, m = int(year_month[:4]), int(year_month[5:7])
+    except Exception:
+        return ""
+    return f"{y - 1}-12" if m == 1 else f"{y}-{m - 1:02d}"
+
+
+def get_test_type(test_id: int) -> str:
+    """tests 테이블에서 시험 유형(일일테스트/주간테스트/...)을 가져옵니다."""
+    ensure_ai_test_tables()
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT test_type FROM tests WHERE test_id = ?", (int(test_id),)
+        ).fetchone()
+    finally:
+        conn.close()
+    return str(row[0]) if row and row[0] else "일일테스트"
 
 
 def get_student_test_entry(

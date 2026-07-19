@@ -3792,6 +3792,22 @@ def _render_ocr_class_student_picker(
             with col_opt3:
                 batch_show_chart = st.checkbox("누적 그래프 포함", value=True, key="batch_show_chart")
 
+            # 보고서 형식 (시험 유형에 따라 자동, 필요 시 수동 변경)
+            from database import get_test_type as _bgt
+            from claude_report import report_mode_for as _brmf
+            _batch_cat = _bgt(int(saved_test_id))
+            _batch_auto = _brmf(_batch_cat)
+            _bml = {"lite": "라이트(간단)", "standard": "표준", "premium": "프리미엄(월간 누적)"}
+            _batch_mode_choice = st.selectbox(
+                "보고서 형식",
+                ["자동", "라이트(간단)", "표준", "프리미엄(월간 누적)"],
+                key="batch_report_mode",
+                help=f"자동: 이 시험은 '{_batch_cat}' → {_bml[_batch_auto]} 보고서로 생성됩니다.",
+            )
+            _bmr = {"라이트(간단)": "lite", "표준": "standard", "프리미엄(월간 누적)": "premium"}
+            batch_report_mode = _bmr.get(_batch_mode_choice, _batch_auto)
+            st.caption(f"시험 유형: **{_batch_cat}** → 전원 **{_bml[batch_report_mode]}** 보고서로 생성됩니다.")
+
             gen_reports_btn = st.button(
                 "🎨 전원 보고서 일괄 생성",
                 type="primary",
@@ -3811,6 +3827,7 @@ def _render_ocr_class_student_picker(
 
                 # 시험지 문항정보는 전원 공통 — 1번만 조회
                 _q_details = get_test_questions(saved_test_id)
+                _test_cat = _batch_cat
 
                 # 1) DB 조회·코멘트 수집은 메인에서 미리
                 jobs2 = []
@@ -3824,7 +3841,7 @@ def _render_ocr_class_student_picker(
                         st.warning(f"{sname} — DB 기록 없음, 건너뜁니다.")
                         continue
                     comment = st.session_state.get(f"batch_comment_{sid}", "").strip() or "선생님 코멘트를 입력해 주세요."
-                    jobs2.append({
+                    _job = {
                         "sid": sid,
                         "sname": sname,
                         "cname": cname,
@@ -3834,7 +3851,24 @@ def _render_ocr_class_student_picker(
                         "history": get_student_test_score_history(sid),
                         "record": record,
                         "comment": comment,
-                    })
+                        "monthly_topic_stats": None,
+                        "prev_month_avg": None,
+                    }
+                    # 프리미엄이면 이번 달 누적 데이터 준비 (스레드 밖에서 미리 조회)
+                    if batch_report_mode == "premium":
+                        from database import get_student_month_topic_stats, prev_year_month
+                        _ym = str(record["date"])[:7]
+                        _job["monthly_topic_stats"] = get_student_month_topic_stats(int(sid), _ym)
+                        _pm = prev_year_month(_ym)
+                        _prev_scores = [
+                            h["score"] for h in _job["history"]
+                            if str(h.get("date", ""))[:7] == _pm
+                        ]
+                        _job["prev_month_avg"] = (
+                            round(sum(_prev_scores) / len(_prev_scores), 1)
+                            if _prev_scores else None
+                        )
+                    jobs2.append(_job)
 
                 def _gen_report(job):
                     record = job["record"]
@@ -3855,6 +3889,10 @@ def _render_ocr_class_student_picker(
                         show_class_rank=batch_show_rank,
                         show_history_chart=batch_show_chart,
                         test_type="일반",
+                        test_category=_test_cat,
+                        report_mode=batch_report_mode,
+                        monthly_topic_stats=job.get("monthly_topic_stats"),
+                        prev_month_avg=job.get("prev_month_avg"),
                         question_details=_q_details,
                     )
                     return job, html_content
@@ -3880,6 +3918,9 @@ def _render_ocr_class_student_picker(
                                 "html": html_content,
                                 "student_id": job["sid"],
                                 "parent_phone": job["parent_phone"],
+                                "test_type": _test_cat,
+                                "test_date": str(record["date"]),
+                                "test_name": str(record["test_name"]),
                             })
                         except Exception as e:
                             st.error(f"{j['sname']} 보고서 생성 실패: {e}")
@@ -3916,10 +3957,22 @@ def _render_ocr_class_student_picker(
                         f"연락처가 등록되지 않은 학생이 {_n_no_phone}명 있습니다. "
                         "해당 학생은 발송에서 제외됩니다. (학생 명부에서 연락처를 등록하세요)"
                     )
+                # 문자 문구는 시험 유형에 맞춰 자동 선택 (짧게 유지 → 단문 요금)
+                _sms_type_by_cat = {
+                    "일일테스트": "일일 성적표",
+                    "주간테스트": "주간 성적표",
+                    "월간테스트": "월간 성적표",
+                    "단원테스트": "단원 성적표",
+                }
+                _sms_default = _sms_type_by_cat.get(_batch_cat, "성적표")
+                _sms_opts = [_sms_default] + [
+                    o for o in ["일일 성적표", "주간 성적표", "월간 성적표", "단원 성적표", "성적표"]
+                    if o != _sms_default
+                ]
                 batch_report_type = st.selectbox(
-                    "보고서 종류 (문자 문구에 표시됩니다)",
-                    ["단원평가 성적표", "월말평가 성적표", "수시평가 성적표", "성적표"],
-                    key="batch_sms_report_type",
+                    "보고서 종류 (문자 문구에 표시됩니다 — 시험 유형에 맞춰 자동 선택됨)",
+                    _sms_opts,
+                    key="batch_sms_report_type_v2",
                 )
                 if st.button(
                     f"📤 전원 문자 발송 ({len(batch_reports) - _n_no_phone}명)",
@@ -3936,7 +3989,14 @@ def _render_ocr_class_student_picker(
                     targets = [r for r in batch_reports if r.get("parent_phone")]
                     for i, rep in enumerate(targets):
                         try:
-                            token = save_report_link(rep["html"], student_name=rep["name"])
+                            token = save_report_link(
+                                rep["html"],
+                                student_name=rep["name"],
+                                student_id=int(rep["student_id"]),
+                                test_type=rep.get("test_type", ""),
+                                test_date=rep.get("test_date", ""),
+                                test_name=rep.get("test_name", ""),
+                            )
                             url = f"{APP_BASE_URL}/?report={token}"
                             result = send_report_sms(
                                 phone=rep["parent_phone"],
@@ -4007,6 +4067,22 @@ def _parent_report_preview_dialog(
         key="rpt_test_type",
     )
 
+    # 보고서 형식 (시험지 등록 때 고른 유형에 따라 자동 결정, 필요 시 수동 변경)
+    from database import get_test_type as _get_test_type_fn
+    from claude_report import report_mode_for as _report_mode_for
+    test_category = _get_test_type_fn(int(test_id))
+    _auto_mode = _report_mode_for(test_category)
+    _mode_label = {"lite": "라이트(간단)", "standard": "표준", "premium": "프리미엄(월간 누적)"}
+    _mode_choice = st.selectbox(
+        "보고서 형식",
+        ["자동", "라이트(간단)", "표준", "프리미엄(월간 누적)"],
+        key="rpt_mode_choice",
+        help=f"자동: 이 시험은 '{test_category}' → {_mode_label[_auto_mode]} 보고서로 생성됩니다.",
+    )
+    _mode_rev = {"라이트(간단)": "lite", "표준": "standard", "프리미엄(월간 누적)": "premium"}
+    report_mode = _mode_rev.get(_mode_choice, _auto_mode)
+    st.caption(f"이 시험 유형: **{test_category}** → 생성될 보고서: **{_mode_label[report_mode]}**")
+
     # 포함 항목 선택
     st.markdown("##### 보고서 포함 항목")
     col_c1, col_c2, col_c3 = st.columns(3)
@@ -4064,6 +4140,22 @@ def _parent_report_preview_dialog(
     if gen_btn:
         with st.spinner("보고서를 생성 중입니다... 잠시만 기다려주세요."):
             try:
+                # 프리미엄이면 이번 달 누적 데이터 준비
+                monthly_topic_stats = None
+                prev_month_avg = None
+                if report_mode == "premium":
+                    from database import get_student_month_topic_stats, prev_year_month
+                    _ym = str(record["date"])[:7]
+                    monthly_topic_stats = get_student_month_topic_stats(int(student_id), _ym)
+                    _pm = prev_year_month(_ym)
+                    _prev_scores = [
+                        h["score"] for h in history
+                        if str(h.get("date", ""))[:7] == _pm
+                    ]
+                    prev_month_avg = (
+                        round(sum(_prev_scores) / len(_prev_scores), 1)
+                        if _prev_scores else None
+                    )
                 html_content = generate_parent_report_html(
                     student_name=student_name,
                     school=school or "—",
@@ -4081,6 +4173,10 @@ def _parent_report_preview_dialog(
                     show_class_rank=show_rank,
                     show_history_chart=show_chart,
                     test_type=test_type,
+                    test_category=test_category,
+                    report_mode=report_mode,
+                    monthly_topic_stats=monthly_topic_stats,
+                    prev_month_avg=prev_month_avg,
                     question_details=get_test_questions(int(test_id)),
                 )
                 import pathlib
@@ -4093,7 +4189,14 @@ def _parent_report_preview_dialog(
 
                 # DB에 보고서를 저장하고, 학부모에게 문자로 보낼 링크를 만듭니다.
                 from database import save_report_link
-                report_token = save_report_link(html_content, student_name=student_name)
+                report_token = save_report_link(
+                    html_content,
+                    student_name=student_name,
+                    student_id=int(student_id),
+                    test_type=test_category,
+                    test_date=str(record["date"]),
+                    test_name=str(record["test_name"]),
+                )
                 report_url = f"{APP_BASE_URL}/?report={report_token}"
 
                 st.session_state["claude_report_html"] = html_content
@@ -4126,10 +4229,22 @@ def _parent_report_preview_dialog(
 
         sms_col1, sms_col2 = st.columns([2, 1])
         with sms_col1:
+            # 문자 문구는 시험 유형에 맞춰 자동 선택 (짧게 유지 → 단문 요금)
+            _sms_type_by_cat2 = {
+                "일일테스트": "일일 성적표",
+                "주간테스트": "주간 성적표",
+                "월간테스트": "월간 성적표",
+                "단원테스트": "단원 성적표",
+            }
+            _sms_default2 = _sms_type_by_cat2.get(test_category, "성적표")
+            _sms_opts2 = [_sms_default2] + [
+                o for o in ["일일 성적표", "주간 성적표", "월간 성적표", "단원 성적표", "성적표"]
+                if o != _sms_default2
+            ]
             report_type_choice = st.selectbox(
-                "보고서 종류",
-                ["단원평가 성적표", "월말평가 성적표", "수시평가 성적표", "성적표"],
-                key="rpt_sms_report_type",
+                "보고서 종류 (시험 유형에 맞춰 자동 선택됨)",
+                _sms_opts2,
+                key="rpt_sms_report_type_v2",
             )
         with sms_col2:
             default_phone = profile.get("parent_phone", "") or ""
@@ -9001,9 +9116,77 @@ def page_attendance_sheet() -> None:
             st.error(f"PDF 생성 실패: {e}")
 
 
+def _build_report_nav_html(
+    *, token: str, meta: dict, reports: list[dict]
+) -> tuple[str, str]:
+    """학부모 열람 페이지용 시험유형 탭 + 날짜 칩 HTML을 만듭니다.
+
+    반환: (tabs_html, dates_html) — 보고서 HTML의
+    <!--TABS_START-->/<!--DATES_START--> 마커 사이에 끼워 넣습니다.
+
+    주의: 보고서는 Streamlit iframe 안에 표시되는데, iframe에서는 현재 창
+    이동이 보안상 차단되므로 절대주소 + 새 탭(_blank)으로 엽니다.
+    """
+    from claude_report import TEST_CATEGORIES
+
+    def _report_url(tok: str) -> str:
+        return f"{APP_BASE_URL}/?report={tok}"
+
+    current_type = (meta.get("test_type") or "").strip()
+
+    # 유형별 그룹핑 (최신순 유지)
+    by_type: dict[str, list[dict]] = {}
+    for r in reports:
+        t = (r.get("test_type") or "").strip() or "기타"
+        by_type.setdefault(t, []).append(r)
+
+    if not current_type:
+        current_type = "기타" if "기타" in by_type else (TEST_CATEGORIES[0])
+
+    cats = list(TEST_CATEGORIES)
+    for t in by_type:
+        if t not in cats:
+            cats.append(t)
+
+    # 시험유형 탭
+    tab_parts = []
+    for c in cats:
+        if c == current_type:
+            tab_parts.append(f'<span class="tab active">{c}</span>')
+        elif by_type.get(c):
+            latest = by_type[c][0]
+            tab_parts.append(
+                f'<a class="tab" href="{_report_url(latest["token"])}" target="_blank" rel="noopener">{c}</a>'
+            )
+        else:
+            tab_parts.append(f'<span class="tab disabled">{c}</span>')
+    tabs_html = "".join(tab_parts)
+
+    # 같은 유형 안의 날짜 칩 (2개 이상일 때만)
+    dates_html = ""
+    same_type = by_type.get(current_type, [])
+    if len(same_type) >= 2:
+        chip_parts = []
+        for r in same_type:
+            label = (r.get("test_date") or r.get("created_at", "")[:10] or "날짜 미상")
+            if r["token"] == token:
+                chip_parts.append(f'<span class="date-chip active">{label}</span>')
+            else:
+                chip_parts.append(
+                    f'<a class="date-chip" href="{_report_url(r["token"])}" target="_blank" rel="noopener">{label}</a>'
+                )
+        dates_html = f'<div class="date-row">{"".join(chip_parts)}</div>'
+
+    return tabs_html, dates_html
+
+
 def _render_parent_report_view(token: str) -> None:
-    """학부모용 보고서 전용 페이지. 로그인·사이드바·메뉴 없이 보고서만 표시합니다."""
-    from database import get_report_link
+    """학부모용 보고서 전용 페이지. 로그인·사이드바·메뉴 없이 보고서만 표시합니다.
+
+    보고서에 student_id가 연결돼 있으면, 열람 시점에 그 학생의 전체 보고서를
+    실시간 조회해 시험유형 탭·날짜 선택을 붙입니다 (과거·최신 보고서 자유 이동).
+    """
+    from database import get_report_link_meta, get_student_report_links
 
     st.markdown(
         """
@@ -9019,10 +9202,34 @@ def _render_parent_report_view(token: str) -> None:
         """,
         unsafe_allow_html=True,
     )
-    html_content = get_report_link(token)
-    if not html_content:
+    meta = get_report_link_meta(token)
+    if not meta:
         st.error("보고서를 찾을 수 없거나 만료되었습니다. 학원으로 문의해 주세요.")
         return
+    html_content = meta["html_content"]
+
+    # 시험유형 탭 실시간 치환 (student_id가 저장된 보고서만)
+    if meta.get("student_id") is not None and "<!--TABS_START-->" in html_content:
+        try:
+            reports = get_student_report_links(int(meta["student_id"]))
+            tabs_html, dates_html = _build_report_nav_html(
+                token=token, meta=meta, reports=reports
+            )
+            html_content = _re_mod.sub(
+                r"<!--TABS_START-->.*?<!--TABS_END-->",
+                f"<!--TABS_START-->{tabs_html}<!--TABS_END-->",
+                html_content,
+                flags=_re_mod.DOTALL,
+            )
+            html_content = _re_mod.sub(
+                r"<!--DATES_START-->.*?<!--DATES_END-->",
+                f"<!--DATES_START-->{dates_html}<!--DATES_END-->",
+                html_content,
+                flags=_re_mod.DOTALL,
+            )
+        except Exception:
+            pass  # 탭 구성 실패 시 보고서 본문만 표시
+
     components.html(html_content, height=2600, scrolling=True)
 
 
