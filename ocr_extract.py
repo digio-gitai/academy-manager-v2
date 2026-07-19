@@ -39,31 +39,59 @@ _vision_client: vision.ImageAnnotatorClient | None = None
 _vision_auth_debug_printed = False
 
 
+def _get_vision_credentials_from_secrets() -> service_account.Credentials | None:
+    """Streamlit Cloud: st.secrets['gcp_service_account']에 서비스 계정 JSON이 있으면 로드."""
+    try:
+        if "gcp_service_account" in st.secrets:
+            info = dict(st.secrets["gcp_service_account"])
+            return service_account.Credentials.from_service_account_info(info)
+    except Exception as exc:
+        print(f"[ocr_extract] st.secrets에서 Vision 인증 로드 실패: {exc}")
+    return None
+
+
 def _init_google_vision_client() -> vision.ImageAnnotatorClient:
-    """Load credentials from GOOGLE_VISION_KEY_PATH and create Vision client."""
+    """st.secrets(클라우드) 또는 GOOGLE_VISION_KEY_PATH(로컬)에서 credentials를 로드해 Vision client 생성."""
     global _vision_client, _vision_auth_debug_printed
     if _vision_client is not None:
         return _vision_client
 
     os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
-    key_path = GOOGLE_VISION_KEY_PATH
 
-    if not _vision_auth_debug_printed:
-        print(f"현재 작업 디렉토리: {os.getcwd()}")
-        print(f"체크하려는 키 파일 경로: {key_path}")
-        print(f"파일 존재 여부 확인: {os.path.exists(key_path)}")
-        _vision_auth_debug_printed = True
+    # 1) 클라우드: st.secrets 우선
+    credentials = _get_vision_credentials_from_secrets()
+    source = "st.secrets"
 
-    if not os.path.exists(key_path):
-        st.error(f"파일을 찾을 수 없습니다: {key_path}")
-        st.stop()
+    # 2) 로컬: 파일 경로 fallback
+    if credentials is None:
+        key_path = GOOGLE_VISION_KEY_PATH
+        source = key_path
+
+        if not _vision_auth_debug_printed:
+            print(f"현재 작업 디렉토리: {os.getcwd()}")
+            print(f"체크하려는 키 파일 경로: {key_path}")
+            print(f"파일 존재 여부 확인: {os.path.exists(key_path)}")
+            _vision_auth_debug_printed = True
+
+        if not os.path.exists(key_path):
+            st.error(
+                f"Google Vision 인증 정보를 찾을 수 없습니다. "
+                f"로컬 파일({key_path})도 없고 st.secrets['gcp_service_account']도 없습니다."
+            )
+            st.stop()
+
+        try:
+            credentials = service_account.Credentials.from_service_account_file(key_path)
+        except Exception as exc:
+            print(f"파일은 있지만 인증 실패: {exc}")
+            st.error(f"인증 실패: {exc}")
+            st.stop()
 
     try:
-        credentials = service_account.Credentials.from_service_account_file(key_path)
         _vision_client = vision.ImageAnnotatorClient(credentials=credentials)
-        print("인증 성공!")
+        print(f"인증 성공! (source: {source})")
     except Exception as exc:
-        print(f"파일은 있지만 인증 실패: {exc}")
+        print(f"인증 객체는 만들었지만 client 생성 실패: {exc}")
         st.error(f"인증 실패: {exc}")
         st.stop()
 
@@ -75,6 +103,11 @@ def _get_vision_client() -> vision.ImageAnnotatorClient:
 
 
 def has_google_vision_credentials() -> bool:
+    try:
+        if "gcp_service_account" in st.secrets:
+            return True
+    except Exception:
+        pass
     return os.path.exists(GOOGLE_VISION_KEY_PATH)
 
 
