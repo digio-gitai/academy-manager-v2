@@ -90,6 +90,7 @@ from similar_questions import (
 from app_layout import ferma_button, render_fixed_nav_rail, sync_nav_from_query
 from question_bank import render_question_bank_page
 from web_report_generator import generate_html_report
+from branding import ACADEMY_NAME, TEACHER_NAME, PARENT_GREETING
 from past_exam_analyzer import render_past_exam_analyzer_page
 
 from database import (
@@ -1027,7 +1028,7 @@ def generate_attendance_pdf_bytes(
             self.cell(
                 0,
                 6,
-                _safe_pdf_text("압구정 페르마 수학 — 출석부"),
+                _safe_pdf_text("Math Management — 출석부"),
                 align="C",
             )
             self.ln(4)
@@ -1260,7 +1261,7 @@ def delete_consultation_log(log_id: int) -> None:
 REPORTS_DIR = os.path.join(CSV_DIR, "reports")
 STATIC_REPORTS_DIR = os.path.join(os.path.dirname(__file__), "static", "reports")
 DEFAULT_KAKAO_MESSAGE = (
-    "안녕하세요 압구정 페르마 수학입니다. "
+    f"{PARENT_GREETING} "
     "학생의 오답 노트 리포트입니다. 확인 부탁드립니다."
 )
 
@@ -1514,9 +1515,9 @@ def render_share_panel(
       Kakao.Share.sendDefault({{
         objectType: 'feed',
         content: {{
-          title: '압구정 페르마 수학 — '+ STUD + ' '+ LBL,
+          title: '{ACADEMY_NAME} — '+ STUD + ' '+ LBL,
           description: MSG,
-          imageUrl: 'https://placehold.co/600x400/2563eb/ffffff?text='+ encodeURIComponent('압구정 페르마 수학'),
+          imageUrl: 'https://placehold.co/600x400/2563eb/ffffff?text='+ encodeURIComponent('{ACADEMY_NAME}'),
           link: {{ mobileWebUrl: URL_, webUrl: URL_ }}
         }},
         buttons: [{{
@@ -2121,7 +2122,7 @@ def generate_report_pdf(
             fam = "NanumGothic" if font_path else "Helvetica"
             self.set_font(fam, size=8)
             self.set_text_color(140, 140, 140)
-            self.cell(0, 6, "압구정 페르마 수학 — 수학 성적 분석 리포트", align="C")
+            self.cell(0, 6, f"{ACADEMY_NAME} — 수학 성적 분석 리포트", align="C")
             self.ln(3)
 
         def footer(self):
@@ -2413,7 +2414,7 @@ def generate_error_note_pdf(similar_data: list[dict], student_name: str) -> byte
             fam = "NanumGothic" if font_path else "Helvetica"
             self.set_font(fam, size=8)
             self.set_text_color(140, 140, 140)
-            self.cell(0, 6, "압구정 페르마 수학 — 오답 노트", align="C")
+            self.cell(0, 6, f"{ACADEMY_NAME} — 오답 노트", align="C")
             self.ln(3)
 
         def footer(self):
@@ -3577,49 +3578,42 @@ def _render_ocr_class_student_picker(
             return False
 
         st.markdown(f"**② 학생별 오답 체크** — 총 **{len(all_students)}명**")
-        st.caption("시험을 보지 않은 학생은 expander 안에서 체크를 해제하면 저장 시 제외됩니다.")
+        st.caption(
+            "시험을 보지 않은 학생은 expander 안에서 체크를 해제하면 저장 시 제외됩니다. "
+            "체크는 화면 재실행 없이 빠르게 되고, 점수는 **일괄 저장** 시 자동 계산됩니다."
+        )
 
         numbers = _ocr_wrong_question_numbers(parsed)
 
-        for s in all_students:
-            sid = s["student_id"]
-            sname = s["student_name"]
-            cname = s["class_name"]
-            include_key = f"batch_include_{sid}"
-            wrong_key_prefix = f"batch_wrong_{sid}_"
+        # st.form: 체크박스를 아무리 눌러도 앱이 재실행되지 않고,
+        # 아래 "일괄 저장" 버튼을 누를 때 한 번만 실행된다 (속도 개선 핵심).
+        with st.form("batch_wrong_form", clear_on_submit=False):
+            for s in all_students:
+                sid = s["student_id"]
+                sname = s["student_name"]
+                cname = s["class_name"]
+                include_key = f"batch_include_{sid}"
+                wrong_key_prefix = f"batch_wrong_{sid}_"
 
-            with st.expander(f"📋 {cname} · {sname}", expanded=False):
-                include = st.checkbox(
-                    "이 학생 시험 봤음 (저장 포함)",
-                    key=include_key,
-                    value=st.session_state.get(include_key, True),
-                )
-                if include:
-                    wrong_vals: dict[int, bool] = {}
+                with st.expander(f"📋 {cname} · {sname}", expanded=False):
+                    st.checkbox(
+                        "이 학생 시험 봤음 (저장 포함)",
+                        key=include_key,
+                        value=st.session_state.get(include_key, True),
+                    )
                     cols_w = st.columns(5)
                     for idx, num in enumerate(numbers):
                         with cols_w[idx % 5]:
-                            wrong_vals[num] = st.checkbox(
+                            st.checkbox(
                                 f"{num}번",
                                 key=f"{wrong_key_prefix}{num}",
                             )
-                    selected = [n for n, v in wrong_vals.items() if v]
-                    preview = _preview_score_from_wrong(selected)
-                    if preview is not None:
-                        st.info(f"예상 점수: **{preview:.1f}점** · 오답 {len(selected)}개")
-                    else:
-                        st.caption("오답 선택 시 점수 자동 계산")
-                else:
-                    st.caption("⚠️ 저장에서 제외됩니다.")
 
-        st.divider()
-
-        save_all_btn = st.button(
-            "💾 전원 오답 일괄 저장",
-            type="primary",
-            use_container_width=True,
-            key="batch_save_all_btn",
-        )
+            save_all_btn = st.form_submit_button(
+                "💾 전원 오답 일괄 저장",
+                type="primary",
+                use_container_width=True,
+            )
 
         if save_all_btn:
             success_count = 0
@@ -6605,7 +6599,7 @@ def _generate_unified_grade_report_pdf(
             self.set_text_color(255, 255, 255)
             self.set_font(fam, size=12)
             self.set_xy(12, 7)
-            self.cell(0, 7, _safe_pdf_text("압구정 페르마 수학"))
+            self.cell(0, 7, _safe_pdf_text(ACADEMY_NAME))
             self.set_font(fam, size=8)
             self.set_xy(12, 15)
             self.cell(
@@ -8313,7 +8307,7 @@ def page_ai_test_analysis() -> None:
                                     student_name=_stud,
                                     report_label="성적분석 리포트",
                                     message=(
-                                        f"안녕하세요 압구정 페르마 수학입니다. "
+                                        f"{PARENT_GREETING} "
                                         f"{_stud} 학생의 성적분석 리포트입니다. "
                                         f"확인 부탁드립니다."
                                     ),
@@ -8451,12 +8445,13 @@ def page_ai_test_analysis() -> None:
                     )
                     _notes_text = res.get("teacher_notes", "—")
                     _parent_msg = (
-                        f"[압구정 페르마 수학 성적 알림]\n\n"
+                        f"{PARENT_GREETING}\n"
+                        f"[{ACADEMY_NAME} 성적 알림]\n\n"
                         f"날짜: {datetime.now().strftime('%Y년 %m월 %d일')}\n"
                         f"예상 점수: {overall}% ({grade}등급 {g_emoji})\n\n"
                         f"단원별 성취도:\n{_topic_lines}\n\n"
                         f"교사 총평:\n{_notes_text}\n\n"
-                        f"— 압구정 페르마 수학 학원 드림"
+                        f"— {ACADEMY_NAME} {TEACHER_NAME} 강사 드림"
                     )
                     st.text_area(
                         "전송 메시지 (전체 선택 후 복사: Ctrl+A → Ctrl+C)",
@@ -8967,7 +8962,7 @@ def _render_parent_report_view(token: str) -> None:
 
 def main():
     st.set_page_config(
-        page_title="압구정 페르마 수학 · 교육 관리 대시보드",
+        page_title="Math Management · 교육 관리 대시보드",
         layout="wide",
         initial_sidebar_state="collapsed",
     )

@@ -22,6 +22,8 @@ from typing import Any
 import anthropic
 from dotenv import load_dotenv
 
+from branding import ACADEMY_NAME, PARENT_GREETING
+
 load_dotenv()
 
 # ── 로고 이미지 base64 인코딩 ──────────────────────────────────────────────
@@ -200,7 +202,7 @@ def generate_parent_report_html(
     logo_html = (
         f'<img src="data:image/png;base64,{logo_b64}" class="logo-img" alt="학원 로고">'
         if logo_b64 else
-        '<div class="logo-text">J MATH</div>'
+        f'<div class="logo-text">{ACADEMY_NAME}</div>'
     )
 
     # ── 통계 계산 ──
@@ -899,6 +901,9 @@ def generate_parent_report_html(
   <div class="report-badge">학습 성취 보고서</div>
   <h1><span>{student_name}</span> 학생 보고서</h1>
   <div class="header-sub">{class_name} &nbsp;·&nbsp; {date_display}</div>
+  <div style="margin-top:14px;font-size:14px;line-height:1.6;opacity:0.92;">
+    {PARENT_GREETING}<br>{student_name} 학생의 학습 결과 보고서를 보내드립니다.
+  </div>
 </div>
 
 <div class="container">
@@ -973,7 +978,7 @@ def generate_parent_report_html(
 
 <!-- 푸터 -->
 <div class="footer">
-  <strong>J MATH</strong> &nbsp;·&nbsp; 본 보고서는 AI 분석을 기반으로 작성되었습니다.<br>
+  <strong>{ACADEMY_NAME}</strong> &nbsp;·&nbsp; 본 보고서는 AI 분석을 기반으로 작성되었습니다.<br>
   생성일시: {generated_at}
 </div>
 

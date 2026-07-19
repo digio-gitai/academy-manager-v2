@@ -82,16 +82,30 @@ class _CompatCursor:
 
 
 class _CompatConnection:
-    """psycopg2 연결을 감싸서 sqlite3 연결처럼 동작하게 만드는 래퍼."""
+    """psycopg2 연결을 감싸서 sqlite3 연결처럼 동작하게 만드는 래퍼.
+
+    성능을 위해 실제 연결은 프로세스 전체가 하나를 공유한다(아래 get_conn 참고).
+    따라서 close()는 실제로 연결을 끊지 않는 no-op이다 — 기존 코드의
+    try/finally conn.close() 패턴을 그대로 두어도 안전하다.
+    """
 
     def __init__(self, raw_conn: "psycopg2.extensions.connection") -> None:
         self._conn = raw_conn
 
     def execute(self, query: str, params: Sequence[Any] | None = None) -> _CompatCursor:
-        """sqlite3.Connection.execute() 처럼, 연결에서 바로 실행 가능하게 함."""
-        cur = _CompatCursor(self._conn.cursor())
-        cur.execute(query, params)
-        return cur
+        """sqlite3.Connection.execute() 처럼, 연결에서 바로 실행 가능하게 함.
+
+        연결이 서버 쪽에서 끊긴 경우(idle timeout 등) 자동으로 1회 재접속 후 재시도.
+        """
+        try:
+            cur = _CompatCursor(self._conn.cursor())
+            cur.execute(query, params)
+            return cur
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            self._conn = _reconnect_shared()
+            cur = _CompatCursor(self._conn.cursor())
+            cur.execute(query, params)
+            return cur
 
     def cursor(self) -> _CompatCursor:
         return _CompatCursor(self._conn.cursor())
@@ -103,18 +117,45 @@ class _CompatConnection:
         self._conn.rollback()
 
     def close(self) -> None:
-        self._conn.close()
+        # 공유 연결이므로 실제로 닫지 않는다 (no-op).
+        pass
+
+
+# ── 공유 연결 (프로세스당 1개) ─────────────────────────────────────
+# 매 호출마다 Supabase에 새 TLS 접속을 여는 것이 앱 전체를 느리게 만드는
+# 주범이었다. 연결 1개를 만들어 재사용하면 쿼리당 왕복 시간만 남는다.
+_shared_raw_conn: "psycopg2.extensions.connection | None" = None
+
+
+def _connect_raw() -> "psycopg2.extensions.connection":
+    raw_conn = psycopg2.connect(_get_database_url())
+    raw_conn.autocommit = True
+    return raw_conn
+
+
+def _reconnect_shared() -> "psycopg2.extensions.connection":
+    """죽은 공유 연결을 버리고 새로 접속한다."""
+    global _shared_raw_conn
+    try:
+        if _shared_raw_conn is not None:
+            _shared_raw_conn.close()
+    except Exception:
+        pass
+    _shared_raw_conn = _connect_raw()
+    return _shared_raw_conn
 
 
 def get_conn() -> _CompatConnection:
-    """Supabase(PostgreSQL)에 연결하고, SQLite 스타일로 쓸 수 있는 연결 객체를 반환.
+    """Supabase(PostgreSQL) 공유 연결을 SQLite 스타일로 쓸 수 있게 반환.
 
     autocommit=True로 설정하는 이유:
     기존 코드에는 "ALTER TABLE ... ADD COLUMN" 실패를 try/except로 무시하는
     패턴이 많다. PostgreSQL은 한 문장이 실패하면 트랜잭션 전체가 막히는데
     (SQLite는 그렇지 않음), autocommit 모드에서는 문장 하나하나가 즉시
     독립적으로 처리되어 이 문제가 발생하지 않는다.
+    (autocommit이라 여러 화면이 연결 하나를 공유해도 트랜잭션이 꼬이지 않는다.)
     """
-    raw_conn = psycopg2.connect(_get_database_url())
-    raw_conn.autocommit = True
-    return _CompatConnection(raw_conn)
+    global _shared_raw_conn
+    if _shared_raw_conn is None or _shared_raw_conn.closed:
+        _shared_raw_conn = _connect_raw()
+    return _CompatConnection(_shared_raw_conn)

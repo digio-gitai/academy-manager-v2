@@ -33,7 +33,8 @@ SOLAPI_API_KEY = _get_secret("SOLAPI_API_KEY")
 SOLAPI_API_SECRET = _get_secret("SOLAPI_API_SECRET")
 SOLAPI_SENDER = _get_secret("SOLAPI_SENDER")
 
-BRAND_PREFIX = "[사과나무 정재훈T]"  # 문자 맨 앞에 붙는 발신 표시. 여기만 바꾸면 전체 반영됨
+# 문자 첫머리 인사말 — 학원명/강사명 변경은 branding.py에서
+from branding import SMS_GREETING
 
 _message_service = None
 
@@ -97,7 +98,11 @@ def send_report_sms(
         return {"success": False, "message": f"연락처가 올바르지 않습니다: {phone!r}"}
 
     short_url = shorten_url(report_url)
-    text = f"{BRAND_PREFIX} {student_name} 학생 {report_type} 도착\n{short_url}"
+    text = (
+        f"{SMS_GREETING}\n"
+        f"{student_name} 학생 {report_type} 도착\n"
+        f"{short_url}"
+    )
 
     message = RequestMessage(
         from_=clean_phone(SOLAPI_SENDER),

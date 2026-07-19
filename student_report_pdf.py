@@ -28,6 +28,7 @@ from pdf_math_render import (
 )
 from reports_visual import cumulative_score_chart_png, score_compare_chart_png
 from similar_questions import prepare_similar_items_list
+from branding import ACADEMY_NAME
 
 PDF_FONT_FAMILY = "NanumGothic"
 ACCENT_COLOR = (30, 58, 138)
@@ -103,7 +104,7 @@ def _make_pdf_document(title: str, *, skip_auto_page: bool = False):
             fam = PDF_FONT_FAMILY if font_path else "Helvetica"
             self.set_font(fam, size=8)
             self.set_text_color(*MUTED_COLOR)
-            self.cell(0, 6, safe_text(f"Math Management — {title}"), align="C")
+            self.cell(0, 6, safe_text(f"{ACADEMY_NAME} — {title}"), align="C")
             self.ln(3)
 
         def footer(self):
@@ -200,7 +201,7 @@ def _render_parent_cover_page(
     pdf.multi_cell(
         0,
         7,
-        f"발행: Math Management  ·  {date.today().isoformat()}",
+        f"발행: {ACADEMY_NAME}  ·  {date.today().isoformat()}",
         align="C",
     )
     pdf.add_page()
@@ -1221,7 +1222,7 @@ def generate_student_wrong_answer_report_pdf(
             self.set_font(fam, size=8)
             self.set_text_color(140, 140, 140)
             self.cell(
-                0, 6, safe_text("Math Management — 학생 오답 분석 보고서"), align="C"
+                0, 6, safe_text(f"{ACADEMY_NAME} — 학생 오답 분석 보고서"), align="C"
             )
             self.ln(3)
 

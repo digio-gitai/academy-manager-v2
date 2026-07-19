@@ -153,8 +153,17 @@ CREATE TABLE IF NOT EXISTS grade_reports (
 """
 
 
+# ── ensure_* 1회 실행 캐시 ───────────────────────────────────────
+# ensure_* 함수들은 테이블/컬럼이 있는지 매번 DB에 물어보는 "존재 확인"용이다.
+# 프로세스가 켜져 있는 동안 스키마는 변하지 않으므로, 한 번 성공하면
+# 그 뒤로는 건너뛴다 (원격 Supabase 왕복 쿼리를 크게 줄여줌).
+_ENSURED_ONCE: set[str] = set()
+
+
 def ensure_students_test_results_column(conn: sqlite3.Connection | None = None) -> None:
     """Add ``students.test_results`` JSON column if missing (legacy DB migration)."""
+    if "students_test_results" in _ENSURED_ONCE:
+        return
     own_conn = conn is None
     if own_conn:
         conn = get_conn()
@@ -170,6 +179,7 @@ def ensure_students_test_results_column(conn: sqlite3.Connection | None = None) 
             )
         if own_conn:
             conn.commit()
+        _ENSURED_ONCE.add("students_test_results")
     finally:
         if own_conn:
             conn.close()
@@ -544,6 +554,8 @@ def get_conn():
 
 def ensure_grade_reports_table(conn: sqlite3.Connection | None = None) -> None:
     """Create grade_reports table if it does not exist."""
+    if "grade_reports" in _ENSURED_ONCE:
+        return
     own_conn = conn is None
     if own_conn:
         conn = get_conn()
@@ -551,6 +563,7 @@ def ensure_grade_reports_table(conn: sqlite3.Connection | None = None) -> None:
         conn.execute(_GRADE_REPORTS_DDL)
         if own_conn:
             conn.commit()
+        _ENSURED_ONCE.add("grade_reports")
     finally:
         if own_conn:
             conn.close()
@@ -864,6 +877,8 @@ def get_student_profile(student_id: int) -> dict[str, Any] | None:
 
 def ensure_report_links_table(conn: sqlite3.Connection | None = None) -> None:
     """학부모에게 문자로 보내는 보고서 링크 저장용 테이블."""
+    if "report_links" in _ENSURED_ONCE:
+        return
     own_conn = conn is None
     if own_conn:
         conn = get_conn()
@@ -880,6 +895,7 @@ def ensure_report_links_table(conn: sqlite3.Connection | None = None) -> None:
         )
         if own_conn:
             conn.commit()
+        _ENSURED_ONCE.add("report_links")
     finally:
         if own_conn:
             conn.close()
@@ -1003,6 +1019,8 @@ CREATE TABLE IF NOT EXISTS student_results (
 
 def ensure_ai_test_tables(conn: sqlite3.Connection | None = None) -> None:
     """Create ``tests``, ``test_questions``, ``student_results`` if missing."""
+    if "ai_test_tables" in _ENSURED_ONCE:
+        return
     own_conn = conn is None
     if own_conn:
         conn = get_conn()
@@ -1037,6 +1055,7 @@ def ensure_ai_test_tables(conn: sqlite3.Connection | None = None) -> None:
         #  Supabase(PostgreSQL) 신규 DB에는 필요 없어서 제거함)
         if own_conn:
             conn.commit()
+        _ENSURED_ONCE.add("ai_test_tables")
     finally:
         if own_conn:
             conn.close()
@@ -1970,6 +1989,8 @@ CREATE TABLE IF NOT EXISTS student_grade_unified (
 
 
 def ensure_student_grade_unified_table(conn: sqlite3.Connection | None = None) -> None:
+    if "student_grade_unified" in _ENSURED_ONCE:
+        return
     own_conn = conn is None
     if own_conn:
         conn = get_conn()
@@ -1977,6 +1998,7 @@ def ensure_student_grade_unified_table(conn: sqlite3.Connection | None = None) -
         conn.execute(_STUDENT_GRADE_UNIFIED_DDL)
         if own_conn:
             conn.commit()
+        _ENSURED_ONCE.add("student_grade_unified")
     finally:
         if own_conn:
             conn.close()
@@ -1984,6 +2006,8 @@ def ensure_student_grade_unified_table(conn: sqlite3.Connection | None = None) -
 
 def ensure_external_grade_exam_month(conn: sqlite3.Connection | None = None) -> None:
     """Add ``exam_month`` to ``external_grade_sessions`` for mock-exam filters."""
+    if "external_grade_exam_month" in _ENSURED_ONCE:
+        return
     own_conn = conn is None
     if own_conn:
         conn = get_conn()
@@ -2000,6 +2024,7 @@ def ensure_external_grade_exam_month(conn: sqlite3.Connection | None = None) -> 
             )
         if own_conn:
             conn.commit()
+        _ENSURED_ONCE.add("external_grade_exam_month")
     finally:
         if own_conn:
             conn.close()
