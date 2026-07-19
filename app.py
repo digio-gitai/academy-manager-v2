@@ -3699,37 +3699,67 @@ def _render_ocr_class_student_picker(
             )
 
             if gen_comments_btn:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
                 from claude_report import generate_teacher_comment_draft
                 from database import get_student_profile, get_student_test_score_history
+
                 progress = st.progress(0, text="AI 코멘트 생성 중...")
-                total = len(saved_students)
-                for i, s in enumerate(saved_students):
+
+                # 1) DB 조회는 메인에서 미리 (빠름) — 스레드에서는 API 호출만
+                jobs = []
+                for s in saved_students:
                     sid = s["student_id"]
                     sname = s["student_name"]
                     history = get_student_test_score_history(sid)
-                    history_scores = [h["score"] for h in history]
                     record = get_student_result_record(student_id=sid, test_id=saved_test_id)
                     if not record:
                         continue
-                    try:
-                        rank_val = sum(1 for sc in all_scores_batch if sc > record["score"]) + 1 if all_scores_batch else None
-                        total_val = len(all_scores_batch) if all_scores_batch else None
-                        draft = generate_teacher_comment_draft(
-                            student_name=sname,
-                            score=record["score"],
-                            class_avg=round(sum(all_scores_batch)/len(all_scores_batch), 1) if all_scores_batch else None,
-                            rank=rank_val,
-                            total_students=total_val,
-                            wrong_numbers=record.get("wrong_numbers") or [],
-                            total_questions=record.get("total_questions", 20),
-                            history_scores=history_scores,
-                            test_name=record["test_name"],
+                    jobs.append((sid, sname, [h["score"] for h in history], record))
+
+                _class_avg = (
+                    round(sum(all_scores_batch) / len(all_scores_batch), 1)
+                    if all_scores_batch else None
+                )
+
+                def _gen_comment(job):
+                    sid, sname, history_scores, record = job
+                    rank_val = (
+                        sum(1 for sc in all_scores_batch if sc > record["score"]) + 1
+                        if all_scores_batch else None
+                    )
+                    total_val = len(all_scores_batch) if all_scores_batch else None
+                    draft = generate_teacher_comment_draft(
+                        student_name=sname,
+                        score=record["score"],
+                        class_avg=_class_avg,
+                        rank=rank_val,
+                        total_students=total_val,
+                        wrong_numbers=record.get("wrong_numbers") or [],
+                        total_questions=record.get("total_questions", 20),
+                        history_scores=history_scores,
+                        test_name=record["test_name"],
+                    )
+                    return sid, draft
+
+                # 2) Claude API 호출을 5명씩 동시에 (속도 개선 핵심)
+                done = 0
+                total = len(jobs)
+                with ThreadPoolExecutor(max_workers=5) as ex:
+                    futures = {ex.submit(_gen_comment, j): j for j in jobs}
+                    for fut in as_completed(futures):
+                        j_sid, j_sname = futures[fut][0], futures[fut][1]
+                        try:
+                            r_sid, draft = fut.result()
+                            st.session_state[f"batch_comment_{r_sid}"] = draft
+                        except Exception as e:
+                            st.session_state[f"batch_comment_{j_sid}"] = ""
+                            st.warning(f"{j_sname} 코멘트 생성 실패: {e}")
+                        done += 1
+                        progress.progress(
+                            done / max(total, 1),
+                            text=f"AI 코멘트 생성 중... ({done}/{total}명)",
                         )
-                        st.session_state[f"batch_comment_{sid}"] = draft
-                    except Exception as e:
-                        st.session_state[f"batch_comment_{sid}"] = ""
-                        st.warning(f"{sname} 코멘트 생성 실패: {e}")
-                    progress.progress((i + 1) / total, text=f"AI 코멘트 생성 중... ({i+1}/{total}명)")
                 progress.empty()
                 st.success(f"✅ {total}명 AI 코멘트 생성 완료! 아래에서 확인·수정 후 보고서를 생성하세요.")
 
@@ -3770,62 +3800,98 @@ def _render_ocr_class_student_picker(
             )
 
             if gen_reports_btn:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
                 from claude_report import generate_parent_report_html
                 from database import get_student_profile, get_student_test_score_history
                 import pathlib
                 report_dir = pathlib.Path(__file__).parent / "reports"
                 report_dir.mkdir(exist_ok=True)
                 progress2 = st.progress(0, text="보고서 생성 중...")
-                total2 = len(saved_students)
-                generated = []
-                for i, s in enumerate(saved_students):
+
+                # 시험지 문항정보는 전원 공통 — 1번만 조회
+                _q_details = get_test_questions(saved_test_id)
+
+                # 1) DB 조회·코멘트 수집은 메인에서 미리
+                jobs2 = []
+                for s in saved_students:
                     sid = s["student_id"]
                     sname = s["student_name"]
                     cname = s["class_name"]
                     profile = get_student_profile(sid) or {}
-                    school = str(profile.get("school", "") or "")
-                    grade = str(profile.get("grade", "") or "")
-                    history = get_student_test_score_history(sid)
                     record = get_student_result_record(student_id=sid, test_id=saved_test_id)
-                    comment = st.session_state.get(f"batch_comment_{sid}", "").strip() or "선생님 코멘트를 입력해 주세요."
                     if not record:
                         st.warning(f"{sname} — DB 기록 없음, 건너뜁니다.")
                         continue
-                    try:
-                        html_content = generate_parent_report_html(
-                            student_name=sname,
-                            school=school or "—",
-                            grade=grade or "—",
-                            class_name=cname,
-                            test_name=record["test_name"],
-                            test_date=record["date"],
-                            score=record["score"],
-                            total_questions=record.get("total_questions", 20),
-                            wrong_numbers=record.get("wrong_numbers") or [],
-                            all_scores=all_scores_batch,
-                            history=history,
-                            teacher_comment=comment,
-                            show_class_avg=batch_show_avg,
-                            show_class_rank=batch_show_rank,
-                            show_history_chart=batch_show_chart,
-                            test_type="일반",
-                            question_details=get_test_questions(saved_test_id),
+                    comment = st.session_state.get(f"batch_comment_{sid}", "").strip() or "선생님 코멘트를 입력해 주세요."
+                    jobs2.append({
+                        "sid": sid,
+                        "sname": sname,
+                        "cname": cname,
+                        "school": str(profile.get("school", "") or "") or "—",
+                        "grade": str(profile.get("grade", "") or "") or "—",
+                        "parent_phone": str(profile.get("parent_phone", "") or ""),
+                        "history": get_student_test_score_history(sid),
+                        "record": record,
+                        "comment": comment,
+                    })
+
+                def _gen_report(job):
+                    record = job["record"]
+                    html_content = generate_parent_report_html(
+                        student_name=job["sname"],
+                        school=job["school"],
+                        grade=job["grade"],
+                        class_name=job["cname"],
+                        test_name=record["test_name"],
+                        test_date=record["date"],
+                        score=record["score"],
+                        total_questions=record.get("total_questions", 20),
+                        wrong_numbers=record.get("wrong_numbers") or [],
+                        all_scores=all_scores_batch,
+                        history=job["history"],
+                        teacher_comment=job["comment"],
+                        show_class_avg=batch_show_avg,
+                        show_class_rank=batch_show_rank,
+                        show_history_chart=batch_show_chart,
+                        test_type="일반",
+                        question_details=_q_details,
+                    )
+                    return job, html_content
+
+                # 2) 보고서 생성(내부 AI 한줄평 호출 포함)을 5명씩 동시에
+                generated = []
+                done2 = 0
+                total2 = len(jobs2)
+                with ThreadPoolExecutor(max_workers=5) as ex:
+                    futures2 = {ex.submit(_gen_report, j): j for j in jobs2}
+                    for fut in as_completed(futures2):
+                        j = futures2[fut]
+                        try:
+                            job, html_content = fut.result()
+                            record = job["record"]
+                            fname = f"{job['sname']}_{record['date']}_{record['test_name'][:15]}.html"
+                            fname = fname.replace(" ", "_").replace("/", "-")
+                            fpath = report_dir / fname
+                            fpath.write_text(html_content, encoding="utf-8")
+                            generated.append({
+                                "name": job["sname"],
+                                "fname": fname,
+                                "html": html_content,
+                                "student_id": job["sid"],
+                                "parent_phone": job["parent_phone"],
+                            })
+                        except Exception as e:
+                            st.error(f"{j['sname']} 보고서 생성 실패: {e}")
+                        done2 += 1
+                        progress2.progress(
+                            done2 / max(total2, 1),
+                            text=f"보고서 생성 중... ({done2}/{total2}명)",
                         )
-                        fname = f"{sname}_{record['date']}_{record['test_name'][:15]}.html"
-                        fname = fname.replace(" ", "_").replace("/", "-")
-                        fpath = report_dir / fname
-                        fpath.write_text(html_content, encoding="utf-8")
-                        generated.append({
-                            "name": sname,
-                            "fname": fname,
-                            "html": html_content,
-                            "student_id": sid,
-                            "parent_phone": str(profile.get("parent_phone", "") or ""),
-                        })
-                    except Exception as e:
-                        st.error(f"{sname} 보고서 생성 실패: {e}")
-                    progress2.progress((i + 1) / total2, text=f"보고서 생성 중... ({i+1}/{total2}명)")
                 progress2.empty()
+                # 학생 순서대로 정렬 (동시 처리라 완료 순서가 뒤섞이므로)
+                _order = {j["sid"]: i for i, j in enumerate(jobs2)}
+                generated.sort(key=lambda g: _order.get(g["student_id"], 999))
                 st.session_state["batch_generated_reports"] = generated
                 st.success(f"✅ {len(generated)}명 보고서 생성 완료!")
 
