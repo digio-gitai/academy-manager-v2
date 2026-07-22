@@ -1672,6 +1672,14 @@ _QUESTION_BANK_EXTRA_COLUMNS: tuple[tuple[str, str], ...] = (
     ("explanation", "TEXT NOT NULL DEFAULT ''"),
     ("source_workbook", "TEXT NOT NULL DEFAULT ''"),
     ("page_number", "INTEGER NOT NULL DEFAULT 0"),
+    # 2026-07-22: 족보닷컴 등 이미지 크롭 기반 등록 지원용.
+    # question은 계속 텍스트(검색/매칭용)로 채우고, 실제로 학생/화면에 보여줄 원본은
+    # 이 경로들이 있으면 이걸 우선 사용한다 (수식이 이미지라 OCR 텍스트보다 정확함).
+    ("question_image_path", "TEXT NOT NULL DEFAULT ''"),
+    ("explanation_image_path", "TEXT NOT NULL DEFAULT ''"),
+    # 어떤 등록 경로로 들어온 데이터인지 ('zokbo', 'manual', 'ocr_gpt' 등) —
+    # 자료 형식별 등록기(adapter)를 나중에 추가해도 구분할 수 있게.
+    ("source_format", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -1754,13 +1762,17 @@ def bulk_insert_question_bank(rows: list[dict[str, Any]]) -> int:
             qnum = int(row.get("question_number") or 0)
             workbook = str(row.get("source_workbook") or "").strip()
             page_num = int(row.get("page_number") or 0)
+            question_image_path = str(row.get("question_image_path") or "").strip()
+            explanation_image_path = str(row.get("explanation_image_path") or "").strip()
+            source_format = str(row.get("source_format") or "").strip()
             conn.execute(
                 """
                 INSERT INTO question_bank (
                     topic, level, question, answer_hint,
                     question_number, answer, explanation,
-                    source_workbook, page_number, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_workbook, page_number, created_at,
+                    question_image_path, explanation_image_path, source_format
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     topic,
@@ -1773,6 +1785,9 @@ def bulk_insert_question_bank(rows: list[dict[str, Any]]) -> int:
                     workbook,
                     page_num,
                     now,
+                    question_image_path,
+                    explanation_image_path,
+                    source_format,
                 ),
             )
             inserted += 1
@@ -1804,7 +1819,10 @@ def list_question_bank(
             source_workbook,
             page_number,
             answer_hint,
-            created_at
+            created_at,
+            question_image_path,
+            explanation_image_path,
+            source_format
         FROM question_bank
         WHERE 1=1
     """
@@ -1976,6 +1994,8 @@ def fetch_similar_questions_from_bank(
                         "topic": row[2],
                         "difficulty": row[3],
                         "question_number": row[1],
+                        "question_image_path": row[7] if len(row) > 7 else "",
+                        "explanation_image_path": row[8] if len(row) > 8 else "",
                     }
                 )
                 if len(out) >= limit:
@@ -1998,7 +2018,8 @@ def fetch_similar_questions_from_bank(
             picked = _run_stage(
                 f"단원 contains ({', '.join(tokens)}) + 난이도 ±1",
                 f"""
-                SELECT id, question_number, topic, level, question, answer, explanation
+                SELECT id, question_number, topic, level, question, answer, explanation,
+                       question_image_path, explanation_image_path
                 FROM question_bank
                 WHERE ({topic_clauses}) AND level IN ({level_ph})
                 ORDER BY RANDOM()
@@ -2013,7 +2034,8 @@ def fetch_similar_questions_from_bank(
             for row in _run_stage(
                 f"단원 contains ({', '.join(tokens)}) - 난이도 무시",
                 f"""
-                SELECT id, question_number, topic, level, question, answer, explanation
+                SELECT id, question_number, topic, level, question, answer, explanation,
+                       question_image_path, explanation_image_path
                 FROM question_bank
                 WHERE {topic_clauses}
                 ORDER BY RANDOM()
@@ -2033,7 +2055,8 @@ def fetch_similar_questions_from_bank(
             for row in _run_stage(
                 f"난이도 ±1 ({level_neighbors}) - 단원 무시",
                 f"""
-                SELECT id, question_number, topic, level, question, answer, explanation
+                SELECT id, question_number, topic, level, question, answer, explanation,
+                       question_image_path, explanation_image_path
                 FROM question_bank
                 WHERE level IN ({level_ph})
                 ORDER BY RANDOM()
@@ -2053,7 +2076,8 @@ def fetch_similar_questions_from_bank(
             for row in _run_stage(
                 "전체 문제 (최후 fallback)",
                 """
-                SELECT id, question_number, topic, level, question, answer, explanation
+                SELECT id, question_number, topic, level, question, answer, explanation,
+                       question_image_path, explanation_image_path
                 FROM question_bank
                 ORDER BY RANDOM()
                 LIMIT ?
