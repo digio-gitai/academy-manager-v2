@@ -224,3 +224,8 @@ data/
 reports/
 output/
 static/reports/
+
+# 학생 실명/DB 내용이 찍히는 진단·정리 스크립트 로그 (Public 저장소에 절대 올리지 않음)
+diagnose_log.txt
+reset_log.txt
+*_log.txt
