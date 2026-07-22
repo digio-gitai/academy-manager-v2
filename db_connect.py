@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Sequence
 
 import psycopg2
@@ -43,6 +44,17 @@ def _get_database_url() -> str:
 def _translate(query: str) -> str:
     """SQLite 스타일 ``?`` 값 자리를 PostgreSQL 스타일 ``%s``로 바꾼다."""
     return query.replace("?", "%s")
+
+
+def _translate_named(query: str) -> str:
+    """SQLite/sqlite3 스타일 ``:name`` 값 자리를 PostgreSQL 스타일 ``%(name)s``로 바꾼다.
+
+    ``executemany()``에서 dict 레코드 리스트를 그대로 쓰는 코드(예: save_attendance,
+    save_scores)를 위한 변환. ``execute()``에서 쓰는 ``?`` 위치 인자 스타일과는 별도로
+    처리한다 (``::type`` 같은 PostgreSQL 캐스트 문법과 섞이지 않도록 이 함수는
+    executemany 전용으로만 사용한다).
+    """
+    return re.sub(r":(\w+)", r"%(\1)s", query)
 
 
 class _CompatCursor:
@@ -109,6 +121,23 @@ class _CompatConnection:
 
     def cursor(self) -> _CompatCursor:
         return _CompatCursor(self._conn.cursor())
+
+    def executemany(self, query: str, seq_of_params: Sequence[Any]) -> None:
+        """sqlite3.Connection.executemany() 처럼, ``:name`` 딕셔너리 레코드 리스트를
+        그대로 받아 실행할 수 있게 함 (save_attendance, save_scores 등에서 사용).
+
+        연결이 끊긴 경우(idle timeout 등) 자동으로 1회 재접속 후 재시도.
+        """
+        translated = _translate_named(_translate(query))
+        try:
+            cur = self._conn.cursor()
+            cur.executemany(translated, seq_of_params)
+            cur.close()
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            self._conn = _reconnect_shared()
+            cur = self._conn.cursor()
+            cur.executemany(translated, seq_of_params)
+            cur.close()
 
     def commit(self) -> None:
         self._conn.commit()

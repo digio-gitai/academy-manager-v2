@@ -663,45 +663,6 @@ def _build_page3(data:dict)->str:
   <p style="font-size:12px;color:var(--gray);margin-bottom:14px;">이번 시험에서 오답률이 가장 높고 등급을 가르는 결정적인 역할을 한 핵심 문항을 선정하여 상세히 분석합니다.</p>
 {blocks}</div>"""
 
-def _build_page3b(data:dict)->str:
-    kqs=data.get("key_questions") or []
-    blocks=""
-    for kq in kqs[2:4]:
-        num=kq.get("num","?"); emoji=kq.get("emoji","🔢")
-        title=_clean(kq.get("title",""))
-        tc=kq.get("tag_class","tag-high"); tl=_clean(kq.get("tag_label","상"))
-        point=_clean(kq.get("point",""))
-        why=_clean(kq.get("why_hard",""))
-        mistake=_clean(kq.get("common_mistake",""))
-        concepts="".join(f"<li>{_clean(c)}</li>" for c in (kq.get("concepts") or []))
-        steps="".join(f"<li>{_clean(s)}</li>" for s in (kq.get("steps") or []))
-        blocks+=f"""  <div class="key-q">
-    <div class="key-q-header">
-      <span class="key-q-title">{emoji} {num}번 &nbsp; {title}</span>
-      <span class="key-q-tag {tc}">{tl}</span>
-    </div>
-    <div class="key-q-body">
-      <div class="key-q-left">
-        <div class="kq-subtitle">💡 핵심 포인트</div>
-        <p class="kq-text">{point}</p>
-        <div class="kq-subtitle">🔎 왜 어려웠을까?</div>
-        <p class="kq-text">{why}</p>
-        <div class="kq-subtitle">📚 필요 개념</div>
-        <ul class="bullet-list">{concepts}</ul>
-        {"" if not mistake else f'<div class="kq-subtitle" style="color:var(--red);margin-top:8px;">⚠️ 자주 하는 실수</div><p class="kq-text">{mistake}</p>'}
-      </div>
-      <div class="key-q-right">
-        <div class="kq-subtitle">🚀 단계별 공략 솔루션</div>
-        <ol class="step-list">{steps}</ol>
-      </div>
-    </div>
-  </div>\n"""
-    return f"""<div class="page">
-  <div class="page-badge">4</div>
-  <div class="section-title">4. 핵심 문항 심층 분석 (계속)</div>
-  <p style="font-size:12px;color:var(--gray);margin-bottom:14px;">핵심 문항 분석 이어서 수록합니다.</p>
-{blocks}</div>"""
-
 def _build_page4(data:dict)->str:
     ch=data.get("charts") or {}
     tr=data.get("trend") or {}

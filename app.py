@@ -436,6 +436,11 @@ def init_db():
         )
     """
     )
+    # 마이그레이션: 보강/비고 메모용 note 컬럼 없으면 추가
+    try:
+        c.execute("ALTER TABLE attendance ADD COLUMN note TEXT DEFAULT ''")
+    except Exception:
+        pass
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS exams (
@@ -626,7 +631,7 @@ def init_db():
     ensure_grade_reports_table(conn)
     ensure_student_grade_unified_table(conn)
     ensure_external_grade_exam_month(conn)
-    seed_test_classroom(conn)
+    # seed_test_classroom(conn)  # 데모용 "테스트 반"+A/B/C/D 자동생성 — 실사용 전환으로 비활성화
 
     _commit(conn)
     conn.close()
@@ -661,7 +666,7 @@ def delete_teacher(teacher_id: int) -> None:
 def get_all_teachers() -> pd.DataFrame:
     conn = get_conn()
     df = pd.read_sql_query(
-        "SELECT id, name, created_at FROM teachers ORDER BY name",
+        "SELECT id, name, created_at, password, role FROM teachers ORDER BY name",
         conn,
     )
     conn.close()
@@ -828,7 +833,9 @@ def get_all_students(teacher_id: int | None = None) -> pd.DataFrame:
                    COALESCE(c.name, '—') AS class_name,
                    s.class_id, c.teacher_id,
                    COALESCE(t.name, '—') AS teacher_name,
-                   s.registered_at
+                   s.registered_at,
+                   s.school, s.grade, s.student_phone,
+                   s.pre_visit_progress, s.expectations, s.notes
             FROM   students s
             LEFT JOIN classes  c ON c.id = s.class_id
             LEFT JOIN teachers t ON t.id = c.teacher_id
@@ -843,7 +850,9 @@ def get_all_students(teacher_id: int | None = None) -> pd.DataFrame:
                    COALESCE(c.name, '—') AS class_name,
                    s.class_id, c.teacher_id,
                    COALESCE(t.name, '—') AS teacher_name,
-                   s.registered_at
+                   s.registered_at,
+                   s.school, s.grade, s.student_phone,
+                   s.pre_visit_progress, s.expectations, s.notes
             FROM   students s
             LEFT JOIN classes  c ON c.id = s.class_id
             LEFT JOIN teachers t ON t.id = c.teacher_id
@@ -874,12 +883,18 @@ def get_students_by_class(class_id: int) -> pd.DataFrame:
 
 
 def save_attendance(records: list[dict]):
+    """records: [{student_id, class_id, session_date, status, note(선택)}]"""
+    for r in records:
+        r.setdefault("note", "")
     conn = get_conn()
     conn.executemany(
         """
-        INSERT INTO attendance (student_id, class_id, session_date, status)
-        VALUES (:student_id, :class_id, :session_date, :status)
-        ON CONFLICT(student_id, session_date) DO UPDATE SET status=excluded.status
+        INSERT INTO attendance (student_id, class_id, session_date, status, note)
+        VALUES (:student_id, :class_id, :session_date, :status, :note)
+        ON CONFLICT(student_id, session_date)
+        DO UPDATE SET status=excluded.status,
+                      class_id=excluded.class_id,
+                      note=excluded.note
         """,
         records,
     )
@@ -892,7 +907,8 @@ def get_attendance_for_session(class_id: int, session_date: str) -> pd.DataFrame
     df = pd.read_sql_query(
         """
         SELECT s.id AS student_id, s.name,
-               COALESCE(a.status, 'absent') AS status
+               COALESCE(a.status, 'absent') AS status,
+               COALESCE(a.note, '') AS note
         FROM   students s
         LEFT JOIN attendance a ON a.student_id = s.id AND a.session_date = ?
         WHERE  s.class_id = ?
@@ -911,7 +927,8 @@ def get_attendance_history(
     conn = get_conn()
     q = """
         SELECT a.session_date, a.student_id, s.name AS student_name,
-               COALESCE(c.name, '—') AS class_name, a.status
+               COALESCE(c.name, '—') AS class_name, a.status,
+               COALESCE(a.note, '') AS note
         FROM   attendance a
         JOIN   students s ON s.id = a.student_id
         LEFT JOIN classes c ON c.id = a.class_id
@@ -953,7 +970,7 @@ def get_attendance_summary(
     if teacher_id is not None:
         q += " AND c.teacher_id = ?"
         params.append(teacher_id)
-    q += " GROUP BY a.student_id ORDER BY student_name"
+    q += " GROUP BY a.student_id, s.name, c.name ORDER BY student_name"
     df = pd.read_sql_query(q, conn, params=params)
     conn.close()
     if not df.empty:
@@ -6354,6 +6371,9 @@ def page_attendance(classes_df: pd.DataFrame):
                     status_map = dict(
                         zip(existing_df["student_id"], existing_df["status"])
                     )
+                    note_map = dict(
+                        zip(existing_df["student_id"], existing_df["note"])
+                    )
                     STATUS_OPTIONS = ["present", "late", "absent"]
                     STATUS_LABELS = {
                         "present": "출석",
@@ -6361,22 +6381,32 @@ def page_attendance(classes_df: pd.DataFrame):
                         "absent": "결석",
                     }
                     selections: dict[int, str] = {}
+                    notes: dict[int, str] = {}
 
                     with st.form("attendance_form"):
                         for _, student in students.iterrows():
                             sid = int(student["id"])
                             current = status_map.get(sid, "present")
+                            current_note = note_map.get(sid, "") or ""
                             rc = st.columns([2, 3])
                             rc[0].markdown(f"**{student['name']}**")
                             radio_val = rc[1].radio(
-                                f"s{sid}",
+                                "출결 상태",
                                 STATUS_OPTIONS,
                                 index=STATUS_OPTIONS.index(current),
                                 horizontal=True,
                                 key=f"radio_{sid}",
                                 format_func=lambda s: STATUS_LABELS[s],
+                                label_visibility="collapsed",
+                            )
+                            note_val = rc[1].text_input(
+                                "비고 (예: 7/22 보강)",
+                                value=current_note,
+                                key=f"note_{sid}",
+                                placeholder="비고 (예: 7/22 보강, 조퇴 등)",
                             )
                             selections[sid] = radio_val
+                            notes[sid] = note_val
 
                         save_btn = st.form_submit_button(
                             "출석 저장" if not already_saved else "출석 수정",
@@ -6392,6 +6422,7 @@ def page_attendance(classes_df: pd.DataFrame):
                                     "class_id": sel_cls_id,
                                     "session_date": session_date_str,
                                     "status": status,
+                                    "note": notes.get(sid, "").strip(),
                                 }
                                 for sid, status in selections.items()
                             ]
@@ -6411,11 +6442,14 @@ def page_attendance(classes_df: pd.DataFrame):
             hist_class_id = hist_opts[hist_cls]
             st.caption(f"기간: {from_str} ~ {to_str}")
 
+        # 관리자/부원장/원장은 본인이 담당 강사로 지정된 반뿐 아니라 전체 반의
+        # 출석 이력을 볼 수 있어야 하므로 teacher_id 필터를 적용하지 않는다.
+        _hist_scope_teacher_id = None if _is_manager() else teacher_id
         summary_df = get_attendance_summary(
-            hist_class_id, from_str, to_str, teacher_id=teacher_id
+            hist_class_id, from_str, to_str, teacher_id=_hist_scope_teacher_id
         )
         history_df = get_attendance_history(
-            hist_class_id, from_str, to_str, teacher_id=teacher_id
+            hist_class_id, from_str, to_str, teacher_id=_hist_scope_teacher_id
         )
 
         if summary_df.empty:
@@ -6461,9 +6495,9 @@ def page_attendance(classes_df: pd.DataFrame):
                         )
                     )
                     dh = history_display[
-                        ["session_date", "student_name", "class_name", "status"]
+                        ["session_date", "student_name", "class_name", "status", "note"]
                     ].copy()
-                    dh.columns = ["날짜", "학생", "수업", "상태"]
+                    dh.columns = ["날짜", "학생", "수업", "상태", "비고"]
                     dh = dh.reset_index(drop=True)
                     dh.index += 1
                     st.dataframe(dh, width="stretch")
@@ -9233,9 +9267,13 @@ def _render_parent_report_view(token: str) -> None:
     components.html(html_content, height=2600, scrolling=True)
 
 
+_IS_LOCAL_ENV = os.environ.get("APP_ENV") == "local"
+
+
 def main():
     st.set_page_config(
-        page_title="Math Management · 교육 관리 대시보드",
+        page_title="Math Management · 교육 관리 대시보드"
+        + (" (로컬)" if _IS_LOCAL_ENV else ""),
         layout="wide",
         initial_sidebar_state="collapsed",
     )
@@ -9246,6 +9284,22 @@ def main():
     if _report_token:
         _render_parent_report_view(_report_token)
         return
+
+    # 지금 보고 있는 화면이 로컬 실행본인지 클라우드 배포본인지 한눈에 구분하기 위한 배지
+    if _IS_LOCAL_ENV:
+        st.markdown(
+            "<div style='background:#1E293B;color:#F8FAFC;padding:4px 12px;"
+            "border-radius:6px;display:inline-block;font-size:0.8rem;margin-bottom:8px;'>"
+            "🖥️ 로컬 실행 중 (내 컴퓨터)</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div style='background:#2563EB;color:#F8FAFC;padding:4px 12px;"
+            "border-radius:6px;display:inline-block;font-size:0.8rem;margin-bottom:8px;'>"
+            "☁️ 클라우드 버전</div>",
+            unsafe_allow_html=True,
+        )
 
     # 로그인 게이트 — 로그인 전에는 관리 화면에 접근 불가 (학부모 접근 차단)
     if _current_teacher_id() is None:
@@ -9328,7 +9382,6 @@ def page_settings() -> None:
             )
             if st.button("경로 저장", type="primary", key="settings_save_pdf_dir_btn"):
                 chosen = (pdf_dir or "").strip() or DEFAULT_PDF_SAVE_DIR
-                st.session_state["pdf_save_dir"] = chosen
                 settings = _read_app_settings_file()
                 settings["pdf_save_dir"] = chosen
                 _write_app_settings_file(settings)
