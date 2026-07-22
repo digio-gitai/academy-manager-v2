@@ -29,6 +29,7 @@ from ocr_extract import (
     parse_workbook_questions_from_extraction,
     refine_ocr_pages_with_gpt,
 )
+from topics_curriculum import ALL_TOPIC_OPTIONS, UNCLASSIFIED, match_topic_guess
 
 _MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKBOOKS_DIR = os.path.join(_MODULE_DIR, "data", "workbooks")
@@ -36,12 +37,9 @@ WORKBOOKS_DIR = os.path.join(_MODULE_DIR, "data", "workbooks")
 QB_LEVELS = ["High", "Mid", "Low"]
 EDITOR_COLUMNS = ["문항번호", "단원", "난이도", "문제내용", "정답", "해설"]
 
-DEFAULT_TOPICS = [
-    "Algebra", "Geometry", "Arithmetic", "Fractions & Decimals",
-    "Word Problems", "Statistics", "Probability", "Calculus",
-    "Number Theory", "Functions & Graphs", "Equations", "Other",
-    "미분류",
-]
+# 중1~고3 고정 단원 목록 ("[학년] 소단원명" 형식) — topics_curriculum.py 참고.
+# 단원 내용을 바꾸려면 topics_curriculum.py와 단원목록_문제은행_초안.md를 같이 수정할 것.
+DEFAULT_TOPICS = ALL_TOPIC_OPTIONS
 
 _QB_SESSION_DEFAULTS: dict[str, Any] = {
     "qb_workbook_name": "",
@@ -90,7 +88,9 @@ def rows_to_editor_df(rows: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame([
         {
             "문항번호": int(r.get("question_number") or 0),
-            "단원": str(r.get("topic") or "미분류"),
+            # OCR/AI가 자유 텍스트로 추측한 단원명은 고정 목록과 그대로 안 맞을 수 있어
+            # match_topic_guess로 최대한 매칭하고, 애매하면 "미분류"로 남겨서 선생님이 고르게 함.
+            "단원": match_topic_guess(str(r.get("topic") or "")),
             "난이도": str(r.get("difficulty") or "Mid"),
             "문제내용": str(r.get("question") or ""),
             "정답": str(r.get("answer") or ""),
@@ -134,7 +134,7 @@ def db_df_to_editor_df(q_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({
         "id": q_df["id"],
         "문항번호": q_df["question_number"],
-        "단원": q_df["topic"],
+        "단원": q_df["topic"].apply(lambda t: match_topic_guess(str(t or ""))),
         "난이도": q_df["level"],
         "문제내용": q_df["question"],
         "정답": q_df.apply(
@@ -149,7 +149,13 @@ def db_df_to_editor_df(q_df: pd.DataFrame) -> pd.DataFrame:
 def editor_column_config() -> dict[str, Any]:
     return {
         "문항번호": st.column_config.NumberColumn("문항번호", min_value=0, step=1),
-        "단원": st.column_config.TextColumn("단원", width="medium"),
+        "단원": st.column_config.SelectboxColumn(
+            "단원",
+            options=ALL_TOPIC_OPTIONS,
+            required=True,
+            width="medium",
+            help="중1~고3 고정 단원 목록 중에서 고릅니다. 애매하면 '미분류'로 두고 나중에 정리해도 됩니다.",
+        ),
         "난이도": st.column_config.SelectboxColumn(
             "난이도",
             options=QB_LEVELS,
@@ -446,7 +452,11 @@ def render_question_bank_page(*, sync_csvs: Callable[[], None] | None = None) ->
         st.markdown("##### 수동 문항 추가")
         with st.form("qb_manual_add_form", clear_on_submit=True):
             mc1, mc2, mc3 = st.columns([2, 1, 1])
-            m_topic = mc1.text_input("단원", value="미분류")
+            m_topic = mc1.selectbox(
+                "단원",
+                options=ALL_TOPIC_OPTIONS,
+                index=ALL_TOPIC_OPTIONS.index(UNCLASSIFIED),
+            )
             m_level = mc2.selectbox("난이도", QB_LEVELS)
             m_num = mc3.number_input("문항번호", min_value=0, step=1, value=0)
             m_q = st.text_area("문제내용", height=80)
