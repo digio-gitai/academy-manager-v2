@@ -16,8 +16,13 @@ import re
 from typing import Any
 
 import fitz
+from dotenv import load_dotenv
 
 from topics_curriculum import ALL_TOPIC_OPTIONS, UNCLASSIFIED
+
+# 이 스크립트를 (streamlit 없이) 단독 실행할 때는 .env가 자동으로 안 읽혀서
+# DATABASE_URL을 못 찾는 문제가 있었음 — wake_db.py / sms_sender.py와 동일하게 직접 로드.
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 _MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGE_DIR = os.path.join(_MODULE_DIR, "data", "question_bank_images")
