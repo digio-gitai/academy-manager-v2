@@ -4447,32 +4447,52 @@ def _render_similar_questions_wrong_note_panel(
         if extract_result:
             if extract_result.get("status") == "db_not_ready":
                 st.info(extract_result.get("message", SIMILAR_DB_UNAVAILABLE_MSG))
-                for item in extract_result.get("items") or []:
-                    probs = item.get("similar_problems") or []
-                    st.markdown(
-                        f"**{item.get('question_number')}번** · "
-                        f"검색 단원 `{item.get('topic')}` · "
-                        f"난이도 `{item.get('difficulty')}` · "
-                        f"유사문제 {len(probs)}개"
-                    )
-                    for idx, prob in enumerate(probs, start=1):
-                        with st.expander(
-                            f"유사문제 {idx}"
-                            + (
-                                f"(매칭: {prob.get('matched_topic')} / "
-                                f"{prob.get('matched_difficulty')})"
-                                if prob.get("matched_topic")
-                                else ""
+            for item in extract_result.get("items") or []:
+                probs = item.get("similar_problems") or []
+                st.markdown(
+                    f"**{item.get('question_number')}번** · "
+                    f"검색 단원 `{item.get('topic')}` · "
+                    f"난이도 `{item.get('difficulty')}` · "
+                    f"유사문제 {len(probs)}개"
+                )
+                for idx, prob in enumerate(probs, start=1):
+                    with st.expander(
+                        f"유사문제 {idx}"
+                        + (
+                            f"(매칭: {prob.get('matched_topic')} / "
+                            f"{prob.get('matched_difficulty')})"
+                            if prob.get("matched_topic")
+                            else ""
+                        )
+                    ):
+                        img_path = prob.get("question_image_path")
+                        if img_path:
+                            full_img_path = os.path.join(
+                                os.path.dirname(os.path.abspath(__file__)),
+                                "data",
+                                img_path,
                             )
-                        ):
+                            if os.path.exists(full_img_path):
+                                st.image(full_img_path)
+                            else:
+                                st.warning(f"이미지 파일을 찾을 수 없습니다: {img_path}")
+                        else:
                             st.markdown(prob.get("stem") or "(내용 없음)")
-                            if prob.get("answer"):
-                                st.caption(f"정답: {prob['answer']}")
-                            if prob.get("explanation"):
-                                st.caption(f"해설: {prob['explanation']}")
-            else:
-
-                st.info(extract_result.get("message", ""))
+                        if prob.get("answer"):
+                            st.caption(f"정답: {prob['answer']}")
+                        exp_img_path = prob.get("explanation_image_path")
+                        if exp_img_path:
+                            full_exp_path = os.path.join(
+                                os.path.dirname(os.path.abspath(__file__)),
+                                "data",
+                                exp_img_path,
+                            )
+                            if os.path.exists(full_exp_path):
+                                st.image(full_exp_path, caption="해설")
+                            else:
+                                st.warning(f"해설 이미지 파일을 찾을 수 없습니다: {exp_img_path}")
+                        elif prob.get("explanation"):
+                            st.caption(f"해설: {prob['explanation']}")
 
         pdf_note_btn = st.button(
             "오답노트 PDF 생성 및 저장",

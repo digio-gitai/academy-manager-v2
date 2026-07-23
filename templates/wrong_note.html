@@ -96,6 +96,16 @@
       text-align: center;
     }
     .muted { color: rgb({{ muted_color }}); }
+    .similar-q-image, .similar-a-image {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 4px 0 8px;
+    }
+    .similar-a-image {
+      border-top: 1px solid rgb({{ muted_color }});
+      padding-top: 6px;
+    }
   </style>
 </head>
 <body>
@@ -132,13 +142,17 @@
         <span class="meta">{{ item.topic }} · {{ item.difficulty }}</span>
       </header>
       <div class="card-body">
-        {% if item.stem_html %}
+        {% if item.question_image_uri %}
+        <img class="similar-q-image" src="{{ item.question_image_uri }}" alt="유사문제 {{ item.index }}">
+        {% elif item.stem_html %}
         <p class="content math-block">{{ item.stem_html | safe }}</p>
         {% endif %}
         {% if item.answer_html %}
         <p class="content math-block"><strong>정답:</strong> {{ item.answer_html | safe }}</p>
         {% endif %}
-        {% if item.explanation_html %}
+        {% if item.explanation_image_uri %}
+        <img class="similar-a-image" src="{{ item.explanation_image_uri }}" alt="해설 {{ item.index }}">
+        {% elif item.explanation_html %}
         <p class="content"><strong>해설:</strong> {{ item.explanation_html | safe }}</p>
         {% endif %}
       </div>

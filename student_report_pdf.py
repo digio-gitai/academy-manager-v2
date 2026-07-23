@@ -942,6 +942,25 @@ PDF_ENGINE_FPDF = "fpdf"
 PDF_ENGINE_WEASYPRINT = "weasyprint"
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+_DATA_DIR = Path(__file__).resolve().parent / "data"
+
+
+def _image_to_data_uri(rel_path: str) -> str:
+    """question_image_path/explanation_image_path("question_bank_images/xxx.png")
+    -> data/ 폴더 기준 실제 파일을 읽어 base64 data URI로 변환. 파일이 없으면 빈 문자열."""
+    rel_path = (rel_path or "").strip()
+    if not rel_path:
+        return ""
+    import base64
+
+    full_path = _DATA_DIR / rel_path
+    try:
+        raw = full_path.read_bytes()
+    except OSError:
+        return ""
+    ext = full_path.suffix.lower().lstrip(".") or "png"
+    mime = "jpeg" if ext in ("jpg", "jpeg") else ext
+    return f"data:image/{mime};base64,{base64.b64encode(raw).decode('ascii')}"
 _WRONG_NOTE_TEMPLATE = "wrong_note.html"
 
 
@@ -998,7 +1017,11 @@ def _similar_items_html_context(
 
     out: list[dict[str, Any]] = []
     for it in similar_questions or []:
-        if not str(it.get("stem") or "").strip():
+        question_image_uri = _image_to_data_uri(str(it.get("question_image_path") or ""))
+        explanation_image_uri = _image_to_data_uri(str(it.get("explanation_image_path") or ""))
+        # 족보닷컴 등 이미지 크롭 문항은 stem이 검색용 placeholder 텍스트라
+        # 이미지가 있으면 이미지를 우선하고, 텍스트뿐인 기존 문항은 그대로 stem_html로 표시.
+        if not question_image_uri and not str(it.get("stem") or "").strip():
             continue
         out.append(
             {
@@ -1006,7 +1029,11 @@ def _similar_items_html_context(
                 "index": int(it.get("index") or 1),
                 "topic": str(it.get("topic") or "미분류"),
                 "difficulty": str(it.get("difficulty") or "Mid"),
-                "stem_html": text_with_latex_to_html(str(it.get("stem") or "")),
+                "question_image_uri": question_image_uri,
+                "explanation_image_uri": explanation_image_uri,
+                "stem_html": (
+                    "" if question_image_uri else text_with_latex_to_html(str(it.get("stem") or ""))
+                ),
                 "answer_html": (
                     text_with_latex_to_html(str(it.get("answer") or ""))
                     if str(it.get("answer") or "").strip()
@@ -1014,7 +1041,7 @@ def _similar_items_html_context(
                 ),
                 "explanation_html": (
                     text_with_latex_to_html(str(it.get("explanation") or ""))
-                    if str(it.get("explanation") or "").strip()
+                    if (not explanation_image_uri) and str(it.get("explanation") or "").strip()
                     else ""
                 ),
             }
