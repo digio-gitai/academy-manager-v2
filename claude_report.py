@@ -1199,9 +1199,19 @@ def _build_type_analysis(
 
     type_list.sort(key=lambda x: x["pct"], reverse=True)
 
-    # 우수/취약 분류 (상위 3개, 하위 3개)
-    top3 = [t["method"] for t in type_list[:3] if t["pct"] >= 70]
-    bot3 = [t["method"] for t in type_list[-3:] if t["pct"] < 70]
+    # 취약 분류: 정답률이 아니라 "실제 틀린 문항 수"가 2개 이상인 단원.
+    # (예: 24문항 중 6개 틀려도 정답률 75%라 "우수" 기준(70%)을 넘던 예전 문제 수정 —
+    #  퍼센트가 높아도 틀린 문항이 여러 개면 보강이 필요한 취약 단원으로 봄.)
+    wrong_sorted = sorted(
+        (t for t in type_list if (t["total"] - t["correct"]) >= 2),
+        key=lambda x: (x["total"] - x["correct"]),
+        reverse=True,
+    )
+    bot3 = [t["method"] for t in wrong_sorted[:3]]
+
+    # 우수 분류: 취약으로 이미 뽑힌 단원은 제외하고, 나머지 중 정답률 70% 이상 상위 3개.
+    remaining = [t for t in type_list if t["method"] not in bot3]
+    top3 = [t["method"] for t in remaining[:3] if t["pct"] >= 70]
 
     # 대표 우수/취약 박스
     top_items = "".join(
