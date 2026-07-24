@@ -46,6 +46,35 @@
    - 이미지 파일은 로컬(`data/question_bank_images/`)에만 있음 — 지금은 로컬 전용, 나중에 클라우드에서도
      봐야 하면 Supabase Storage로 일괄 업로드 + DB 경로값만 갱신하면 됨 (태깅 작업은 다시 안 해도 됨).
 
+## 2026-07-24 "오답 유형(topic)" 전체 매핑 정리 (다음 세션 참고용)
+
+지금 앱에는 **서로 다른 두 개의 단원/유형 태깅 체계**가 따로 존재하고, 서로 느슨하게만 연결돼 있음.
+
+**체계 A — `test_questions.topic` (시험지별, 자유 텍스트)**
+- 생성 경로: 시험지 스캔 → GPT-4o(`ocr_extract.refine_and_analyze_with_gpt` / `analyze_topics_with_gpt`, `ocr_extract.py`)가
+  자동으로 자유 텍스트 단원명("삼각함수" 등, 학년·소단원 구분 없음)을 붙임. GPT 실패 시 키워드 기반 휴리스틱(`infer_topic_from_text`)이 보완.
+  이후 선생님이 `app.py`의 `st.data_editor`(자유 텍스트 컬럼)에서 직접 수정 가능. **Claude는 이 단계에 관여 안 함.**
+- 난이도: A~E 5단계(A=킬러~E=쉬움), 역시 GPT가 매기고 사람이 수동 수정 가능.
+- 쓰이는 곳: `claude_report.py`의 `_build_type_analysis`(우수/취약 유형 진단, 2026-07-24 오답개수≥2 기준으로 수정함)가
+  이 topic으로 단원별 집계.
+
+**체계 B — `question_bank.topic` (문제은행, 고정 taxonomy)**
+- `topics_curriculum.py`의 `ALL_TOPIC_OPTIONS`("[학년] 소단원명" 형식)로 강제. 족보닷컴 등록(`zokbo_import.py`)도 이 taxonomy로 저장.
+- 난이도: Low/Mid/High 3단계만 존재.
+
+**둘을 잇는 다리 — `database.fetch_similar_questions_from_bank`**
+- 오답노트에서 유사문제 뽑을 때, 체계 A의 topic(자유 텍스트)을 그대로 검색어로 써서 체계 B의 question_bank.topic을
+  `LIKE '%토큰%'`으로 **부분일치**시킴(`_topic_search_tokens`). 완전일치 아님. 예: 시험지 topic "삼각함수" →
+  question_bank의 "[고2] 삼각함수의 뜻과 그래프"에도 걸림 — 대분류 수준에서만 우연히 맞고, 학년 구분이 없어서
+  다른 학년 문제가 섞여 나올 수 있음. 소단원 세밀 일치는 거의 안 됨. 안 맞으면 4단계로 fallback:
+  ① 단원+난이도 → ② 단원만 → ③ 난이도만 → ④ 최후에는 무작위.
+- **주의: `topics_curriculum.match_topic_guess()`(자유텍스트→고정taxonomy 변환 함수)는 question_bank 등록 화면에서만
+  쓰이고, 이 유사문제 검색 경로에는 전혀 안 쓰임.** 즉 검색 시점엔 느슨한 LIKE 매칭만 의존.
+- **새로 발견한 버그(미수정): 난이도 매칭이 사실상 항상 무력화됨.** `_normalize_bank_difficulty`가
+  `{"Low","Mid","High"}`에 없는 값(체계 A의 "A"~"E")이 들어오면 무조건 "Mid"로 치환해버림(`database.py` L1908-1912).
+  즉 시험지 문항의 실제 난이도(A~E)가 뭐든 간에 유사문제 검색 시 항상 "Mid ±1"(=Low/Mid/High 전부)로 취급됨 —
+  난이도 필터가 있으나 마나. A~E ↔ Low/Mid/High 변환 매핑표를 추가해야 진짜로 작동함.
+
 ## 결론
 
 **중3 기본 단계까지는 완료.** 남은 건: (a) 중2·고등·다른 난이도 등급(발전/최다오답/최다빈출) 자료도 같은 방식으로
