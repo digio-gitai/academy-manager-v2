@@ -99,6 +99,10 @@ def fetch_similar_questions_for_wrong_numbers(
                 "explanation": prob.get("explanation", ""),
                 "matched_topic": prob.get("topic", ""),
                 "matched_difficulty": prob.get("difficulty", ""),
+                # 족보닷컴 등 이미지 크롭 기반 문항이면 이 경로들이 채워짐 —
+                # 있으면 텍스트(stem) 대신 이 이미지를 그대로 보여준다.
+                "question_image_path": prob.get("question_image_path", ""),
+                "explanation_image_path": prob.get("explanation_image_path", ""),
             })
             any_found = True
             if debug:
@@ -165,6 +169,8 @@ def flatten_similar_items_for_pdf(extract_result: dict[str, Any] | None) -> list
                     prob.get("matched_difficulty") or item.get("difficulty") or "Mid"
                 ).strip(),
                 "problem_id": prob.get("problem_id"),
+                "question_image_path": str(prob.get("question_image_path") or "").strip(),
+                "explanation_image_path": str(prob.get("explanation_image_path") or "").strip(),
             })
     return flat
 

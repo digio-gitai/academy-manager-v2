@@ -70,10 +70,16 @@
   ① 단원+난이도 → ② 단원만 → ③ 난이도만 → ④ 최후에는 무작위.
 - **주의: `topics_curriculum.match_topic_guess()`(자유텍스트→고정taxonomy 변환 함수)는 question_bank 등록 화면에서만
   쓰이고, 이 유사문제 검색 경로에는 전혀 안 쓰임.** 즉 검색 시점엔 느슨한 LIKE 매칭만 의존.
-- **새로 발견한 버그(미수정): 난이도 매칭이 사실상 항상 무력화됨.** `_normalize_bank_difficulty`가
-  `{"Low","Mid","High"}`에 없는 값(체계 A의 "A"~"E")이 들어오면 무조건 "Mid"로 치환해버림(`database.py` L1908-1912).
-  즉 시험지 문항의 실제 난이도(A~E)가 뭐든 간에 유사문제 검색 시 항상 "Mid ±1"(=Low/Mid/High 전부)로 취급됨 —
-  난이도 필터가 있으나 마나. A~E ↔ Low/Mid/High 변환 매핑표를 추가해야 진짜로 작동함.
+- **[완료 2026-07-24] 난이도 매칭 무력화 버그 수정.** `database.py`의 `_normalize_bank_difficulty`에
+  A~E -> Low/Mid/High 매핑표(`_TEST_TO_BANK_DIFFICULTY`)를 추가함: A·B(킬러·준킬러)->High,
+  C(표준)->Mid, D·E(기본·최하)->Low. 이제 시험지 문항의 실제 난이도가 검색에 반영됨.
+- **[완료 2026-07-24] 족보닷컴 등급 -> 난이도 매핑 정정.** 원장님 재확인 결과 기본·최다빈출 = 중(Mid),
+  발전·최다오답 = 상(High)이 맞음 (기존엔 기본·최다빈출을 Low로 잘못 매핑했었음). `zokbo_import.py`의
+  `TIER_DIFFICULTY` 수정 완료. 기존에 이미 등록된 7,663문항(전부 "기본" 등급)의 DB 값도
+  Low -> Mid로 고쳐야 해서 `fix_question_bank_difficulty.sql` 스크립트를 만들어둠 —
+  Supabase SQL Editor에서 실행 필요 (아직 미실행, 다음 세션에서 실행 여부 확인할 것).
+  "하(Low)" 등급 문제집은 아직 안 샀으므로 지금은 비어있는 게 정상 — 나중에 더 쉬운 문제집을
+  사서 채우는 자리로 남겨둠.
 
 ## 결론
 

@@ -1523,6 +1523,35 @@ def get_student_result_record(
     }
 
 
+def get_students_with_test_result(test_id: int) -> list[dict[str, Any]]:
+    """Students who already have a ``student_results`` row for this test.
+
+    2026-07-25: PDF 보고서(DB 기준) 화면에서 학생을 고를 때 씀 — 오답 일괄 입력이
+    반 전체를 한 번에 저장하는 방식이라, 저장 직후엔 "지금 선택된 학생 한 명"이
+    따로 없다. 그래서 이 시험에 이미 결과가 저장된 학생 목록을 여기서 다시 불러온다.
+    """
+    ensure_ai_test_tables()
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT sr.student_id, s.name, COALESCE(c.name, '') AS class_name
+            FROM student_results sr
+            JOIN students s ON s.id = sr.student_id
+            LEFT JOIN classes c ON c.id = s.class_id
+            WHERE sr.test_id = ?
+            ORDER BY c.name, s.name
+            """,
+            (int(test_id),),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        {"student_id": int(r[0]), "student_name": str(r[1]), "class_name": str(r[2] or "")}
+        for r in rows
+    ]
+
+
 def get_test_average_score(
     test_id: int,
     *,
@@ -1904,12 +1933,29 @@ def get_question_bank_stats() -> dict[str, Any]:
 
 _DIFF_RANK = {"Low": 0, "Mid": 1, "High": 2}
 
+# 시험지 쪽 난이도(A~E, GPT가 자동 부여·선생님이 수정 — 보고서 표현을 상중하보다
+# 세분화하려고 일부러 5단계로 씀)를 문제은행 쪽 난이도(Low/Mid/High, 구매한 족보닷컴
+# 등급 기준)로 변환하는 매핑표. 2026-07-24 확정: A·B(킬러·준킬러)->High,
+# C(표준)->Mid, D·E(기본·최하)->Low.
+# 이전에는 이 매핑이 없어서 A~E가 그대로 들어오면 _DIFF_RANK에 없는 값이라
+# 항상 "Mid"로 치환됐음 — 실제 문항 난이도와 무관하게 난이도 필터가 무력화되던 버그.
+_TEST_TO_BANK_DIFFICULTY = {
+    "A": "High",
+    "B": "High",
+    "C": "Mid",
+    "D": "Low",
+    "E": "Low",
+}
+
 
 def _normalize_bank_difficulty(difficulty: str) -> str:
     diff = (difficulty or "Mid").strip()
-    if diff not in _DIFF_RANK:
-        return "Mid"
-    return diff
+    if diff in _DIFF_RANK:
+        return diff
+    mapped = _TEST_TO_BANK_DIFFICULTY.get(diff.upper())
+    if mapped:
+        return mapped
+    return "Mid"
 
 
 def _difficulty_neighbors(difficulty: str) -> list[str]:

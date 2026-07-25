@@ -18,23 +18,61 @@
   <style>
     {{ font_face_css | safe }}
     @page { size: A4; margin: 18mm; }
+    @page cover { margin: 0; }
     body {
       font-family: 'NanumGothic', 'Malgun Gothic', sans-serif;
       font-size: 10pt;
       color: rgb({{ body_color }});
       line-height: 1.6;
     }
-    h1 {
-      text-align: center;
-      color: rgb({{ accent_color }});
-      font-size: 16pt;
-      margin: 0 0 6mm;
+
+    /* ── 표지 페이지 (2026-07-25 확정: 시안 A · 네이비+골드) ── */
+    .cover-page {
+      page: cover;
+      width: 210mm; height: 297mm;
+      box-sizing: border-box;
+      padding: 16mm 16mm 0;
+      position: relative;
+      page-break-after: always;
     }
-    .subtitle {
-      text-align: center;
-      color: rgb({{ muted_color }});
-      margin-bottom: 8mm;
+    .cover-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 3px solid rgb({{ cover_navy }});
+      padding-bottom: 6mm; margin-bottom: 8mm;
     }
+    .cover-brand { display: flex; align-items: center; gap: 4mm; flex: 0 0 auto; }
+    .cover-brand img { width: 16mm; height: 16mm; object-fit: contain; }
+    .cover-brand span {
+      font-size: 12pt; font-weight: 800; color: rgb({{ cover_navy }});
+      letter-spacing: 0.5px; white-space: nowrap;
+    }
+    .cover-badge {
+      background: rgb({{ cover_navy }}); color: #fff;
+      font-size: 11pt; font-weight: 800; letter-spacing: 2px;
+      padding: 3mm 7mm; border-radius: 2mm; white-space: nowrap;
+    }
+    .cover-info { width: 100%; border-collapse: collapse; margin-bottom: 10mm;
+      border: 1px solid rgb({{ border_color }}); }
+    .cover-info td { border: 1px solid rgb({{ border_color }}); padding: 4mm 5mm; font-size: 10pt; }
+    .cover-info .k { background: #F4F6FB; color: rgb({{ cover_navy }}); font-weight: 700; width: 28mm; }
+    .cover-info .v { font-weight: 600; }
+    .cover-title { text-align: center; margin: 14mm 0 10mm; }
+    .cover-title .eyebrow { color: rgb({{ cover_gold }}); font-weight: 800; letter-spacing: 4px; font-size: 10pt; margin-bottom: 2mm; }
+    .cover-title h1 { font-size: 30pt; font-weight: 800; color: rgb({{ cover_navy }}); margin: 0; }
+    .cover-title .sub { margin-top: 3mm; font-size: 12pt; color: rgb({{ muted_color }}); }
+    .cover-gold-rule { width: 24mm; height: 1.2mm; background: rgb({{ cover_gold }}); margin: 6mm auto 0; border-radius: 1mm; }
+    .cover-stats { display: flex; gap: 6mm; margin-top: 12mm; }
+    .cover-stat { flex: 1; border: 1px solid rgb({{ border_color }}); border-radius: 3mm; padding: 6mm 4mm; text-align: center; }
+    .cover-stat .num { font-size: 20pt; font-weight: 800; color: rgb({{ cover_navy }}); }
+    .cover-stat .lab { font-size: 9pt; color: rgb({{ muted_color }}); margin-top: 1.5mm; }
+    .cover-wrong-list { margin-top: 8mm; text-align: center; font-size: 9.5pt; color: rgb({{ muted_color }}); }
+    .cover-footer {
+      position: absolute; bottom: 12mm; left: 16mm; right: 16mm; text-align: center;
+      font-size: 8.5pt; color: rgb({{ muted_color }});
+      border-top: 1px solid rgb({{ border_color }}); padding-top: 4mm;
+    }
+
+    /* ── 문제 / 정답·해설 공통 카드 스타일 (기존 유지) ── */
     .section-title {
       background: rgb(234, 240, 255);
       color: rgb({{ accent_color }});
@@ -106,56 +144,155 @@
       border-top: 1px solid rgb({{ muted_color }});
       padding-top: 6px;
     }
+
+    /* ── 유사문제 풀이 페이지 (2026-07-25: 한국 시험지처럼 좌/우 2단, 페이지당 정확히 2문제) ── */
+    .problem-group.pbreak { page-break-after: always; }
+    .problem-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8mm;
+      height: 232mm;
+    }
+    .problem-slot {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid rgb({{ accent_color }});
+      background: rgb(248, 250, 255);
+      padding: 4mm;
+      box-sizing: border-box;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      overflow: hidden;
+    }
+    .problem-slot .card-head { flex: 0 0 auto; margin-bottom: 2mm; }
+    .problem-slot .q-body {
+      flex: 0 1 auto;
+      max-height: 95mm;
+      overflow: hidden;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+    }
+    .problem-slot .q-body img {
+      max-height: 95mm;
+      max-width: 100%;
+      width: auto;
+      object-fit: contain;
+    }
+    .problem-slot .q-body .content { margin: 0; }
+    .solve-space {
+      flex: 1 1 auto;
+      margin-top: 3mm;
+      border: 1px dashed rgb({{ border_color }});
+      border-radius: 2mm;
+      background: #fff;
+      min-height: 20mm;
+      display: flex;
+      flex-direction: column;
+    }
+    .solve-label {
+      flex: 0 0 auto;
+      font-size: 8pt;
+      color: rgb({{ muted_color }});
+      padding: 1.5mm 3mm;
+      border-bottom: 1px solid rgb({{ border_color }});
+    }
+
+    /* ── 정답 및 해설 섹션 ── */
+    .answer-page-break { page-break-before: always; }
+    .answer-card { border: 1px solid rgb({{ border_color }}); background: #fff; padding: 4mm; break-inside: avoid; page-break-inside: avoid; }
+    .answer-card .q-num { color: rgb({{ accent_color }}); font-size: 11pt; }
+    .answer-line { font-weight: 700; margin: 2mm 0; }
   </style>
 </head>
 <body>
-  <h1>{{ title }}</h1>
-  <p class="subtitle">{{ subtitle }}</p>
 
+  {# ── 표지 ── #}
+  <div class="cover-page">
+    <div class="cover-topbar">
+      <div class="cover-brand">
+        {% if cover.logo_data_uri %}<img src="{{ cover.logo_data_uri }}"/>{% endif %}
+        <span>{{ cover.academy_name }}</span>
+      </div>
+      <div class="cover-badge">{{ title }}</div>
+    </div>
+
+    <table class="cover-info">
+      <tr>
+        <td class="k">학생</td><td class="v">{{ cover.student_name }}</td>
+        <td class="k">응시일</td><td class="v">{{ cover.test_date }}</td>
+      </tr>
+      <tr>
+        <td class="k">시험명</td><td class="v" colspan="3">{{ cover.test_name }}</td>
+      </tr>
+      <tr>
+        <td class="k">담당 강사</td><td class="v">{{ cover.teacher_name }}</td>
+        <td class="k">점수</td><td class="v">{{ cover.score }}점</td>
+      </tr>
+    </table>
+
+    <div class="cover-title">
+      <div class="eyebrow">WRONG ANSWER NOTE</div>
+      <h1>{{ title }}</h1>
+      <div class="cover-gold-rule"></div>
+    </div>
+
+    <div class="cover-stats">
+      <div class="cover-stat"><div class="num">{{ cover.wrong_count }}</div><div class="lab">오답 문항</div></div>
+      <div class="cover-stat"><div class="num">{{ cover.similar_count }}</div><div class="lab">유사문제 세트</div></div>
+      <div class="cover-stat"><div class="num">{{ cover.score }}</div><div class="lab">이번 점수</div></div>
+    </div>
+
+    {% if cover.wrong_numbers_label %}
+    <div class="cover-wrong-list">틀린 문항: {{ cover.wrong_numbers_label }}</div>
+    {% endif %}
+
+    <div class="cover-footer">{{ cover.academy_name }} · {{ cover.teacher_name }} T · 이 자료는 학생 개인 학습용으로 제작되었습니다.</div>
+  </div>
+
+  {# ── 문제 (정답 없이 문제만) ── #}
   {% if empty_wrong_message %}
   <p class="muted">{{ empty_wrong_message }}</p>
-  {% elif wrong_cards %}
-  <div class="grid-2">
-    {% for card in wrong_cards %}
-    <article class="card">
-      <header class="card-head">
-        <strong class="q-num">{{ card.number }}번</strong>
-        <span class="meta">{{ card.topic }} · {{ card.difficulty }}</span>
-      </header>
-      <div class="card-body">
-        {% for line_html in card.detail_lines_html %}
-        <p class="content">{{ line_html | safe }}</p>
-        {% endfor %}
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if similar_questions %}
-  <h2 class="section-title">유사문제 (문제은행)</h2>
-  <div class="grid-2 similar-grid">
-    {% for item in similar_questions %}
-    <article class="card similar-card">
+  {% elif similar_questions %}
+  <h2 class="section-title">유사문제 (문제은행) · 아래 빈 칸에 직접 풀어보세요</h2>
+  {% for pair in similar_questions|batch(2) %}
+  <div class="problem-group{% if not loop.last %} pbreak{% endif %}">
+    {% for item in pair %}
+    <article class="problem-slot">
       <header class="card-head">
         <strong class="q-num">{{ item.related_wrong_number }}번 유사문제 {{ item.index }}</strong>
         <span class="meta">{{ item.topic }} · {{ item.difficulty }}</span>
       </header>
-      <div class="card-body">
+      <div class="q-body">
         {% if item.question_image_uri %}
-        <img class="similar-q-image" src="{{ item.question_image_uri }}" alt="유사문제 {{ item.index }}">
+        <img src="{{ item.question_image_uri }}" alt="유사문제 {{ item.index }}">
         {% elif item.stem_html %}
         <p class="content math-block">{{ item.stem_html | safe }}</p>
         {% endif %}
-        {% if item.answer_html %}
-        <p class="content math-block"><strong>정답:</strong> {{ item.answer_html | safe }}</p>
-        {% endif %}
-        {% if item.explanation_image_uri %}
-        <img class="similar-a-image" src="{{ item.explanation_image_uri }}" alt="해설 {{ item.index }}">
-        {% elif item.explanation_html %}
-        <p class="content"><strong>해설:</strong> {{ item.explanation_html | safe }}</p>
-        {% endif %}
       </div>
+      <div class="solve-space"><span class="solve-label">풀이 과정</span></div>
+    </article>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {# ── 정답 및 해설 (문제와 분리, 맨 뒤) ── #}
+  {% if similar_questions %}
+  <h2 class="section-title answer-page-break">정답 및 해설</h2>
+  <div class="grid-2">
+    {% for item in similar_questions %}
+    <article class="answer-card">
+      <div class="q-num">{{ item.related_wrong_number }}번 유사문제 {{ item.index }}</div>
+      {% if item.answer_html %}
+      <p class="answer-line content math-block">정답: {{ item.answer_html | safe }}</p>
+      {% endif %}
+      {% if item.explanation_image_uri %}
+      <img class="similar-a-image" src="{{ item.explanation_image_uri }}" alt="해설 {{ item.index }}">
+      {% elif item.explanation_html %}
+      <p class="content">해설: {{ item.explanation_html | safe }}</p>
+      {% endif %}
     </article>
     {% endfor %}
   </div>

@@ -28,7 +28,7 @@ from pdf_math_render import (
 )
 from reports_visual import cumulative_score_chart_png, score_compare_chart_png
 from similar_questions import prepare_similar_items_list
-from branding import ACADEMY_NAME
+from branding import ACADEMY_NAME, TEACHER_NAME
 
 PDF_FONT_FAMILY = "NanumGothic"
 ACCENT_COLOR = (30, 58, 138)
@@ -36,6 +36,12 @@ BODY_COLOR = (28, 28, 28)
 MUTED_COLOR = (100, 116, 139)
 BORDER_COLOR = (180, 190, 210)
 COVER_BG = (248, 250, 252)
+
+# 오답노트 표지 전용 브랜드 컬러 (2026-07-25 확정: 네이비 + 골드).
+# 기존 ACCENT_COLOR(학부모 리포트 등 다른 곳에서도 씀)는 건드리지 않고,
+# 표지 페이지에서만 이 색을 새로 씀 — 다른 화면에 영향 없음.
+WRONG_NOTE_NAVY = (27, 42, 94)  # #1B2A5E
+WRONG_NOTE_GOLD = (201, 168, 76)  # #C9A84C
 
 
 def _pdf_helpers():
@@ -990,15 +996,48 @@ def _weasyprint_install_help() -> str:
 def _weasy_font_face_css() -> str:
     ensure_font, _ = _pdf_helpers()
     font_path = ensure_font()
-    if font_path and Path(font_path).is_file():
-        uri = Path(font_path).resolve().as_uri()
-        return (
-            "@font-face {\n"
-            f"  font-family: 'NanumGothic';\n"
-            f"  src: url('{uri}') format('truetype');\n"
-            "}\n"
-        )
-    return ""
+    if not (font_path and Path(font_path).is_file()):
+        return ""
+    css = (
+        "@font-face {\n"
+        f"  font-family: 'NanumGothic';\n"
+        f"  src: url('{Path(font_path).resolve().as_uri()}') format('truetype');\n"
+        "}\n"
+    )
+    # Bold/ExtraBold 파일이 같은 폴더에 있으면 같이 등록 — 표지 제목처럼 굵게
+    # 써야 하는 곳에서 브라우저/WeasyPrint가 인위적으로 뭉개서 굵히지 않고
+    # 실제 볼드 글리프를 쓰게 한다. 없으면 조용히 건너뜀(기존 동작 그대로).
+    font_dir = Path(font_path).resolve().parent
+    for fname, weight in (
+        ("NanumGothicBold.ttf", "bold"),
+        ("NanumGothicExtraBold.ttf", "800"),
+    ):
+        fp = font_dir / fname
+        if fp.is_file():
+            css += (
+                "@font-face {\n"
+                f"  font-family: 'NanumGothic';\n"
+                f"  src: url('{fp.as_uri()}') format('truetype');\n"
+                f"  font-weight: {weight};\n"
+                "}\n"
+            )
+    return css
+
+
+def _wrong_note_logo_data_uri() -> str:
+    """사과나무 로고(assets/academy_logo_appletree.png) -> base64 data URI.
+
+    2026-07-25: 오답노트 표지 전용. 학부모 리포트가 쓰는 logo_jmath.png는
+    그대로 두고 안 건드림 — 이 로고는 오답노트에서만 쓴다.
+    """
+    path = Path(__file__).resolve().parent / "assets" / "academy_logo_appletree.png"
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return ""
+    import base64
+
+    return f"data:image/png;base64,{base64.b64encode(raw).decode('ascii')}"
 
 
 def _get_jinja_env():
@@ -1056,6 +1095,7 @@ def _render_wrong_note_html(
     wrong_cards: list[dict[str, Any]],
     similar_questions: list[dict[str, Any]],
     empty_wrong_message: str = "",
+    cover: dict[str, Any] | None = None,
 ) -> str:
     env = _get_jinja_env()
     template = env.get_template(_WRONG_NOTE_TEMPLATE)
@@ -1071,6 +1111,9 @@ def _render_wrong_note_html(
         muted_color=f"{MUTED_COLOR[0]}, {MUTED_COLOR[1]}, {MUTED_COLOR[2]}",
         border_color=f"{BORDER_COLOR[0]}, {BORDER_COLOR[1]}, {BORDER_COLOR[2]}",
         section_gap_mm=SIMILAR_SECTION_GAP_MM,
+        cover=cover or {},
+        cover_navy=f"{WRONG_NOTE_NAVY[0]}, {WRONG_NOTE_NAVY[1]}, {WRONG_NOTE_NAVY[2]}",
+        cover_gold=f"{WRONG_NOTE_GOLD[0]}, {WRONG_NOTE_GOLD[1]}, {WRONG_NOTE_GOLD[2]}",
     )
 
 
@@ -1155,12 +1198,26 @@ def generate_wrong_answer_note_pdf_weasyprint(
                 }
             )
 
+    cover = {
+        "academy_name": ACADEMY_NAME,
+        "teacher_name": TEACHER_NAME,
+        "logo_data_uri": _wrong_note_logo_data_uri(),
+        "student_name": student_name,
+        "test_name": test_name or "—",
+        "test_date": test_date or "—",
+        "score": f"{float(score):.1f}",
+        "wrong_count": len(nums),
+        "similar_count": len({int(it.get("related_wrong_number") or 0) for it in similar_questions}),
+        "wrong_numbers_label": ", ".join(f"{n}번" for n in nums) if nums else "",
+    }
+
     html = _render_wrong_note_html(
         title="오답노트",
         subtitle=subtitle,
         wrong_cards=wrong_cards,
         similar_questions=similar_questions,
         empty_wrong_message=empty_msg,
+        cover=cover,
     )
     print(
         f"[wrong-note-pdf/weasy] similar_questions={len(similar_questions)}",

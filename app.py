@@ -140,6 +140,7 @@ from database import (
     get_test_by_id,
     get_test_questions,
     get_student_result_record,
+    get_students_with_test_result,
     get_test_average_score,
     get_student_test_score_history,
     list_tests,
@@ -4304,14 +4305,41 @@ def _render_db_pdf_report_buttons() -> None:
             )
             return
 
-        sid = _current_student_id()
         test_id = st.session_state.get("active_test_id")
-        if not sid:
-            st.warning("PDF 생성을 위해 **학생**을 선택해 주세요.")
-            return
         if not test_id:
             st.warning("활성 시험지(TEST)가 없습니다.")
             return
+
+        # 오답 일괄 입력은 반 전체를 한 번에 저장하는 방식이라 "지금 선택된 학생
+        # 한 명"이 따로 없다 — 이 시험에 이미 결과가 저장된 학생 중에서 고르게 한다.
+        roster = get_students_with_test_result(int(test_id))
+        if not roster:
+            st.warning(
+                "이 시험지에 저장된 학생 결과가 없습니다. "
+                "먼저 위에서 **오답 DB 저장**(개별 또는 일괄)을 완료해 주세요."
+            )
+            return
+
+        name_by_label = {
+            f"{r['student_name']} ({r['class_name']})" if r["class_name"] else r["student_name"]: r["student_id"]
+            for r in roster
+        }
+        labels = list(name_by_label.keys())
+        prev_sid = _current_student_id()
+        default_idx = 0
+        for i, label in enumerate(labels):
+            if name_by_label[label] == prev_sid:
+                default_idx = i
+                break
+        sel_label = st.selectbox(
+            "학생 선택 (오답노트 · 학부모용 리포트 대상)",
+            labels,
+            index=default_idx,
+            key="db_pdf_report_student_sel",
+        )
+        sid = name_by_label[sel_label]
+        st.session_state["current_student_id"] = int(sid)
+        st.session_state["current_student_name"] = sel_label.split(" (")[0]
 
         record = get_student_result_record(student_id=int(sid), test_id=int(test_id))
         if record:
@@ -8110,6 +8138,8 @@ def page_ai_test_analysis() -> None:
     st.divider()
 
     _render_ocr_class_student_picker(parsed=_parsed_for_picker)
+
+    _render_db_pdf_report_buttons()
 
     st.divider()
 
