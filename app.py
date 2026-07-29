@@ -155,6 +155,10 @@ from database import (
     seed_test_classroom,
 )
 
+# ── [신규 추가] 과제 관리 기능 — 완전히 새로운 모듈(homework.py)이며
+#    기존 database.py / 위 함수들에는 어떤 수정도 하지 않았다. ──
+from homework import render_homework_section, render_homework_history_section
+
 
 def _load_student_report_pdf_module():
     """Load student_report_pdf from this directory (sys.path fallback)."""
@@ -6377,7 +6381,9 @@ def page_attendance(classes_df: pd.DataFrame):
     for _, row in classes_df.iterrows():
         hist_opts[row["name"]] = int(row["id"])
 
-    sub_mark, sub_history = st.tabs(["출석 체크", "출석 이력 및 통계"])
+    sub_mark, sub_history, sub_homework_search = st.tabs(
+        ["출석 체크", "출석 이력 및 통계", "과제 이력 검색"]
+    )
 
     with sub_mark:
         with st.container(border=True):
@@ -6480,6 +6486,10 @@ def page_attendance(classes_df: pd.DataFrame):
                         ac = sum(1 for s in selections.values() if s == "absent")
                         st.success(f"저장 완료 — 출석 {pc} · 지각 {lc} · 결석 {ac}")
                         st.rerun()
+
+        # ── [신규 추가] 오늘 과제 입력 — 기존 출석 저장 로직과는 완전히 분리된
+        #    별도 기능이며, homework.py 신규 모듈에서만 동작한다. ──
+        render_homework_section(sel_cls_id, sel_cls_name, session_date_str, students)
 
     with sub_history:
         with st.container(border=True):
@@ -6591,6 +6601,10 @@ def page_attendance(classes_df: pd.DataFrame):
                     key="att_pdf_download_btn",
                     use_container_width=True,
                 )
+
+    # ── [신규 추가] 과제 이력 검색 탭 — 기존 출석 관리 로직과 완전히 분리 ──
+    with sub_homework_search:
+        render_homework_history_section(classes_df)
 
 
 def _render_school_grade_tab() -> None:
