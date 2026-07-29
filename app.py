@@ -1030,85 +1030,298 @@ def save_academy_notice(notice_type: str, body: str) -> None:
     conn.close()
 
 
+_ATT_PDF_MAIN = (30, 41, 59)
+_ATT_PDF_GOLD = (196, 155, 74)
+_ATT_PDF_MUTED = (120, 130, 145)
+_ATT_PDF_BORDER = (232, 232, 236)
+_ATT_PDF_ORANGE = (222, 143, 40)
+_ATT_PDF_RED = (203, 68, 68)
+_ATT_PDF_CARD_BG = (253, 252, 249)
+_ATT_PDF_STRIPE = (247, 248, 252)
+_ATT_PDF_WEEKDAYS_KO = ["일", "월", "화", "수", "목", "금", "토"]
+
+
+def _att_pdf_calendar_card_height(year: int, month: int) -> float:
+    import calendar as _cal_mod
+
+    weeks = _cal_mod.Calendar(firstweekday=6).monthdayscalendar(year, month)
+    cell = 88 / 7
+    row_h = cell * 0.86
+    return 17 + 7 + len(weeks) * row_h + 6
+
+
 def generate_attendance_pdf_bytes(
     *,
     month_label: str,
     class_label: str,
     summary_df: pd.DataFrame,
     history_df: pd.DataFrame,
+    year: int,
+    month: int,
 ) -> tuple[bytes, str]:
-    """Draft attendance ledger PDF (fpdf2 + NanumGothic)."""
+    """출석부 PDF (fpdf2 + NanumGothic).
+
+    구성: ① 학생별 출석 통계 표  ② 학생별 출석 캘린더  ③ 확인이 필요한 기록.
+    """
+    import calendar as _cal_mod
     from fpdf import FPDF
 
     font_path = _ensure_korean_font()
+    font_bold_path = None
+    if font_path:
+        _cand = font_path.replace("NanumGothic.ttf", "NanumGothicBold.ttf")
+        if os.path.exists(_cand):
+            font_bold_path = _cand
+    B = "B" if font_bold_path else ""
 
     class _AttPDF(FPDF):
         def header(self):
-            fam = "NanumGothic" if font_path else "Helvetica"
-            self.set_font(fam, size=9)
-            self.set_text_color(120, 120, 120)
-            self.cell(
-                0,
-                6,
-                _safe_pdf_text("Math Management — 출석부"),
-                align="C",
-            )
-            self.ln(4)
+            self.set_fill_color(*_ATT_PDF_MAIN)
+            self.rect(0, 0, 210, 28, style="F")
+            self.set_draw_color(*_ATT_PDF_GOLD)
+            self.set_line_width(1.2)
+            self.line(0, 28, 210, 28)
+            self.set_text_color(255, 255, 255)
+            self.set_font("NanumGothic", style=B, size=17)
+            self.set_xy(12, 5)
+            self.cell(0, 9, _safe_pdf_text(f"{class_label} 출석부"))
+            self.set_font("NanumGothic", size=8.5)
+            self.set_xy(12, 16)
+            self.set_text_color(205, 214, 227)
+            self.cell(0, 5, _safe_pdf_text(f"{month_label}  ·  생성일 {date.today()}"))
+            self.set_text_color(0, 0, 0)
+            self.ln(22)
 
         def footer(self):
             self.set_y(-12)
-            fam = "NanumGothic" if font_path else "Helvetica"
-            self.set_font(fam, size=8)
-            self.set_text_color(150, 150, 150)
+            self.set_font("NanumGothic", size=8)
+            self.set_text_color(*_ATT_PDF_MUTED)
             self.cell(0, 6, f"- {self.page_no()} -", align="C")
+
+        def multi_cell(self, w, h=None, text="", *args, **kwargs):
+            kwargs.setdefault("new_x", "LMARGIN")
+            kwargs.setdefault("new_y", "NEXT")
+            return super().multi_cell(w, h, _safe_pdf_text(text), *args, **kwargs)
+
+        def section_bar(self, title: str):
+            self.set_font("NanumGothic", style=B, size=10.5)
+            self.set_fill_color(*_ATT_PDF_MAIN)
+            self.set_text_color(255, 255, 255)
+            self.cell(0, 7.5, "  " + _safe_pdf_text(title), fill=True,
+                      new_x="LMARGIN", new_y="NEXT")
+            self.set_text_color(30, 30, 30)
+            self.ln(2)
+
+        def table_header(self, cols):
+            """표 헤더 행을 그린다. 페이지가 바뀌어 표가 이어질 때도 다시
+            불러서 학생 수가 많아도(예: 100명) 매 페이지 컬럼명이 보이게 한다."""
+            self.set_font("NanumGothic", style=B, size=8.5)
+            self.set_fill_color(238, 241, 247)
+            self.set_draw_color(*_ATT_PDF_BORDER)
+            self.set_text_color(*_ATT_PDF_MAIN)
+            for label, w, _a in cols:
+                self.cell(w, 7, _safe_pdf_text(label), border=1, align="C", fill=True)
+            self.ln()
+            self.set_text_color(30, 30, 30)
+
+        def ensure_row_space(self, cols, row_h: float = 7):
+            """다음 표 행을 그릴 공간이 없으면 새 페이지로 넘기고 헤더를 다시 그린다."""
+            if self.get_y() + row_h > self.h - self.b_margin:
+                self.add_page()
+                self.table_header(cols)
+
+    def draw_student_calendar(pdf, x, y, w, name, cls_name, stats, day_status):
+        cell = w / 7
+        row_h = cell * 0.86
+        weeks = _cal_mod.Calendar(firstweekday=6).monthdayscalendar(year, month)
+        card_h = 17 + 7 + len(weeks) * row_h + 6
+
+        pdf.set_fill_color(*_ATT_PDF_CARD_BG)
+        pdf.set_draw_color(*_ATT_PDF_BORDER)
+        pdf.set_line_width(0.3)
+        pdf.rect(x, y, w, card_h, style="DF", round_corners=True, corner_radius=3.5)
+        pdf.set_draw_color(*_ATT_PDF_GOLD)
+        pdf.set_line_width(0.8)
+        pdf.line(x + 5, y + 13.5, x + w - 5, y + 13.5)
+
+        pdf.set_xy(x + 5, y + 3)
+        pdf.set_font("NanumGothic", style=B, size=12)
+        pdf.set_text_color(*_ATT_PDF_MAIN)
+        pdf.cell(w * 0.55, 6, _safe_pdf_text(name))
+        pdf.set_xy(x + w * 0.5, y + 3.5)
+        pdf.set_font("NanumGothic", size=7.5)
+        pdf.set_text_color(*_ATT_PDF_MUTED)
+        pdf.cell(w * 0.45 - 5, 6, _safe_pdf_text(cls_name), align="R")
+
+        pdf.set_xy(x + 5, y + 17.5)
+        pdf.set_font("NanumGothic", size=8)
+        pdf.set_text_color(*_ATT_PDF_MUTED)
+        pdf.cell(w - 10, 5, _safe_pdf_text(
+            f"출석 {stats['present']}  ·  지각 {stats['late']}  ·  "
+            f"결석 {stats['absent']}  ·  출석률 {stats['rate']}"
+        ))
+
+        top = y + 24
+        pdf.set_font("NanumGothic", size=7.5)
+        for i, wd in enumerate(_ATT_PDF_WEEKDAYS_KO):
+            pdf.set_xy(x + i * cell, top)
+            color = _ATT_PDF_RED if i == 0 else (_ATT_PDF_MAIN if i == 6 else _ATT_PDF_MUTED)
+            pdf.set_text_color(*color)
+            pdf.set_font("NanumGothic", style=B if i in (0, 6) else "", size=7.5)
+            pdf.cell(cell, 5, wd, align="C")
+        top += 6.5
+
+        r = min(cell, row_h) * 0.42
+        for wi, week in enumerate(weeks):
+            row_y = top + wi * row_h
+            for di, day in enumerate(week):
+                if day == 0:
+                    continue
+                cx = x + di * cell + cell / 2
+                cy = row_y + row_h / 2
+                status = day_status.get(day)
+                if status in ("출석", "지각"):
+                    fill = _ATT_PDF_GOLD if status == "출석" else _ATT_PDF_ORANGE
+                    pdf.set_fill_color(*fill)
+                    pdf.ellipse(cx - r, cy - r, 2 * r, 2 * r, style="F")
+                    pdf.set_text_color(255, 255, 255)
+                    pdf.set_font("NanumGothic", style=B, size=7.2)
+                elif status == "결석":
+                    pdf.set_draw_color(*_ATT_PDF_RED)
+                    pdf.set_line_width(0.55)
+                    pdf.ellipse(cx - r, cy - r, 2 * r, 2 * r, style="D")
+                    pdf.set_text_color(*_ATT_PDF_RED)
+                    pdf.set_font("NanumGothic", style=B, size=7.2)
+                else:
+                    pdf.set_text_color(195, 195, 200)
+                    pdf.set_font("NanumGothic", size=7.2)
+                pdf.set_xy(cx - r, cy - r)
+                pdf.cell(2 * r, 2 * r, str(day), align="C")
+        pdf.set_text_color(0, 0, 0)
+        return card_h
 
     pdf = _AttPDF()
     pdf.set_auto_page_break(auto=True, margin=16)
-    if font_path:
-        pdf.add_font("NanumGothic", fname=font_path)
-    fam = "NanumGothic" if font_path else "Helvetica"
+    pdf.add_font("NanumGothic", fname=font_path)
+    if font_bold_path:
+        pdf.add_font("NanumGothic", style="B", fname=font_bold_path)
     pdf.add_page()
-    pdf.set_font(fam, size=14)
-    pdf.cell(
-        0, 10, _safe_pdf_text(f"출석부 · {month_label}"), new_x="LMARGIN", new_y="NEXT"
-    )
-    pdf.set_font(fam, size=10)
-    pdf.cell(
-        0,
-        8,
-        _safe_pdf_text(f"수업 필터: {class_label}"),
-        new_x="LMARGIN",
-        new_y="NEXT",
-    )
-    pdf.ln(4)
 
-    pdf.set_font(fam, size=11)
-    pdf.cell(0, 8, _safe_pdf_text("학생별 출석 통계"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font(fam, size=9)
+    # ── ① 학생별 출석 통계 ──
+    pdf.section_bar("학생별 출석 통계")
     if summary_df.empty:
-        pdf.multi_cell(0, 6, _safe_pdf_text("해당 기간 출석 기록이 없습니다."))
+        pdf.set_font("NanumGothic", size=9)
+        pdf.multi_cell(0, 6, "해당 기간 출석 기록이 없습니다.")
     else:
-        for _, row in summary_df.iterrows():
-            line = (
-                f"{row.get('student_name', '—')} | {row.get('class_name', '—')} | "
-                f"출석 {row.get('present', 0)} · 지각 {row.get('late', 0)} · "
-                f"결석 {row.get('absent', 0)} · {row.get('attendance_rate', '—')}"
-            )
-            pdf.multi_cell(0, 6, _safe_pdf_text(line))
+        cols = [("학생", 32, "L"), ("수업", 58, "L"), ("출석", 22, "C"),
+                ("지각", 22, "C"), ("결석", 22, "C"), ("출석률", 24, "C")]
+        pdf.table_header(cols)
+        for i, (_, row) in enumerate(summary_df.iterrows()):
+            pdf.ensure_row_space(cols)
+            fill = _ATT_PDF_STRIPE if i % 2 else (255, 255, 255)
+            vals = [row.get("student_name", "—"), row.get("class_name", "—"),
+                    str(row.get("present", 0)), str(row.get("late", 0)),
+                    str(row.get("absent", 0)), str(row.get("attendance_rate", "—"))]
+            pdf.set_font("NanumGothic", size=9)
+            for (label, w, align), v in zip(cols, vals):
+                pdf.set_fill_color(*fill)
+                pdf.cell(w, 7, _safe_pdf_text(v), border=1, align=align, fill=True)
+            pdf.ln()
+    pdf.ln(5)
 
-    pdf.ln(4)
-    pdf.set_font(fam, size=11)
-    pdf.cell(0, 8, _safe_pdf_text("세션별 출석 로그"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font(fam, size=9)
-    if history_df.empty:
-        pdf.multi_cell(0, 6, _safe_pdf_text("세션 로그가 없습니다."))
+    # ── ② 학생별 출석 캘린더 ──
+    pdf.section_bar("학생별 출석 캘린더")
+    students_cal: list[dict] = []
+    for _, srow in summary_df.iterrows():
+        sname = srow.get("student_name", "—")
+        day_status: dict[int, str] = {}
+        if not history_df.empty:
+            sub = history_df[history_df["student_name"] == sname]
+            for _, hrow in sub.iterrows():
+                try:
+                    d = int(pd.to_datetime(hrow["session_date"]).day)
+                except Exception:
+                    continue
+                day_status[d] = hrow.get("status", "")
+        students_cal.append({
+            "name": sname,
+            "class_name": srow.get("class_name", "—"),
+            "stats": {
+                "present": srow.get("present", 0),
+                "late": srow.get("late", 0),
+                "absent": srow.get("absent", 0),
+                "rate": srow.get("attendance_rate", "—"),
+            },
+            "day_status": day_status,
+        })
+
+    if not students_cal:
+        pdf.set_font("NanumGothic", size=9)
+        pdf.multi_cell(0, 6, "해당 기간 출석 기록이 없습니다.")
     else:
+        card_w, gap = 88, 6
+        x0 = pdf.l_margin
+        card_h_est = _att_pdf_calendar_card_height(year, month)
+        col = 0
+        row_top = pdf.get_y()
+        max_h = 0
+        for s in students_cal:
+            if col == 0 and row_top + card_h_est > pdf.h - pdf.b_margin:
+                pdf.add_page()
+                pdf.set_y(pdf.t_margin)
+                row_top = pdf.get_y()
+            x = x0 + col * (card_w + gap)
+            h = draw_student_calendar(pdf, x, row_top, card_w, s["name"],
+                                       s["class_name"], s["stats"], s["day_status"])
+            max_h = max(max_h, h)
+            col += 1
+            if col == 2:
+                col = 0
+                row_top += max_h + 6
+                max_h = 0
+        if col != 0:
+            row_top += max_h + 6
+        pdf.set_y(row_top + 4)
+
+    # ── ③ 확인이 필요한 기록 (지각·결석·비고) ──
+    pdf.section_bar("확인이 필요한 기록 (지각·결석·비고)")
+    exceptions = []
+    if not history_df.empty:
         for _, row in history_df.iterrows():
-            line = (
-                f"{row.get('session_date', '—')} | {row.get('student_name', '—')} | "
-                f"{row.get('class_name', '—')} | {row.get('status', '—')}"
+            status = row.get("status", "")
+            note = str(row.get("note", "") or "").strip()
+            if status != "출석" or note:
+                exceptions.append({
+                    "date": row.get("session_date", "—"),
+                    "student_name": row.get("student_name", "—"),
+                    "class_name": row.get("class_name", "—"),
+                    "status": status,
+                    "note": note,
+                })
+
+    if not exceptions:
+        pdf.set_font("NanumGothic", size=9)
+        pdf.multi_cell(0, 6, "해당 사항 없음 — 전원 정상 출석했습니다.")
+    else:
+        cols = [("날짜", 24, "C"), ("학생", 24, "L"), ("수업", 46, "L"),
+                ("상태", 20, "C"), ("비고", 68, "L")]
+        pdf.table_header(cols)
+        for i, e in enumerate(sorted(exceptions, key=lambda r: r["date"])):
+            pdf.ensure_row_space(cols)
+            fill = _ATT_PDF_STRIPE if i % 2 else (255, 255, 255)
+            status_color = {"지각": _ATT_PDF_ORANGE, "결석": _ATT_PDF_RED}.get(
+                e["status"], (30, 30, 30)
             )
-            pdf.multi_cell(0, 6, _safe_pdf_text(line))
+            vals = [e["date"], e["student_name"], e["class_name"], e["status"],
+                    e["note"] or "—"]
+            for j, ((label, w, align), v) in enumerate(zip(cols, vals)):
+                pdf.set_fill_color(*fill)
+                pdf.set_font("NanumGothic", style=B if j == 3 else "", size=9)
+                if j == 3:
+                    pdf.set_text_color(*status_color)
+                pdf.cell(w, 7, _safe_pdf_text(v), border=1, align=align, fill=True)
+                pdf.set_text_color(30, 30, 30)
+            pdf.ln()
 
     fname = f"출석부_{month_label.replace(' ', '')}_{class_label.replace(' ', '_')}.pdf"
     return bytes(pdf.output()), fname
@@ -6583,6 +6796,8 @@ def page_attendance(classes_df: pd.DataFrame):
                         class_label=hist_cls,
                         summary_df=summary_df,
                         history_df=pdf_history,
+                        year=month_pick.year,
+                        month=month_pick.month,
                     )
                     st.session_state["att_pdf_bytes"] = pdf_bytes
                     st.session_state["att_pdf_fname"] = pdf_fname
