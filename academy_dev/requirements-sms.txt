@@ -1,0 +1,10 @@
+# 야간 자동 SMS 발송(send_hw_nightly_sms.py) 전용 — GitHub Actions에서 사용.
+# 전체 requirements.txt는 weasyprint/PyMuPDF/matplotlib 등 무거운 패키지가
+# 많아서(리눅스 서버에서 설치가 느리거나 실패할 수 있음), 이 스크립트가
+# 실제로 필요로 하는 것만 따로 뽑아둔 최소 목록.
+pandas
+psycopg2-binary
+python-dotenv
+solapi
+requests
+streamlit

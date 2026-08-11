@@ -1,0 +1,950 @@
+"""abc 과제 인증 시스템 — 2단계+4단계: 선생님용 과제 부여·현황 화면.
+
+⚠️ 완전히 새로 추가된 모듈입니다. 기존 app.py / database.py / homework.py의
+   어떤 함수·테이블도 수정하지 않습니다. hw_* 테이블은 1단계에서
+   database.py의 ensure_hw_tables()로 이미 만들어 둔 것을 그대로 씁니다.
+
+이 모듈이 하는 일
+  2단계: 반을 고르면 학생 목록이 뜨고, 과제를 받을 학생을 선택 → 문제집/프린트를
+    항목 단위로 여러 개 등록(페이지 범위형 / 오답정리형) → 저장하면 과제 1건 +
+    학생별 제출현황(업로드 링크 토큰 포함) + 항목들이 한 번에 생성됨.
+  4단계(2026-08-03 추가): 학생별 "인증(사진 업로드) 필요/불필요" 체크 —
+    체크된 학생은 hw_submissions(업로드 추적)를 안 만들어서 "미완료 학생"
+    집계에서 자연히 빠진다. + "미완료 학생 명단" 섹션 — 이름을 누르면 그
+    학생이 과거에 받은 과제들 중 아직 다 못한 것들을 날짜·기한·상태(완료/
+    일부완료/열람 후 미완료/미열람 + 기한초과)와 함께, 항목별로 몇 쪽이
+    남았는지까지 펼쳐서 보여준다(다음 수업 때 추가로 뭘 더 내줘야 할지
+    바로 판단할 수 있게).
+
+아직 안 만든 것 (다음 단계)
+  - 6단계: dev 환경 통합 테스트 (실제 SMS 발송까지 브라우저로 눌러서 확인)
+
+이미 만든 것 (추가)
+  - 출석부 "전 수업 과제" 자동 연동 (2026-08-08): save_assignment() 끝에서
+    homework.save_class_homework(class_id, assigned_date, 항목요약텍스트)를
+    호출해서, 과제를 등록/수정하면 출석부의 "오늘 과제" 메모칸에도 항목
+    목록이 자동으로 채워진다. homework.py는 건드리지 않았고 기존 함수를
+    그대로 호출만 한다. 실패해도 과제 저장 자체는 성공하도록 예외를 감쌌다.
+    단, 이 자동 채움은 출석부 메모를 "덮어쓴다" — 선생님이 출석부에서 직접
+    수동으로 다르게 적어둔 내용이 있으면 다음 과제 저장 때 그 내용이 사라
+    지고 자동 요약으로 대체된다.
+  - 5단계: 학부모 SMS 발송 (2026-08-08): "최근 부여한 과제" 목록의 각 과제
+    아래에 "학부모에게 완료/미완료 문자 발송" 버튼 추가. 기존 성적표 문자
+    인프라(sms_sender.py)를 재사용하되, 성적표는 링크 전송용이라 새로
+    send_text_sms(phone, text) 함수를 sms_sender.py에 추가해서 자유 문구를
+    보낼 수 있게 했다(기존 send_report_sms()는 손 안 댐 — 순수 추가).
+    문구는 항목별 완료/미완료를 요약한 텍스트(설계 메모대로 링크 아님) —
+    _build_hw_sms_text()가 hw_upload.get_items_with_state()로 항목별 진행
+    상태를 가져와 "- 문제집명: 완료" / "- 문제집명: 미완료(0/4쪽)" 형식으로
+    조립한다. 발송 트리거는 교사가 직접 버튼을 누르는 수동 방식(기존 성적표
+    일괄발송 화면과 동일한 UX — 진행률 표시, 성공/실패 집계, 연락처 없는
+    학생 자동 제외)으로 정했다 — 제출 즉시 자동발송이나 마감시간 자동발송은
+    다루지 않음(필요해지면 나중에 추가).
+    아직 검증 안 됨: 실제 SOLAPI_API_KEY/SENDER가 dev .env에 비어있는 채로
+    둔 상태라(운영 SMS 오발송 방지용, CLAUDE.md 참고) 지금 버튼을 눌러도
+    "발신번호가 설정되지 않았습니다" 에러가 날 것이다. 실제 발송 테스트를
+    하려면 본인 명의 테스트 계정/번호로 dev .env에 SOLAPI 키를 채워야 함
+    (운영 발신번호를 그대로 쓰면 안 됨).
+
+Public API:
+  - render_hw_assign_page(classes_df, teacher_id)
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime
+
+import pandas as pd
+import streamlit as st
+
+import homework
+from branding import SMS_GREETING
+from database import ensure_hw_tables
+from db_connect import get_conn
+from hw_photo_review import has_unverified_photos, render_photo_review
+from hw_upload import (
+    compute_display_status,
+    format_page_ranges,
+    get_items_with_state,
+    parse_completed_pages,
+)
+
+_ITEM_TYPE_LABELS = {"page_range": "페이지 범위형", "wrong_note": "오답정리형"}
+
+# dev 환경 로컬 실행 주소. 실제 문자(SMS) 발송은 5단계에서 연결되며, 그때는
+# 배포된 앱 주소(app.py의 APP_BASE_URL)로 바뀐다. 지금은 학생 업로드 화면이
+# 잘 동작하는지 이 링크를 복사해 직접 열어보는 용도로만 쓴다.
+_DEV_LOCAL_BASE_URL = "http://localhost:8502"
+
+
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def _new_token() -> str:
+    return uuid.uuid4().hex[:16]
+
+
+def _read_sql_df(query: str, params: tuple | list = ()) -> pd.DataFrame:
+    """pd.read_sql_query(query, conn, ...) 대신 쓰는 안전한 대체 함수.
+
+    [버그 수정 2026-08-08] 이 프로젝트의 DB 연결(db_connect._CompatConnection)은
+    sqlite3.Connection도 SQLAlchemy 엔진도 아니라서, pandas가 "지원 안 되는
+    DBAPI2 커넥션"으로 보고 예전 방식(legacy) 파서로 처리한다. 실사용
+    테스트에서 이 legacy 파서가 SQL NULL을 파이썬 None이 아니라 문자열
+    "nan"으로 잘못 바꿔버리는 게 발견됐다 — 그래서 한 번도 열람 안 한 학생의
+    hw_submissions.viewed_at(NULL)이 pandas를 거치면 문자열 "nan"이 되고,
+    `if viewed_at:` 같은 참/거짓 검사에서 True로 잘못 판정돼 "열람함"으로
+    표시되는 버그가 있었다(실제로는 한 번도 안 열어봤는데도 "열람 후
+    미완료"로 표시됨).
+
+    conn.execute()로 직접 커서를 얻어 fetchall()한 뒤 DataFrame을 만들면 이
+    legacy 파서를 아예 거치지 않아서 NULL이 파이썬 None 그대로 유지된다.
+    이 모듈의 모든 pd.read_sql_query() 호출을 이 함수로 바꿨다.
+    """
+    conn = get_conn()
+    cur = conn.execute(query, tuple(params))
+    rows = cur.fetchall()
+    cols = [d[0] for d in cur.description]
+    conn.close()
+    # dtype=object을 강제로 지정한다. 사용자 환경의 pandas는
+    # future.infer_string 옵션이 켜져 있어서(pandas 2.x의 신형 문자열 dtype
+    # 자동 추론), 지정 안 하면 이 컬럼에 NaN과 실제 문자열이 섞여 있을 때
+    # pandas가 통째로 "string" dtype으로 자동 변환하면서 NaN을 진짜 결측치가
+    # 아니라 글자 그대로 "nan"이라는 문자열로 바꿔버린다(그러면
+    # `if viewed_at:` 검사가 True로 잘못 판정됨 — 실사용 테스트에서 발견).
+    # dtype=object로 강제하면 각 값이 원래 파이썬 타입(None 포함) 그대로
+    # 유지된다.
+    return pd.DataFrame(rows, columns=cols, dtype=object)
+
+
+def _build_class_homework_summary(items: list[dict]) -> str:
+    """과제 항목 목록을 출석부 "오늘 과제" 메모칸에 넣을 한 줄 요약으로 바꾼다.
+
+    예: "쎈수학 (12~20쪽), 8/1 단원평가 오답정리"
+    """
+    parts: list[str] = []
+    for item in items:
+        name = (item.get("material_name") or "").strip()
+        if not name:
+            continue
+        if (
+            item.get("item_type") == "page_range"
+            and item.get("page_start")
+            and item.get("page_end")
+        ):
+            parts.append(f"{name} ({item['page_start']}~{item['page_end']}쪽)")
+        else:
+            desc = (item.get("description") or "").strip()
+            parts.append(f"{name} 오답정리 ({desc})" if desc else f"{name} 오답정리")
+    return ", ".join(parts)
+
+
+def _build_hw_sms_text(
+    *, student_name: str, assigned_date: str, title: str, item_states_df: pd.DataFrame
+) -> tuple[str, bool]:
+    """학부모에게 보낼 과제 완료/미완료 요약 문자 문구를 만든다.
+
+    [5단계, 2026-08-08] 링크가 아니라 항목별 완료/미완료를 짧은 텍스트로
+    요약해서 보낸다(설계 메모 그대로). 반환값의 두 번째 값(all_done)은
+    이 과제를 전부 끝냈는지 — 발송 UI에서 "완료/미완료" 표시용.
+
+    문자 요금(90바이트 = 단문) 안에 다 안 들어가는 경우가 많을 수 있는데,
+    실제 발송은 sms_sender.send_text_sms()가 그대로 solapi에 넘기고,
+    solapi가 길이에 맞춰 자동으로 장문(LMS)으로 바꿔서 보낸다(기존
+    send_report_sms()도 같은 방식 — 명시적으로 type을 지정하지 않음).
+    """
+    lines: list[str] = []
+    all_done = True
+    for _, irow in item_states_df.iterrows():
+        name = irow["material_name"]
+        has_pages = (
+            irow["item_type"] == "page_range"
+            and pd.notna(irow["page_start"])
+            and pd.notna(irow["page_end"])
+        )
+        if has_pages:
+            page_start, page_end = int(irow["page_start"]), int(irow["page_end"])
+            total_pages = page_end - page_start + 1
+            completed = parse_completed_pages(irow["completed_pages"])
+            full_range = set(range(page_start, page_end + 1))
+            done_pages = completed & full_range
+            if len(done_pages) >= total_pages and total_pages > 0:
+                lines.append(f"- {name}: 완료")
+            else:
+                all_done = False
+                lines.append(f"- {name}: 미완료({len(done_pages)}/{total_pages}쪽)")
+        else:
+            if irow["sub_status"] == "done":
+                lines.append(f"- {name}: 완료")
+            else:
+                all_done = False
+                lines.append(f"- {name}: 미완료")
+
+    overall = "완료" if all_done else "미완료"
+    text = (
+        f"{SMS_GREETING}\n"
+        f"{student_name} 학생 {assigned_date} 과제({title}) 현황 — {overall}\n"
+        + "\n".join(lines)
+    )
+    return text, all_done
+
+
+# ═══════════════════════════════════════════════════════════════
+# 조회
+# ═══════════════════════════════════════════════════════════════
+
+
+def get_students_by_class(class_id: int) -> pd.DataFrame:
+    return _read_sql_df(
+        "SELECT id, name FROM students WHERE class_id = %s ORDER BY name",
+        (class_id,),
+    )
+
+
+def get_recent_assignments(class_id: int | None = None, limit: int = 20) -> pd.DataFrame:
+    ensure_hw_tables()
+    q = """
+        SELECT a.id, a.title, a.assigned_date, a.due_date, c.name AS class_name,
+               COUNT(DISTINCT t.student_id) AS student_count,
+               COUNT(DISTINCT i.id) AS item_count
+        FROM hw_assignments a
+        LEFT JOIN classes c ON c.id = a.class_id
+        LEFT JOIN hw_assignment_targets t ON t.assignment_id = a.id
+        LEFT JOIN hw_items i ON i.assignment_id = a.id
+    """
+    params: list = []
+    if class_id is not None:
+        q += " WHERE a.class_id = %s"
+        params.append(class_id)
+    q += " GROUP BY a.id, a.title, a.assigned_date, a.due_date, c.name ORDER BY a.id DESC LIMIT %s"
+    params.append(limit)
+    return _read_sql_df(q, params)
+
+
+def get_items_for_assignment(assignment_id: int) -> pd.DataFrame:
+    ensure_hw_tables()
+    return _read_sql_df(
+        """
+        SELECT item_type, material_name, page_start, page_end, description
+        FROM hw_items WHERE assignment_id = %s ORDER BY sort_order, id
+        """,
+        (assignment_id,),
+    )
+
+
+def get_assignment_for_class_date(class_id: int, assigned_date: str) -> dict | None:
+    """같은 반 + 같은 날짜에 이미 만든 과제가 있으면 그 정보를 반환한다.
+
+    한 반·한 날짜에는 과제가 하나만 있는 게 자연스럽다고 보고(같은 날 숙제를
+    두 번 저장하면 "새 과제"가 아니라 "수정"으로 취급), 이 함수로 기존 과제를 찾아
+    폼에 미리 채워주고, 저장 시 새로 만들지 않고 그 과제를 업데이트한다.
+    """
+    ensure_hw_tables()
+    conn = get_conn()
+    row = conn.execute(
+        """
+        SELECT id, title, due_date FROM hw_assignments
+        WHERE class_id = ? AND assigned_date = ?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (class_id, assigned_date),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": int(row[0]), "title": row[1] or "", "due_date": row[2] or ""}
+
+
+def get_target_student_ids(assignment_id: int) -> list[int]:
+    ensure_hw_tables()
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT student_id FROM hw_assignment_targets WHERE assignment_id = ?",
+        (assignment_id,),
+    ).fetchall()
+    conn.close()
+    return [int(r[0]) for r in rows]
+
+
+def get_no_certification_student_ids(assignment_id: int) -> list[int]:
+    """이 과제에서 "인증(사진 업로드) 불필요"로 체크된 학생 id 목록."""
+    ensure_hw_tables()
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT student_id FROM hw_assignment_targets "
+        "WHERE assignment_id = ? AND requires_certification = FALSE",
+        (assignment_id,),
+    ).fetchall()
+    conn.close()
+    return [int(r[0]) for r in rows]
+
+
+def get_incomplete_students(class_id: int) -> pd.DataFrame:
+    """이 반에서 인증이 필요한 과제 중 아직 다 못 끝낸 학생 목록(이름만, 중복 없이).
+
+    requires_certification = FALSE로 체크된 학생은 애초에 hw_submissions가
+    안 만들어지므로(save_assignment 참고) 자동으로 이 목록에서 빠진다.
+    """
+    ensure_hw_tables()
+    return _read_sql_df(
+        """
+        SELECT DISTINCT st.id AS student_id, st.name AS student_name
+        FROM hw_submissions s
+        JOIN hw_assignments a ON a.id = s.assignment_id
+        JOIN students st ON st.id = s.student_id
+        WHERE a.class_id = %s AND s.status != 'done'
+        ORDER BY st.name
+        """,
+        (class_id,),
+    )
+
+
+def get_student_assignment_history(student_id: int, class_id: int | None = None) -> pd.DataFrame:
+    """이 학생이 받은 과제(인증 필요한 것만) 이력을 최신순으로 가져온다.
+
+    "다음 수업시간에 조회 가능하게" — 학생을 눌렀을 때 언제 뭘 내줬고
+    기한까지 어떻게 됐는지 한눈에 보려고 만든 함수.
+    """
+    ensure_hw_tables()
+    q = """
+        SELECT a.id AS assignment_id, a.title, a.assigned_date, a.due_date,
+               c.name AS class_name, s.id AS submission_id, s.status, s.viewed_at
+        FROM hw_submissions s
+        JOIN hw_assignments a ON a.id = s.assignment_id
+        LEFT JOIN classes c ON c.id = a.class_id
+        WHERE s.student_id = %s
+    """
+    params: list = [student_id]
+    if class_id is not None:
+        q += " AND a.class_id = %s"
+        params.append(class_id)
+    q += " ORDER BY a.assigned_date DESC, a.id DESC"
+    return _read_sql_df(q, params)
+
+
+def get_submissions_for_assignment(assignment_id: int) -> pd.DataFrame:
+    """이 과제를 받은 학생별 업로드 토큰·제출 상태를 가져온다 (3단계 링크 확인용)."""
+    ensure_hw_tables()
+    return _read_sql_df(
+        """
+        SELECT st.id AS student_id, st.name AS student_name, st.parent_phone,
+               s.id AS submission_id, s.upload_token, s.status, s.viewed_at, s.notified_at
+        FROM hw_submissions s
+        JOIN students st ON st.id = s.student_id
+        WHERE s.assignment_id = %s
+        ORDER BY st.name
+        """,
+        (assignment_id,),
+    )
+
+
+def mark_notified(submission_id: int) -> None:
+    """이 제출건에 학부모 문자를 보냈다고 기록한다(hw_submissions.notified_at).
+
+    [야간 자동발송, 2026-08-11] hw_submissions 테이블에는 1단계 설계 때부터
+    이미 notified_at 컬럼이 있었지만(용도만 예약돼 있었고 실제로 쓰인 적은
+    없었다) 지금까지 아무 데도 안 채워지고 있었다. 이걸 그대로 재사용해서
+    "오늘 이미 문자를 보냈는지" 판단 기준으로 쓴다 — 수동 발송(교사가 버튼
+    누름)과 야간 자동발송이 서로 겹쳐서 같은 학부모에게 문자가 두 번 가는
+    걸 막기 위함. 별도 로그 테이블을 새로 안 만들고 기존 컬럼을 활용한다.
+    """
+    ensure_hw_tables()
+    conn = get_conn()
+    conn.execute(
+        "UPDATE hw_submissions SET notified_at = ? WHERE id = ?",
+        (_now(), submission_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def was_notified_today(notified_at: str | None) -> bool:
+    """notified_at 값이 '오늘'인지 확인한다 (야간 자동발송의 중복 방지 조건)."""
+    if not notified_at:
+        return False
+    return str(notified_at)[:10] == date.today().strftime("%Y-%m-%d")
+
+
+def delete_assignment(assignment_id: int) -> None:
+    """과제 1건을 통째로 삭제한다 (대상 학생·제출현황·항목도 함께 삭제됨)."""
+    ensure_hw_tables()
+    conn = get_conn()
+    conn.execute("DELETE FROM hw_assignments WHERE id = ?", (assignment_id,))
+    conn.commit()
+    conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 저장
+# ═══════════════════════════════════════════════════════════════
+
+
+def save_assignment(
+    *,
+    assignment_id: int | None,
+    class_id: int | None,
+    title: str,
+    assigned_date: str,
+    due_date: str,
+    created_by: int | None,
+    student_ids: list[int],
+    items: list[dict],
+    no_cert_student_ids: set[int] | frozenset[int] = frozenset(),
+) -> tuple[int, bool]:
+    """과제를 저장한다.
+
+    assignment_id가 주어지면(=같은 반·같은 날짜에 이미 과제가 있으면) 그 과제를
+    수정한다 — 선택에서 빠진 학생은 대상·제출현황에서 제거한다.
+    assignment_id가 없으면 새로 만든다.
+
+    항목(item_type + material_name이 같은 것)은 지우고 다시 만들지 않고
+    그 자리에서 업데이트한다. **중요**: 예전엔 항목을 통째로 지우고 다시
+    만들었는데, hw_item_submissions가 item_id를 FK로 물고 있어서(ON DELETE
+    CASCADE) 항목이 삭제되는 순간 학생이 이미 인증한 페이지·사진 기록까지
+    같이 삭제돼버리는 버그가 있었다(실사용 테스트에서 발견 — 학생이 일부
+    제출한 뒤 선생님이 항목을 추가/수정하면 그 진행 기록이 통째로 날아갔음).
+    이제는 이름이 같은 항목은 그대로 두고 페이지 범위·설명만 갱신하므로
+    안전하다. 이름이 아예 바뀌었거나 빠진 항목만 실제로 삭제된다(그 경우엔
+    그 항목의 진행 기록도 같이 없어지는 게 맞다 — 항목 자체가 없어졌으니까).
+
+    no_cert_student_ids: student_ids 중 "인증(사진 업로드) 불필요"로 체크된
+    학생 — 이 학생들은 hw_assignment_targets에는 남지만(과제를 받았다는
+    기록은 유지) hw_submissions(업로드 링크·완료 추적)는 만들지 않는다.
+    반환값: (assignment_id, is_new)
+    """
+    ensure_hw_tables()
+    conn = get_conn()
+    ts = _now()
+    try:
+        is_new = assignment_id is None
+        if is_new:
+            cur = conn.execute(
+                """
+                INSERT INTO hw_assignments (class_id, title, assigned_date, due_date, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+                """,
+                (class_id, title.strip(), assigned_date, due_date, created_by, ts, ts),
+            )
+            assignment_id = int(cur.fetchone()[0])
+        else:
+            conn.execute(
+                "UPDATE hw_assignments SET title = ?, due_date = ?, updated_at = ? WHERE id = ?",
+                (title.strip(), due_date, ts, assignment_id),
+            )
+            existing_targets = {
+                int(r[0])
+                for r in conn.execute(
+                    "SELECT student_id FROM hw_assignment_targets WHERE assignment_id = ?",
+                    (assignment_id,),
+                ).fetchall()
+            }
+            for sid in existing_targets - set(student_ids):
+                conn.execute(
+                    "DELETE FROM hw_submissions WHERE assignment_id = ? AND student_id = ?",
+                    (assignment_id, sid),
+                )
+                conn.execute(
+                    "DELETE FROM hw_assignment_targets WHERE assignment_id = ? AND student_id = ?",
+                    (assignment_id, sid),
+                )
+        for sid in student_ids:
+            requires_cert = sid not in no_cert_student_ids
+            conn.execute(
+                """
+                INSERT INTO hw_assignment_targets (assignment_id, student_id, requires_certification)
+                VALUES (?, ?, ?)
+                ON CONFLICT (assignment_id, student_id)
+                DO UPDATE SET requires_certification = EXCLUDED.requires_certification
+                """,
+                (assignment_id, sid, requires_cert),
+            )
+            if requires_cert:
+                conn.execute(
+                    """
+                    INSERT INTO hw_submissions (assignment_id, student_id, upload_token, status, created_at)
+                    VALUES (?, ?, ?, 'pending', ?)
+                    ON CONFLICT (assignment_id, student_id) DO NOTHING
+                    """,
+                    (assignment_id, sid, _new_token(), ts),
+                )
+
+        # (item_type, material_name)이 같은 기존 항목은 업데이트해서 id를
+        # 유지하고 — id가 유지돼야 hw_item_submissions(학생이 인증한 페이지)가
+        # 안 끊긴다. 같은 이름이 두 번 나오는 경우를 대비해 한 번 매칭된
+        # 기존 항목은 다시 안 쓰도록 표시해둔다.
+        existing_items = {
+            (r[1], r[2]): int(r[0])
+            for r in conn.execute(
+                "SELECT id, item_type, material_name FROM hw_items WHERE assignment_id = ?",
+                (assignment_id,),
+            ).fetchall()
+        }
+        matched_ids: set[int] = set()
+        for idx, item in enumerate(items):
+            name = item["material_name"].strip()
+            existing_id = existing_items.get((item["item_type"], name))
+            if existing_id is not None and existing_id not in matched_ids:
+                matched_ids.add(existing_id)
+                conn.execute(
+                    """
+                    UPDATE hw_items
+                    SET page_start = ?, page_end = ?, description = ?, sort_order = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        item.get("page_start"),
+                        item.get("page_end"),
+                        item.get("description", "").strip(),
+                        idx,
+                        existing_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO hw_items
+                        (assignment_id, item_type, material_name, page_start, page_end, description, sort_order, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        assignment_id,
+                        item["item_type"],
+                        name,
+                        item.get("page_start"),
+                        item.get("page_end"),
+                        item.get("description", "").strip(),
+                        idx,
+                        ts,
+                    ),
+                )
+
+        # 새 목록에 더는 없는(이름이 바뀌었거나 진짜로 빠진) 기존 항목만 삭제.
+        # 이 경우엔 그 항목에 딸린 학생 인증 기록도 같이 없어지는 게 맞다 —
+        # 항목 자체가 더 이상 존재하지 않으니까.
+        for (etype, ename), eid in existing_items.items():
+            if eid not in matched_ids:
+                conn.execute("DELETE FROM hw_items WHERE id = ?", (eid,))
+
+        conn.commit()
+
+        # 출석부 "전 수업 과제" 자동 연동 — 과제를 등록/수정하면 출석부의
+        # "오늘 과제" 메모칸에도 항목 요약이 자동으로 채워진다. homework.py는
+        # 완전히 별도 모듈이라 여기서 손대지 않고 기존 함수만 호출한다.
+        # 이 연동이 실패해도 과제 저장 자체(위 commit)는 이미 끝난 상태를
+        # 유지하도록 예외를 감싼다.
+        if class_id is not None:
+            try:
+                homework.save_class_homework(
+                    class_id, assigned_date, _build_class_homework_summary(items)
+                )
+            except Exception as exc:  # noqa: BLE001
+                st.warning(f"⚠️ 출석부 연동에 실패했습니다(과제 저장은 정상 완료됨): {exc}")
+
+        return assignment_id, is_new
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+# Streamlit UI
+# ═══════════════════════════════════════════════════════════════
+
+
+def render_incomplete_students_section(class_id: int) -> None:
+    """"미완료 학생" 명단 — 이름을 누르면 그 학생이 아직 다 못한 과제들을
+    날짜·기한·상태와 함께, 항목별로 몇 쪽이 남았는지까지 펼쳐서 보여준다.
+
+    다음 수업 때 이걸 보고 추가로 뭘 더 내줄지 판단하는 용도. 완료된 과제는
+    여기 안 뜬다 — 새 수업일이 오면 새 과제가 또 나갈 테니, 지난 과제 완료
+    이력까지 계속 보여줄 필요는 없다는 판단.
+    """
+    st.markdown("#### 미완료 학생")
+    incomplete_df = get_incomplete_students(class_id)
+    if incomplete_df.empty:
+        st.caption("현재 미완료 과제가 있는 학생이 없습니다.")
+        return
+
+    st.caption(f"{len(incomplete_df)}명 — 이름을 눌러 어떤 과제를 얼마나 안 했는지 확인하세요.")
+    for _, srow in incomplete_df.iterrows():
+        sid = int(srow["student_id"])
+        with st.expander(f"🔴 {srow['student_name']}"):
+            hist_df = get_student_assignment_history(sid, class_id=class_id)
+            incomplete_hist = hist_df[hist_df["status"] != "done"]
+            if incomplete_hist.empty:
+                st.caption("미완료 과제가 없습니다.")
+                continue
+
+            for _, hrow in incomplete_hist.iterrows():
+                due_txt = f" · 기한 {hrow['due_date']}" if hrow["due_date"] else ""
+                status_label = compute_display_status(
+                    status=hrow["status"], viewed_at=hrow["viewed_at"], due_date=hrow["due_date"]
+                )
+                st.markdown(f"**{hrow['assigned_date']} · {hrow['title']}**{due_txt} — {status_label}")
+
+                item_states_df = get_items_with_state(
+                    int(hrow["assignment_id"]), int(hrow["submission_id"])
+                )
+                for _, irow in item_states_df.iterrows():
+                    has_pages = (
+                        irow["item_type"] == "page_range"
+                        and pd.notna(irow["page_start"])
+                        and pd.notna(irow["page_end"])
+                    )
+                    if has_pages:
+                        page_start, page_end = int(irow["page_start"]), int(irow["page_end"])
+                        total_pages = page_end - page_start + 1
+                        full_range = set(range(page_start, page_end + 1))
+                        completed = parse_completed_pages(irow["completed_pages"])
+                        done_pages = completed & full_range
+                        remaining = sorted(full_range - completed)
+                        frac = (len(done_pages) / total_pages) if total_pages > 0 else 0.0
+                        # "~"를 그대로 쓰면 마크다운이 취소선으로 오해해서 물결표가
+                        # 사라지고 숫자가 붙어 보이는 버그가 있었다(예: "1~2쪽"이
+                        # "12쪽"처럼 보임) — "\~"로 이스케이프해서 방지.
+                        label = f"{irow['material_name']} ({page_start}\\~{page_end}쪽)"
+                        if remaining:
+                            st.caption(
+                                f"　· {label} — :orange[{len(done_pages)}/{total_pages}쪽] · "
+                                f"남은 페이지: :red[{format_page_ranges(remaining)}]"
+                            )
+                        else:
+                            st.caption(f"　· {label} — :green[완료]")
+                        st.progress(frac)
+                    else:
+                        if irow["sub_status"] == "done":
+                            st.caption(f"　· {irow['material_name']} — :green[완료]")
+                        else:
+                            st.caption(f"　· {irow['material_name']} — :red[미완료]")
+            st.divider()
+
+
+def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> None:
+    ensure_hw_tables()
+
+    st.markdown("### 과제 부여")
+    st.caption(
+        "반을 고르고 학생과 문제집/프린트 항목을 등록하면, 학생별 제출 현황이 자동으로 만들어집니다. "
+        "(학생 업로드 화면·자동 알림은 다음 단계에서 연결됩니다)"
+    )
+
+    if classes_df.empty:
+        st.info("등록된 수업이 없습니다. 먼저 '내 수업 관리'에서 수업을 만들어 주세요.")
+        return
+
+    class_opts = {row["name"]: int(row["id"]) for _, row in classes_df.iterrows()}
+    sel_cls_name = st.selectbox("반 선택", list(class_opts.keys()), key="hw_assign_class")
+    sel_cls_id = class_opts[sel_cls_name]
+
+    students_df = get_students_by_class(sel_cls_id)
+    if students_df.empty:
+        st.warning("이 반에 등록된 학생이 없습니다.")
+        return
+
+    # 부여일도 폼 밖에 둔다 — 날짜를 바꾸는 순간 "이 반·이 날짜에 이미 과제가
+    # 있는지" 바로 조회해서 폼에 미리 채워줘야 하기 때문 (폼 안에서는 즉시
+    # 리렌더가 안 됨).
+    assigned_d = st.date_input("부여일", value=date.today(), key="hw_assign_date")
+    assigned_date_str = assigned_d.strftime("%Y-%m-%d")
+
+    existing = get_assignment_for_class_date(sel_cls_id, assigned_date_str)
+    editing_id = existing["id"] if existing else None
+    # 반·날짜 조합마다 고유한 위젯 key를 써서, 반/날짜를 바꾸면 자동으로
+    # 그 조합에 저장된 값(또는 빈 값)이 뜨게 한다. → 같은 날짜에 여러 번
+    # 저장해도 "새 과제"가 아니라 "그 과제 수정"이 된다.
+    ctx = f"{sel_cls_id}_{assigned_date_str}"
+
+    if existing:
+        st.info(
+            f"📌 이 반은 {assigned_date_str}에 이미 '{existing['title']}' 과제가 있습니다. "
+            "그대로 저장하면 새로 만들지 않고 이 과제를 수정합니다."
+        )
+        existing_items_df = get_items_for_assignment(existing["id"])
+        default_target_ids = set(get_target_student_ids(existing["id"]))
+        default_no_cert_ids = set(get_no_certification_student_ids(existing["id"]))
+    else:
+        existing_items_df = pd.DataFrame()
+        default_target_ids = set(int(x) for x in students_df["id"])  # 기본: 반 전체
+        default_no_cert_ids = set()
+
+    item_count_key = f"hw_assign_item_count_{ctx}"
+    if item_count_key not in st.session_state:
+        st.session_state[item_count_key] = max(1, len(existing_items_df))
+
+    c_add, c_remove, _sp = st.columns([1, 1, 4])
+    with c_add:
+        if st.button("+ 항목 추가", key=f"hw_assign_item_add_{ctx}"):
+            st.session_state[item_count_key] += 1
+    with c_remove:
+        if st.button("- 항목 제거", key=f"hw_assign_item_remove_{ctx}"):
+            st.session_state[item_count_key] = max(1, st.session_state[item_count_key] - 1)
+
+    item_count = st.session_state[item_count_key]
+
+    with st.form(f"hw_assign_form_{ctx}"):
+        default_title = existing["title"] if existing else f"{assigned_d.month}/{assigned_d.day} 숙제"
+        title = st.text_input(
+            "과제 이름", value=default_title, key=f"hw_assign_title_{ctx}"
+        )
+        due_default = None
+        if existing and existing["due_date"]:
+            try:
+                due_default = datetime.strptime(existing["due_date"], "%Y-%m-%d").date()
+            except ValueError:
+                due_default = None
+        due_d = st.date_input(
+            "제출 기한 (선택)", value=due_default, key=f"hw_assign_due_{ctx}"
+        )
+
+        st.markdown("**받을 학생 선택**")
+        student_names = list(students_df["name"])
+        id_to_name = {int(r["id"]): r["name"] for _, r in students_df.iterrows()}
+        default_names = [id_to_name[sid] for sid in default_target_ids if sid in id_to_name]
+        sel_student_names = st.multiselect(
+            "학생",
+            student_names,
+            default=default_names,
+            key=f"hw_assign_students_{ctx}",
+            label_visibility="collapsed",
+        )
+
+        no_cert_default_names = [
+            id_to_name[sid]
+            for sid in default_no_cert_ids
+            if sid in id_to_name and id_to_name[sid] in sel_student_names
+        ]
+        no_cert_names = st.multiselect(
+            "이 중 인증(사진 업로드) 불필요한 학생 (선택)",
+            sel_student_names,
+            default=no_cert_default_names,
+            key=f"hw_assign_nocert_{ctx}",
+            help="체크한 학생은 과제는 받지만 업로드 링크·완료 추적 없이 진행됩니다.",
+        )
+
+        st.markdown("**문제집 / 프린트 항목**")
+        item_inputs: list[dict] = []
+        for i in range(item_count):
+            prev = (
+                existing_items_df.iloc[i]
+                if i < len(existing_items_df)
+                else None
+            )
+            with st.container(border=True):
+                ic1, ic2 = st.columns([2, 1])
+                with ic1:
+                    material_name = st.text_input(
+                        f"항목 {i + 1} — 문제집/프린트 이름",
+                        value=str(prev["material_name"]) if prev is not None else "",
+                        key=f"hw_item_name_{ctx}_{i}",
+                        placeholder="예: 쎈 수학(상)",
+                    )
+                with ic2:
+                    default_type_idx = 0
+                    if prev is not None and prev["item_type"] == "wrong_note":
+                        default_type_idx = 1
+                    item_type_label = st.radio(
+                        "유형",
+                        list(_ITEM_TYPE_LABELS.values()),
+                        index=default_type_idx,
+                        key=f"hw_item_type_{ctx}_{i}",
+                        horizontal=True,
+                    )
+                item_type = (
+                    "page_range" if item_type_label == "페이지 범위형" else "wrong_note"
+                )
+
+                pc1, pc2 = st.columns(2)
+                if item_type == "page_range":
+                    ps_label, pe_label = "시작 페이지", "끝 페이지"
+                    desc_label, desc_ph = "추가 설명 (선택)", "예: 홀수 번호만"
+                else:
+                    ps_label, pe_label = "시작 페이지 (선택)", "끝 페이지 (선택)"
+                    desc_label, desc_ph = "오답정리 대상", "예: 8/1 단원평가 오답정리"
+
+                prev_ps = int(prev["page_start"]) if prev is not None and pd.notna(prev["page_start"]) else 0
+                prev_pe = int(prev["page_end"]) if prev is not None and pd.notna(prev["page_end"]) else 0
+                prev_desc = str(prev["description"]) if prev is not None and pd.notna(prev["description"]) else ""
+
+                with pc1:
+                    page_start = st.number_input(
+                        ps_label, min_value=0, step=1, value=prev_ps, key=f"hw_item_ps_{ctx}_{i}"
+                    )
+                with pc2:
+                    page_end = st.number_input(
+                        pe_label, min_value=0, step=1, value=prev_pe, key=f"hw_item_pe_{ctx}_{i}"
+                    )
+                description = st.text_input(
+                    desc_label, value=prev_desc, key=f"hw_item_desc_{ctx}_{i}", placeholder=desc_ph
+                )
+                item_inputs.append(
+                    {
+                        "item_type": item_type,
+                        "material_name": material_name,
+                        "page_start": int(page_start) or None,
+                        "page_end": int(page_end) or None,
+                        "description": description,
+                    }
+                )
+
+        save_label = "과제 수정 저장" if existing else "과제 저장"
+        save_btn = st.form_submit_button(save_label, width="stretch", type="primary")
+
+    if save_btn:
+        if not title.strip():
+            st.error("과제 이름을 입력해주세요.")
+            return
+        if not sel_student_names:
+            st.error("학생을 최소 1명 선택해주세요.")
+            return
+        valid_items = [it for it in item_inputs if it["material_name"].strip()]
+        if not valid_items:
+            st.error("문제집/프린트 항목을 최소 1개 입력해주세요.")
+            return
+
+        name_to_id = {r["name"]: int(r["id"]) for _, r in students_df.iterrows()}
+        student_ids = [name_to_id[n] for n in sel_student_names]
+        # sel_student_names는 폼이 마지막으로 그려질 때 기준이라, 그 사이에
+        # 학생 선택을 바꿨다면 no_cert_names에 이번엔 빠진 이름이 남아있을 수
+        # 있다 — 최종 student_ids와 교집합만 사용해서 안전하게 거른다.
+        no_cert_ids = {name_to_id[n] for n in no_cert_names if n in name_to_id} & set(student_ids)
+
+        _assignment_id, is_new = save_assignment(
+            assignment_id=editing_id,
+            class_id=sel_cls_id,
+            title=title,
+            assigned_date=assigned_date_str,
+            due_date=due_d.strftime("%Y-%m-%d") if due_d else "",
+            created_by=teacher_id,
+            student_ids=student_ids,
+            items=valid_items,
+            no_cert_student_ids=no_cert_ids,
+        )
+        msg = "새 과제가 저장되었습니다!" if is_new else "과제가 수정되었습니다!"
+        st.success(f"{msg} (학생 {len(student_ids)}명, 항목 {len(valid_items)}개)")
+        st.rerun()
+
+    st.divider()
+    render_incomplete_students_section(sel_cls_id)
+
+    st.divider()
+    st.markdown("#### 최근 부여한 과제")
+    recent_df = get_recent_assignments(class_id=sel_cls_id)
+    if recent_df.empty:
+        st.caption("아직 이 반에 부여한 과제가 없습니다.")
+        return
+
+    for _, row in recent_df.iterrows():
+        due_txt = f" · 기한 {row['due_date']}" if row["due_date"] else ""
+        with st.expander(
+            f"{row['assigned_date']} · {row['title']} — 학생 {row['student_count']}명, "
+            f"항목 {row['item_count']}개{due_txt}"
+        ):
+            items_df = get_items_for_assignment(int(row["id"]))
+            if items_df.empty:
+                st.caption("항목 없음")
+            else:
+                disp = items_df.copy()
+                disp["item_type"] = disp["item_type"].map(_ITEM_TYPE_LABELS)
+                disp.columns = ["유형", "문제집/프린트", "시작p", "끝p", "설명"]
+                st.dataframe(disp, width="stretch", hide_index=True)
+
+            subs_df = get_submissions_for_assignment(int(row["id"]))
+            if not subs_df.empty:
+                st.markdown(
+                    "**학생별 업로드 링크** (dev 테스트용 — 실제 배포 시 SMS로 자동 발송됨)"
+                )
+                for _, srow in subs_df.iterrows():
+                    link = f"{_DEV_LOCAL_BASE_URL}/?hw={srow['upload_token']}"
+                    status_label = compute_display_status(
+                        status=srow["status"], viewed_at=srow["viewed_at"], due_date=row["due_date"]
+                    )
+                    notified_txt = " · 📨 오늘 문자 발송함" if was_notified_today(srow.get("notified_at")) else ""
+                    st.caption(f"{srow['student_name']} — {status_label}{notified_txt}")
+                    st.code(link, language=None)
+
+                    # [2026-08-11] 제출 사진 확인 — "페이지 수만 맞으면 통과"
+                    # 되던 빈틈을 메우려고 추가. AI가 1차로 페이지번호를 읽어
+                    # 참고 배지를 붙여주지만, 최종 확인은 선생님이 사진을 직접
+                    # 보고 버튼을 눌러야 한다(hw_photo_review.py 참고).
+                    # st.expander는 이미 바깥이 expander라 중첩이 안 돼서
+                    # (Streamlit 제약) 체크박스로 펼침/접힘을 대신한다.
+                    if st.checkbox(
+                        f"📷 {srow['student_name']} 제출 사진 보기",
+                        key=f"hwphoto_toggle_{int(row['id'])}_{int(srow['submission_id'])}",
+                    ):
+                        render_photo_review(
+                            int(row["id"]), int(srow["submission_id"]), srow["student_name"]
+                        )
+
+                # ── [5단계, 2026-08-08] 학부모 문자 발송 ──────────────────
+                # 항목별 완료/미완료를 요약한 텍스트를 솔라피 SMS로 보낸다
+                # (링크 아님 — 성적표 문자와 다른 문구 형식). 기존 성적표
+                # 일괄발송(app.py)과 같은 패턴: 진행률 표시 + 성공/실패 집계 +
+                # 연락처 없는 학생은 자동 제외.
+                _n_no_phone = sum(1 for _, s in subs_df.iterrows() if not s.get("parent_phone"))
+                if _n_no_phone:
+                    st.caption(
+                        f"⚠️ 연락처가 없는 학생 {_n_no_phone}명은 발송 대상에서 제외됩니다."
+                    )
+                targets = [s for _, s in subs_df.iterrows() if s.get("parent_phone")]
+                if st.button(
+                    f"📱 학부모에게 완료/미완료 문자 발송 ({len(targets)}명)",
+                    key=f"hw_sms_send_{int(row['id'])}",
+                ):
+                    from sms_sender import send_text_sms
+
+                    progress = st.progress(0, text="문자 발송 중...")
+                    ok_count = 0
+                    fail_msgs: list[str] = []
+                    pending_review: list[str] = []
+                    for i, srow in enumerate(targets):
+                        try:
+                            # [2026-08-11] 선생님이 아직 확인 안 한 사진이
+                            # 있으면 이 학생은 이번 발송에서 건너뛴다 —
+                            # "미완료"로 잘못 단정하지 않고 그냥 미발송으로
+                            # 둔다(사용자 요청). 검증 끝나면 다음 발송(수동
+                            # 다시 누르거나 야간 자동발송)에 포함된다.
+                            if has_unverified_photos(int(row["id"]), int(srow["submission_id"])):
+                                pending_review.append(srow["student_name"])
+                                progress.progress(
+                                    (i + 1) / len(targets),
+                                    text=f"문자 발송 중... ({i + 1}/{len(targets)}명)",
+                                )
+                                continue
+
+                            item_states_df = get_items_with_state(
+                                int(row["id"]), int(srow["submission_id"])
+                            )
+                            text, _ = _build_hw_sms_text(
+                                student_name=srow["student_name"],
+                                assigned_date=row["assigned_date"],
+                                title=row["title"],
+                                item_states_df=item_states_df,
+                            )
+                            result = send_text_sms(srow["parent_phone"], text)
+                            if result["success"]:
+                                ok_count += 1
+                                # 오늘 문자를 보냈다고 기록 — 밤 자동발송이 오늘
+                                # 이미 보낸 학생에게 또 안 보내도록 참고하는 값.
+                                mark_notified(int(srow["submission_id"]))
+                            else:
+                                fail_msgs.append(f"{srow['student_name']}: {result['message']}")
+                        except Exception as e:  # noqa: BLE001
+                            fail_msgs.append(f"{srow['student_name']}: {e}")
+                        progress.progress(
+                            (i + 1) / len(targets), text=f"문자 발송 중... ({i + 1}/{len(targets)}명)"
+                        )
+                    progress.empty()
+                    st.success(f"✅ 문자 발송 완료 — 성공 {ok_count}명 / 대상 {len(targets)}명")
+                    if pending_review:
+                        st.warning(
+                            "⏸️ 선생님 확인 대기 중이라 건너뜀(미완료 아님 — 사진 확인 후 다시 "
+                            "발송해주세요): " + ", ".join(pending_review)
+                        )
+                    for msg in fail_msgs:
+                        st.error(msg)
+
+            if st.button("🗑️ 이 과제 삭제", key=f"hw_assign_delete_{int(row['id'])}"):
+                delete_assignment(int(row["id"]))
+                st.rerun()

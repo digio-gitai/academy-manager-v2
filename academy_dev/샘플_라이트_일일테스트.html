@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=834">
+<title>이바보 학습 성취 보고서</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+                 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+    background: #EFF2F8;
+    color: #1F2A44;
+  }
+
+  /* ── A4 페이지 ── */
+  .page {
+    width: 794px;              /* A4 폭 210mm ≈ 794px */
+    margin: 0 auto;
+    background: #FFFFFF;
+    padding: 26px 30px 36px;
+    box-shadow: 0 4px 30px rgba(31,42,68,0.10);
+  }
+
+  /* ── 헤더 밴드 (탭이 밴드 하단에 붙는 구조) ── */
+  .hero {
+    background: #4A7CFF;
+    border-radius: 22px;
+    padding: 26px 28px 0 26px;
+  }
+  .hero-main {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+  }
+  .hero-logo {
+    width: 108px;
+    height: 108px;
+    background: #FFFFFF;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .logo-img {
+    width: 84%;
+    height: 84%;
+    object-fit: contain;
+  }
+  .logo-fallback {
+    font-family: 'Arial Black', 'Malgun Gothic', sans-serif;
+    font-size: 17px;
+    font-weight: 900;
+    color: #231F20;
+    letter-spacing: 1px;
+    position: relative;
+  }
+  .logo-fallback span {
+    color: #F5C400;
+    font-size: 14px;
+    position: relative;
+    top: -7px;
+  }
+  .hero-text {
+    flex: 1;
+    text-align: center;
+    padding-right: 40px;
+  }
+  .hero-text h1 {
+    color: #FFFFFF;
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    margin-bottom: 7px;
+  }
+  .hero-sub {
+    color: rgba(255,255,255,0.85);
+    font-size: 13px;
+    letter-spacing: 0.3px;
+  }
+
+  /* ── 시험 유형 탭 (파란 밴드 안쪽 하단, 활성 탭이 흰 본문과 이어짐) ── */
+  .tab-row {
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    display: inline-block;
+    padding: 10px 18px;
+    border-radius: 10px 10px 0 0;
+    font-size: 13px;
+    font-weight: 700;
+    background: transparent;
+    color: #FFFFFF;
+    border: 1.5px solid rgba(255,255,255,0.9);
+    border-bottom: none;
+    text-decoration: none;
+  }
+  .tab.active {
+    background: #FFFFFF;
+    color: #4A7CFF;
+    border-color: #FFFFFF;
+    font-weight: 800;
+  }
+  .tab.disabled {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.35);
+    color: rgba(255,255,255,0.55);
+    cursor: default;
+    pointer-events: none;
+  }
+  .date-row {
+    display: flex;
+    gap: 6px;
+    margin: 12px 4px 0;
+    flex-wrap: wrap;
+  }
+  .date-chip {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #EEF3FF;
+    color: #4A7CFF;
+    border: 1px solid #C9D9FF;
+    text-decoration: none;
+  }
+  .date-chip.active {
+    background: #4A7CFF;
+    color: #FFFFFF;
+    border-color: #4A7CFF;
+  }
+
+  /* ── 인사말 ── */
+  .greeting {
+    font-size: 13px;
+    color: #5B6B8C;
+    line-height: 1.7;
+    margin: 14px 4px 26px;
+  }
+
+  /* ── 섹션 제목 (● 파란점 + 제목) ── */
+  .sec-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 800;
+    color: #1F2A44;
+    margin: 0 0 14px 2px;
+  }
+  .sec-title::before {
+    content: '';
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #4A7CFF;
+    flex-shrink: 0;
+  }
+  .sec-title small {
+    font-size: 12px;
+    font-weight: 600;
+    color: #4A7CFF;
+    margin-left: 2px;
+  }
+  .section { margin-bottom: 34px; }
+
+  /* ── 시험 정보 카드 ── */
+  .info-card {
+    background: #FFFFFF;
+    border: 1.5px solid #BFD3FF;
+    border-radius: 18px;
+    padding: 24px 28px;
+  }
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px 16px;
+  }
+  .info-item label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #4A7CFF;
+    display: block;
+    margin-bottom: 5px;
+  }
+  .info-item span {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1F2A44;
+  }
+
+  /* ── KPI 카드 ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .kpi-card {
+    background: #FFFFFF;
+    border: 1.5px solid #BFD3FF;
+    border-radius: 16px;
+    padding: 22px 16px 18px;
+    text-align: center;
+    box-shadow: 0 6px 14px rgba(74,124,255,0.10);
+  }
+  .kpi-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1F2A44;
+    margin-bottom: 10px;
+  }
+  .kpi-value {
+    font-size: 42px;
+    font-weight: 800;
+    color: #4A7CFF;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+  .kpi-unit {
+    font-size: 16px;
+    font-weight: 700;
+    color: #4A7CFF;
+    margin-left: 1px;
+  }
+  .kpi-sub {
+    font-size: 12px;
+    color: #5B6B8C;
+    margin-top: 8px;
+  }
+
+  /* ── 차트 카드 ── */
+  .chart-card {
+    background: #FFFFFF;
+    border: 1.5px solid #E3E8F2;
+    border-radius: 18px;
+    padding: 22px 24px;
+  }
+  .chart-wrap {
+    position: relative;
+    height: 250px;
+  }
+
+  /* ── 유형별 진단: 대표 우수/취약 박스 ── */
+  .type-rep-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .type-rep-box {
+    border-radius: 16px;
+    padding: 0 0 10px;
+    border: 1.5px solid #E3E8F2;
+    overflow: hidden;
+    background: #FFFFFF;
+  }
+  .type-rep-box.rep-good { border-color: #BFD3FF; }
+  .type-rep-box.rep-bad  { border-color: #FCD0DD; }
+  .type-rep-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #FFFFFF;
+    text-align: center;
+    padding: 9px 0;
+    margin-bottom: 8px;
+  }
+  .rep-good .type-rep-title { background: #4A7CFF; }
+  .rep-bad  .type-rep-title { background: #F986A7; }
+  .type-rep-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 18px;
+    font-size: 13px;
+  }
+  .type-rep-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .rep-good .type-rep-dot { background: #4A7CFF; }
+  .rep-bad  .type-rep-dot { background: #F986A7; }
+  .type-rep-label { color: #1F2A44; font-weight: 600; font-size: 13px; }
+  .type-rep-empty { color: #8A93A6; font-size: 13px; padding: 7px 18px; }
+
+  /* ── 유형별 진단: 단원별 바 리스트 ── */
+  .type-row-box {
+    background: #FFFFFF;
+    border: 1.5px solid #E3E8F2;
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .type-row-box:last-child { margin-bottom: 0; }
+  .type-row-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .type-row-label {
+    font-size: 14px;
+    color: #1F2A44;
+    font-weight: 700;
+    flex: 1;
+  }
+  .type-row-count {
+    font-size: 11px;
+    color: #8A93A6;
+    margin-right: 6px;
+  }
+  .type-row-pct {
+    font-size: 15px;
+    font-weight: 800;
+    color: #1F2A44;
+    min-width: 42px;
+    text-align: right;
+  }
+  .type-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 12px;
+    flex-shrink: 0;
+    color: #FFFFFF;
+  }
+  .type-badge-good { background: #4A7CFF; }
+  .type-badge-bad  { background: #F986A7; }
+  .type-bar-bg {
+    background: #EEF1F6;
+    border-radius: 5px;
+    height: 9px;
+    overflow: hidden;
+  }
+  .type-bar-fill {
+    height: 100%;
+    border-radius: 5px;
+  }
+
+  /* ── 오답 문항 카드 ── */
+  .wrong-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .wrong-card {
+    background: #FFFFFF;
+    border: 1.5px solid #FCD0DD;
+    border-radius: 16px;
+    padding: 18px 22px;
+  }
+  .wrong-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .wrong-card-num {
+    background: #F986A7;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    padding: 4px 14px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .wrong-card-topic {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1F2A44;
+    flex: 1;
+  }
+  .wrong-card-diff {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 12px;
+    border-radius: 12px;
+    white-space: nowrap;
+    border: 1.5px solid transparent;
+  }
+  /* 난이도: 최상 → 하 (확정 색상표) */
+  .diff-A { background:#FF5555; color:#FFFFFF; border-color:#FF5555; }
+  .diff-B { background:#4A7CFF; color:#FFFFFF; border-color:#4A7CFF; }
+  .diff-C { background:#13AE67; color:#FFFFFF; border-color:#13AE67; }
+  .diff-D { background:#8FC31F; color:#FFFFFF; border-color:#8FC31F; }
+  .diff-E { background:#F8B62D; color:#FFFFFF; border-color:#F8B62D; }
+  .diff-default { background:#F0F2F6; color:#6B7280; border-color:#D8DCE4; }
+  .wrong-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .wrong-card-method-label {
+    font-size: 11px;
+    color: #8A93A6;
+    font-weight: 600;
+  }
+  .wrong-card-method {
+    background: #EEF3FF;
+    color: #4A7CFF;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 12px;
+    border-radius: 10px;
+  }
+  .wrong-card-comment {
+    background: #FDF2F5;
+    border: 1px solid #FAD8E2;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #A0455E;
+    line-height: 1.7;
+  }
+  .wrong-badge {
+    background: #FDEEF2;
+    border: 1.5px solid #F986A7;
+    color: #E14D67;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 30px;
+    display: inline-block;
+  }
+  .wrong-card-no-detail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .no-wrong {
+    background: #E8F8EF;
+    border: 1.5px solid #86EFAC;
+    color: #16A34A;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 30px;
+    display: inline-block;
+  }
+
+  /* ── 선생님이 전하는 말 ── */
+  .comment-card {
+    background: #FFFFFF;
+    border: 1.5px solid #BFD3FF;
+    border-radius: 18px;
+    padding: 26px 30px;
+  }
+  .comment-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 800;
+    color: #1F2A44;
+    margin-bottom: 14px;
+  }
+  .comment-title::before {
+    content: '';
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: #4A7CFF;
+  }
+  .comment-text {
+    color: #3A4763;
+    font-size: 14px;
+    line-height: 1.9;
+  }
+
+  /* ── 프리미엄: 월간 누적 분석 ── */
+  .mini-kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .month-list {
+    background: #FFFFFF;
+    border: 1.5px solid #E3E8F2;
+    border-radius: 16px;
+    padding: 10px 20px;
+    margin-bottom: 18px;
+  }
+  .month-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 2px;
+    border-bottom: 1px solid #EEF1F6;
+    font-size: 13px;
+  }
+  .month-row:last-child { border-bottom: none; }
+  .month-date { color: #8A93A6; font-size: 12px; min-width: 84px; }
+  .month-name { flex: 1; font-weight: 600; color: #1F2A44; }
+  .month-score { font-weight: 800; color: #4A7CFF; font-size: 14px; }
+  .delta-up   { color: #13AE67; font-weight: 700; }
+  .delta-down { color: #FF5555; font-weight: 700; }
+
+  /* ── 푸터 ── */
+  .footer {
+    text-align: center;
+    padding-top: 26px;
+    margin-top: 6px;
+    color: #8A93A6;
+    font-size: 11px;
+    border-top: 1px solid #E3E8F2;
+  }
+  .footer strong { color: #1F2A44; }
+
+  /* ── 인쇄 (A4) ── */
+  @page { size: A4; margin: 8mm; }
+  @media print {
+    body { background: #FFFFFF; }
+    .page {
+      width: auto;
+      box-shadow: none;
+      padding: 0;
+    }
+    .tab-row, .date-row { display: none; }
+    .hero { padding-bottom: 26px; }
+    .section, .kpi-card, .info-card, .chart-card,
+    .wrong-card, .comment-card, .type-rep-box, .type-row-box {
+      break-inside: avoid;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- 헤더 (탭 포함 파란 밴드) -->
+  <div class="hero">
+    <div class="hero-main">
+      <div class="hero-logo"><img src="data:image/png;base64,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" class="logo-img" alt="학원 로고"></div>
+      <div class="hero-text">
+        <h1>이바보 학생 보고서</h1>
+        <div class="hero-sub">중1 테스트반 &nbsp;·&nbsp; 2026년 07월 19일</div>
+      </div>
+    </div>
+    <!-- 시험 유형 탭 (학부모 열람 페이지에서 실시간 링크로 치환됨) -->
+    <div class="tab-row"><!--TABS_START--><span class="tab active">일일테스트</span><span class="tab">주간테스트</span><span class="tab">월간테스트</span><span class="tab">단원테스트</span><span class="tab">기타</span><!--TABS_END--></div>
+  </div>
+  <!--DATES_START--><!--DATES_END-->
+
+  <!-- 인사말 -->
+  <div class="greeting">
+    안녕하세요, 사과나무 학원 정재훈 강사입니다.<br>이바보 학생의 학습 결과 보고서를 보내드립니다.
+  </div>
+
+  
+
+  <!-- 핵심 지표 -->
+  <div class="section">
+    <div class="sec-title">핵심 지표</div>
+    <div class="kpi-grid">
+      
+    <div class="kpi-card">
+      <div class="kpi-label">이번 점수</div>
+      <div class="kpi-value">80<span class="kpi-unit">점</span></div>
+      <div class="kpi-sub">정답률 80.0%</div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-label">반 평균</div>
+      <div class="kpi-value">80.0<span class="kpi-unit">점</span></div>
+      <div class="kpi-sub">평균 대비 +0.0점</div>
+    </div>
+    </div>
+  </div>
+
+  <!-- 유형별 진단 -->
+  
+
+  <!-- 오답 문항 분석 -->
+  <div class="section">
+    <div class="sec-title">오답 문항 분석</div>
+    <div class="wrong-card-no-detail"><span class="wrong-badge">3번 · 이차방정식</span><span class="wrong-badge">8번 · 이차함수</span></div>
+  </div>
+
+  
+  <div class="section">
+    <div class="comment-card">
+      <div class="comment-title">오늘의 한줄 요약</div>
+      <div class="comment-text">오늘 10문항 중 8문항을 맞혔습니다. 이차방정식 1문항, 이차함수 1문항이 아쉬웠고, 다음 수업에서 함께 복습하겠습니다.</div>
+    </div>
+  </div>
+
+  <!-- 최근 점수 추이 -->
+  
+  <div class="section">
+    <div class="sec-title">최근 점수 추이</div>
+    <div class="chart-card">
+      <div class="chart-wrap"><canvas id="historyChart"></canvas></div>
+    </div>
+  </div>
+  
+
+  <!-- 반 분포 곡선 -->
+  
+
+  
+
+  
+
+  <!-- 푸터 -->
+  <div class="footer">
+    <strong>사과나무 학원</strong> &nbsp;·&nbsp; 본 보고서는 AI 분석을 기반으로 작성되었습니다.<br>
+    생성일시: 2026.07.19 23:07
+  </div>
+
+</div>
+
+<script>
+
+        const hLabels = ["7/14 일일", "7/15 일일", "7/16 일일", "7/17 일일", "7/18 일일", "7/19 일일"];
+        const hScores = [70, 60, 90, 80, 70, 80];
+        const hColors = hScores.map((v, i) => i === hScores.length - 1 ? '#4A7CFF' : '#C9CFDA');
+        new Chart(document.getElementById('historyChart'), {
+            type: 'bar',
+            data: {
+                labels: hLabels,
+                datasets: [{
+                    data: hScores,
+                    backgroundColor: hColors,
+                    borderRadius: 6,
+                    maxBarThickness: 36,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: ctx => ctx.parsed.y + '점' } }
+                },
+                scales: {
+                    y: {
+                        min: 0, max: 100,
+                        grid: { color: 'rgba(31,42,68,0.07)' },
+                        ticks: { color: '#5B6B8C', callback: v => v + '점' }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#5B6B8C', maxRotation: 30 }
+                    }
+                }
+            }
+        });
+        
+</script>
+
+</body>
+</html>

@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>학생 수학 성적 분석 보고서</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  /* ── RESET & BASE ─────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --c-main:     #1a5fd4;
+    --c-accent:   #e85d26;
+    --c-positive: #1a7a4a;
+    --c-negative: #cc2e2e;
+    --c-purple:   #9b5de5;
+    --c-teal:     #1a9e75;
+    --c-text:     #1a1a1a;
+    --c-muted:    #666;
+    --c-border:   #e2e2e2;
+    --c-bg:       #f7f8fc;
+    --page-w:     794px;   /* A4 width at 96dpi */
+    --page-h:     1123px;  /* A4 height at 96dpi */
+    --pad:        30px;
+  }
+
+  html, body {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px;
+    color: var(--c-text);
+    background: #e8eaef;
+  }
+
+  /* ── PAGE ─────────────────────────────────────── */
+  .page {
+    width: var(--page-w);
+    min-height: var(--page-h);
+    background: #fff;
+    margin: 20px auto;
+    padding: var(--pad);
+    border: 0.5px solid #ccc;
+    position: relative;
+    page-break-after: always;
+  }
+
+  /* ── HEADER ───────────────────────────────────── */
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 2.5px solid var(--c-main);
+  }
+  .h-student-tag  { font-size: 11px; color: var(--c-muted); margin-bottom: 3px; }
+  .h-student-name { font-size: 16px; font-weight: 700; }
+  .h-center       { text-align: center; }
+  .h-report-type  { font-size: 10px; font-weight: 700; letter-spacing: 2.5px; color: var(--c-main); margin-bottom: 5px; }
+  .h-exam-title   { font-size: 14px; font-weight: 700; }
+  .h-logo {
+    width: 68px; height: 44px;
+    background: var(--c-main);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .h-logo span { color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 1.4; }
+
+  /* ── SECTION TITLE ────────────────────────────── */
+  .sec-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .sec-title::before {
+    content: '';
+    display: inline-block;
+    width: 3px; height: 14px;
+    background: var(--c-main);
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .sec-sub {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--c-muted);
+  }
+
+  /* ── SUMMARY CARDS ────────────────────────────── */
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .s-card {
+    border: 0.5px solid var(--c-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .s-card .lbl  { font-size: 10px; color: var(--c-muted); margin-bottom: 3px; }
+  .s-card .val  { font-size: 24px; font-weight: 700; color: var(--c-main); line-height: 1.1; }
+  .s-card .val.orange { color: var(--c-accent); }
+  .s-card .val.gray   { color: #aaa; }
+  .s-card .sub  { font-size: 10px; color: var(--c-muted); margin-top: 2px; }
+  .s-card .delta { font-size: 11px; font-weight: 700; margin-top: 2px; }
+  .pos { color: var(--c-positive); }
+  .neg { color: var(--c-negative); }
+
+  /* ── TABLE ────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th {
+    background: var(--c-bg);
+    padding: 6px 8px;
+    border: 0.5px solid var(--c-border);
+    text-align: center;
+    font-size: 10px;
+    color: var(--c-muted);
+    font-weight: 700;
+  }
+  td {
+    padding: 7px 8px;
+    border: 0.5px solid var(--c-border);
+    text-align: center;
+  }
+  td.left { text-align: left; }
+  .blue   { color: var(--c-main);     font-weight: 700; }
+  .orange { color: var(--c-accent);   font-weight: 700; }
+  .green  { color: var(--c-positive); font-weight: 700; }
+  .red    { color: var(--c-negative); font-weight: 700; }
+
+  /* ── CHART WRAPPER ────────────────────────────── */
+  .chart-wrap { position: relative; width: 100%; }
+
+  /* ── TYPE ANALYSIS GRID ───────────────────────── */
+  .type-grid {
+    display: grid;
+    grid-template-columns: 1fr 190px;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .pie-side {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 10px; color: var(--c-muted);
+  }
+  .legend-sq { width: 10px; height: 10px; border-radius: 2px; }
+
+  /* ── DIVIDER ──────────────────────────────────── */
+  hr { border: none; border-top: 0.5px solid var(--c-border); margin: 16px 0; }
+
+  /* ── RADAR + COGNITIVE ────────────────────────── */
+  .radar-grid {
+    display: grid;
+    grid-template-columns: 170px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .cog-list { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+  .cog-item .cog-row { display: flex; justify-content: space-between; font-size: 11px; }
+  .cog-track { height: 4px; background: #eee; border-radius: 4px; margin: 3px 0 2px; }
+  .cog-fill  { height: 4px; border-radius: 4px; }
+  .cog-note  { font-size: 9px; color: var(--c-muted); }
+
+  /* ── TYPE-DETAIL ROWS ─────────────────────────── */
+  .type-detail-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 0;
+    border-bottom: 0.5px solid var(--c-border);
+    font-size: 11px;
+  }
+  .td-code { width: 46px; font-size: 10px; color: var(--c-muted); flex-shrink: 0; }
+  .td-name { flex: 1; }
+  .td-timebar { display: flex; gap: 2px; width: 80px; flex-shrink: 0; }
+  .td-seg { height: 12px; flex: 1; border-radius: 2px; }
+  .td-own { width: 44px; text-align: right; font-weight: 700; }
+  .td-avg { width: 44px; text-align: right; font-size: 10px; color: var(--c-muted); }
+
+  /* ── NORMAL DIST PAGE ─────────────────────────── */
+  .normal-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .n-stat {
+    border: 0.5px solid var(--c-border);
+    border-radius: 8px;
+    padding: 10px 10px;
+    text-align: center;
+  }
+  .n-stat .nlbl { font-size: 10px; color: var(--c-muted); margin-bottom: 3px; }
+  .n-stat .nval { font-size: 17px; font-weight: 700; color: var(--c-main); }
+  .n-stat .nsub { font-size: 10px; color: var(--c-muted); margin-top: 2px; }
+
+  .grade-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-top: 14px;
+  }
+  .g-box {
+    border: 0.5px solid var(--c-border);
+    border-radius: 6px;
+    padding: 8px 6px;
+    text-align: center;
+  }
+  .g-box.active { background: var(--c-main); border-color: var(--c-main); }
+  .g-num  { font-size: 15px; font-weight: 700; color: var(--c-muted); }
+  .g-box.active .g-num { color: #fff; }
+  .g-lbl  { font-size: 9px; color: var(--c-muted); }
+  .g-box.active .g-lbl { color: rgba(255,255,255,.75); }
+  .g-cut  { font-size: 11px; font-weight: 700; color: var(--c-muted); margin-top: 3px; }
+  .g-box.active .g-cut { color: #fff; }
+
+  /* ── FOOTER ───────────────────────────────────── */
+  .page-footer {
+    position: absolute;
+    bottom: 18px; left: var(--pad); right: var(--pad);
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: #bbb;
+    border-top: 0.5px solid var(--c-border);
+    padding-top: 6px;
+  }
+
+  /* ── PRINT ────────────────────────────────────── */
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; border: none; box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE 1 · 종합 요약 + 문제 타입 분석 + 난이도별 분석
+     ═══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div>
+      <div class="h-student-tag">고1 · 수직학원</div>
+      <div class="h-student-name">홍길동</div>
+    </div>
+    <div class="h-center">
+      <div class="h-report-type">TEST &amp; ANALYSIS REPORT</div>
+      <div class="h-exam-title">2026년 1학기 기말범위 중간평가</div>
+    </div>
+    <div class="h-logo"><span>수직학원</span></div>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary-row">
+    <div class="s-card">
+      <div class="lbl">종합점수</div>
+      <div class="val">63.3</div>
+      <div class="sub">19 / 30</div>
+    </div>
+    <div class="s-card">
+      <div class="lbl">가중치 점수</div>
+      <div class="val orange">55.6</div>
+    </div>
+    <div class="s-card">
+      <div class="lbl">정답률</div>
+      <div class="val">63.3%</div>
+    </div>
+    <div class="s-card">
+      <div class="lbl">전국 추정 평균</div>
+      <div class="val gray">61.7</div>
+      <div class="delta pos">+1.6</div>
+    </div>
+  </div>
+
+  <!-- Type analysis -->
+  <div class="sec-title">문제 타입 분석</div>
+  <div class="type-grid">
+    <div>
+      <table style="margin-bottom:10px">
+        <thead>
+          <tr>
+            <th>타입</th><th>문항</th><th>정답</th><th>오답</th>
+            <th>본인</th><th>전국 추정</th><th>Δ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="left" style="color:#5574d6;font-weight:700">객관식</td>
+          <tr>
+            <td class="left" style="color:#5574d6;font-weight:700">객관식</td>
+            <td>13</td>
+            <td class="blue">10</td>
+            <td class="orange">3</td>
+            <td>76.9</td>
+            <td>57.7</td>
+            <td class="pos">+19.2</td>
+          </tr>
+          <tr>
+            <td class="left" style="color:#9b5de5;font-weight:700">주관식&amp;서술형</td>
+            <td>17</td>
+            <td class="blue">9</td>
+            <td class="orange">8</td>
+            <td>52.9</td>
+            <td>63.9</td>
+            <td class="neg">−11.0</td>
+          </tr>
+                </tbody>
+      </table>
+      <div class="chart-wrap" style="height:130px">
+        <canvas id="typeChart" role="img" aria-label="문제 타입별 정답/오답 막대 차트">객관식 10/13 정답, 주관식 9/17 정답</canvas>
+      </div>
+    </div>
+    <div class="pie-side">
+      <canvas id="pieChart" width="130" height="130" role="img" aria-label="객관식 vs 주관식 비율 도넛 차트">객관식 43%, 주관식 57%</canvas>
+      <div>
+        <div class="legend-item"><div class="legend-sq" style="background:#5574d6"></div> 객관식</div>
+        <div class="legend-item"><div class="legend-sq" style="background:#9b5de5"></div> 주관식&amp;서술형</div>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- Difficulty summary table -->
+  <div class="sec-title">난이도별 분석</div>
+  <table>
+    <thead>
+      <tr>
+        <th rowspan="2">항목</th>
+        <th colspan="5">출제 문항 수</th>
+        <th colspan="5">정답 수</th>
+        <th>최종점수<br><span style="font-weight:400">(100점 환산)</span></th>
+      </tr>
+      <tr>
+        <th>최상</th><th>상</th><th>중</th><th>하</th><th>최하</th>
+        <th>최상</th><th>상</th><th>중</th><th>하</th><th>최하</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="left" style="color:#5574d6;font-weight:700">객관식</td>
+      <tr>
+        <td class="left" style="font-weight:700">객관식</td>
+        <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+        <td class="blue">—</td><td class="blue">—</td><td class="blue">—</td><td class="blue">—</td><td class="blue">—</td>
+        <td class="orange">—</td>
+      </tr>
+      <tr>
+        <td class="left" style="font-weight:700">주관식&amp;서술형</td>
+        <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+        <td class="blue">—</td><td class="blue">—</td><td class="blue">—</td><td class="blue">—</td><td class="blue">—</td>
+        <td class="orange">—</td>
+      </tr>
+      <tr style="background:var(--c-bg)">
+        <td class="left" style="font-weight:700">합계</td>
+        <td>2</td><td>5</td><td>10</td><td>8</td><td>5</td>
+        <td class="blue">1</td><td class="blue">2</td><td class="blue">5</td><td class="blue">6</td><td class="blue">5</td>
+        <td class="orange">63.3</td>
+      </tr>
+        </tbody>
+  </table>
+
+  <div class="page-footer">
+    <span>수직학원</span>
+    <span>1 / 9</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE 2 · 난이도별 상세 + 인지영역 분석
+     ═══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="sec-title">
+    난이도별 분석 <span class="sec-sub">본인 정답률 vs 전국 추정 (IRT 기반)</span>
+  </div>
+
+  <div class="chart-wrap" style="height:160px; margin-bottom:14px;">
+    <canvas id="diffChart" role="img" aria-label="난이도별 본인 vs 전국 추정 막대 차트">최상 50 vs 29.9, 상 40 vs 48.9, 중 50 vs 67.8, 하 75 vs 70.7, 최하 100 vs 80.8</canvas>
+  </div>
+
+  <table style="margin-bottom:20px">
+    <thead>
+      <tr>
+        <th>난이도</th><th>문항</th><th>정답</th><th>오답</th>
+        <th>전국 추정</th><th>본인</th><th>Δ</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>최상</td>
+      <tr>
+        <td>최상</td>
+        <td>2</td>
+        <td class="blue">1</td>
+        <td class="orange">1</td>
+        <td>29.9</td>
+        <td class="orange">50.0</td>
+        <td class="pos">+20.1</td>
+      </tr>
+      <tr>
+        <td>상</td>
+        <td>5</td>
+        <td class="blue">2</td>
+        <td class="orange">3</td>
+        <td>48.9</td>
+        <td class="red">40.0</td>
+        <td class="neg">−8.9</td>
+      </tr>
+      <tr>
+        <td>중</td>
+        <td>10</td>
+        <td class="blue">5</td>
+        <td class="orange">5</td>
+        <td>67.8</td>
+        <td class="orange">50.0</td>
+        <td class="neg">−17.8</td>
+      </tr>
+      <tr>
+        <td>하</td>
+        <td>8</td>
+        <td class="blue">6</td>
+        <td class="orange">2</td>
+        <td>70.7</td>
+        <td class="blue">75.0</td>
+        <td class="pos">+4.3</td>
+      </tr>
+      <tr>
+        <td>최하</td>
+        <td>5</td>
+        <td class="blue">5</td>
+        <td class="orange">0</td>
+        <td>80.8</td>
+        <td class="green">100.0</td>
+        <td class="pos">+19.2</td>
+      </tr>
+        </tbody>
+  </table>
+
+  <hr>
+
+  <div class="sec-title">인지영역 분석 <span class="sec-sub">계산 · 이해 · 추론 · 해결 영역별 성취도</span></div>
+
+  <div class="radar-grid">
+    <canvas id="radarChart" width="170" height="170" role="img" aria-label="인지영역 레이더 차트">계산 100%, 이해 52.6%, 추론 100%, 해결 66.7%</canvas>
+    <div>
+      <div class="cog-list">
+        <div class="cog-item">
+        <div class="cog-item">
+          <div class="cog-row"><span>계산</span><span class="green">100.0%</span></div>
+          <div class="cog-track"><div class="cog-fill" style="width:100.0%;background:var(--c-positive)"></div></div>
+          <div class="cog-note">4문항 · 정답 4 · 오답 0 · 기본 공식 활용한 정확한 계산</div>
+        </div>
+        <div class="cog-item">
+          <div class="cog-row"><span>이해</span><span class="orange">52.6%</span></div>
+          <div class="cog-track"><div class="cog-fill" style="width:52.6%;background:var(--c-accent)"></div></div>
+          <div class="cog-note">19문항 · 정답 10 · 오답 9 · 수학적 개념 이해와 원리 설명 적용</div>
+        </div>
+        <div class="cog-item">
+          <div class="cog-row"><span>추론</span><span class="green">100.0%</span></div>
+          <div class="cog-track"><div class="cog-fill" style="width:100.0%;background:var(--c-positive)"></div></div>
+          <div class="cog-note">1문항 · 정답 1 · 오답 0 · 논리적 결론 도출</div>
+        </div>
+        <div class="cog-item">
+          <div class="cog-row"><span>해결</span><span class="blue">66.7%</span></div>
+          <div class="cog-track"><div class="cog-fill" style="width:66.7%;background:var(--c-main)"></div></div>
+          <div class="cog-note">6문항 · 정답 4 · 오답 2 · 복합 문제 풀이 전략 적용</div>
+        </div>
+            </div>
+      <table style="margin-top:12px;font-size:10px">
+        <thead><tr><th>영역</th><th>문항</th><th>정답</th><th>오답</th><th>정답률</th></tr></thead>
+        <tbody>
+          <tr><td>계산</td>
+          <tr>
+            <td>계산</td>
+            <td>4</td>
+            <td class="blue">4</td>
+            <td class="orange">0</td>
+            <td class="green">100.0</td>
+          </tr>
+          <tr>
+            <td>이해</td>
+            <td>19</td>
+            <td class="blue">10</td>
+            <td class="orange">9</td>
+            <td class="orange">52.6</td>
+          </tr>
+          <tr>
+            <td>추론</td>
+            <td>1</td>
+            <td class="blue">1</td>
+            <td class="orange">0</td>
+            <td class="green">100.0</td>
+          </tr>
+          <tr>
+            <td>해결</td>
+            <td>6</td>
+            <td class="blue">4</td>
+            <td class="orange">2</td>
+            <td class="blue">66.7</td>
+          </tr>
+                </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>수직학원</span>
+    <span>2 / 9</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE 3 · 단원별 분석
+     ═══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="sec-title">단원별 분석 <span class="sec-sub">단원별 정답률 — 출제된 7 단원</span></div>
+
+  <div class="chart-wrap" style="height:180px; margin-bottom:16px;">
+    <canvas id="unitChart" role="img" aria-label="단원별 정답률 막대 차트 및 상위 10%, 34% 기준선">단원별 정답률 차트</canvas>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>과정</th><th>단원</th><th>문항</th><th>정답</th><th>오답</th><th>정답률</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>공통수학1</td><td class="left">3.1.2 이차부등식</td>
+      <tr>
+        <td>공통수학1</td>
+        <td class="left">3.1.2 이차부등식</td>
+        <td>5</td>
+        <td class="blue">4</td>
+        <td class="orange">1</td>
+        <td class="green">80.0</td>
+      </tr>
+      <tr>
+        <td>공통수학1</td>
+        <td class="left">3.1.3 연립부등식</td>
+        <td>4</td>
+        <td class="blue">2</td>
+        <td class="orange">2</td>
+        <td class="orange">50.0</td>
+      </tr>
+      <tr>
+        <td>공통수학1</td>
+        <td class="left">4.1.1 경우의 수</td>
+        <td>4</td>
+        <td class="blue">3</td>
+        <td class="orange">1</td>
+        <td class="blue">75.0</td>
+      </tr>
+      <tr>
+        <td>공통수학1</td>
+        <td class="left">4.1.2 순열</td>
+        <td>5</td>
+        <td class="blue">3</td>
+        <td class="orange">2</td>
+        <td class="orange">60.0</td>
+      </tr>
+      <tr>
+        <td>공통수학1</td>
+        <td class="left">4.2.1 조합</td>
+        <td>2</td>
+        <td class="blue">1</td>
+        <td class="orange">1</td>
+        <td class="orange">50.0</td>
+      </tr>
+      <tr>
+        <td>공통수학1</td>
+        <td class="left">5.1.1 행렬의 덧셈, 뺄셈과 실수배</td>
+        <td>6</td>
+        <td class="blue">3</td>
+        <td class="orange">3</td>
+        <td class="orange">50.0</td>
+      </tr>
+      <tr>
+        <td>공통수학1</td>
+        <td class="left">5.1.2 행렬의 곱셈</td>
+        <td>4</td>
+        <td class="blue">3</td>
+        <td class="orange">1</td>
+        <td class="blue">75.0</td>
+      </tr>
+        </tbody>
+  </table>
+
+  <div class="page-footer">
+    <span>수직학원</span>
+    <span>3 / 9</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE 4 · 유형별 분석 1/2
+     ═══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="sec-title">유형별 분석 <span class="sec-sub">출제된 24 유형 · 본인 정답률 기준 · 목록 총 2페이지</span></div>
+
+  <div class="chart-wrap" style="height:130px; margin-bottom:14px;">
+    <canvas id="typeDetailChart1" role="img" aria-label="유형별 본인 정답률 막대 차트 1페이지">유형별 정답률 차트</canvas>
+  </div>
+
+  <div style="font-size:10px;color:var(--c-muted);margin-bottom:8px;display:flex;gap:16px">
+    <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#1a7a4a;border-radius:2px;display:inline-block"></span> 정답</span>
+    <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#cc2e2e;border-radius:2px;display:inline-block"></span> 오답</span>
+    <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#ddd;border-radius:2px;display:inline-block"></span> 미응시</span>
+  </div>
+
+  <table style="font-size:10px">
+    <thead>
+      <tr>
+        <th>과정</th><th>유형</th>
+        <th>시간순 정오결과</th>
+        <th>문항</th><th>본인</th><th>전체 평균</th>
+      </tr>
+    </thead>
+    <tbody id="typeTableBody1"></tbody>
+  </table>
+
+  <div class="page-footer">
+    <span>수직학원</span>
+    <span>4 / 9</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE 5 · 유형별 분석 2/2
+     ═══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="sec-title">유형별 분석 (이어서) <span class="sec-sub">— 2 / 2</span></div>
+
+  <div style="font-size:10px;color:var(--c-muted);margin-bottom:8px;display:flex;gap:16px">
+    <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#1a7a4a;border-radius:2px;display:inline-block"></span> 정답</span>
+    <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#cc2e2e;border-radius:2px;display:inline-block"></span> 오답</span>
+  </div>
+
+  <table style="font-size:10px">
+    <thead>
+      <tr>
+        <th>과정</th><th>유형</th>
+        <th>시간순 정오결과</th>
+        <th>문항</th><th>본인</th><th>전체 평균</th>
+      </tr>
+    </thead>
+    <tbody id="typeTableBody2"></tbody>
+  </table>
+
+  <div class="page-footer">
+    <span>수직학원</span>
+    <span>5 / 9</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE 6 · 학생 위치 분석 (정규분포)
+     ═══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="sec-title">학생 위치 분석 <span class="sec-sub">전국 IRT 추정 정규분포 기반 위치 분석</span></div>
+
+  <div class="normal-grid">
+    <div class="n-stat">
+      <div class="nlbl">상위 백분위</div>
+      <div class="nval" style="color:var(--c-positive)">상위 0.0%</div>
+      <div class="nsub">백분위 100.0</div>
+    </div>
+    <div class="n-stat">
+      <div class="nlbl">예상 등수·등급</div>
+      <div class="nval">1위 · 1등급</div>
+    </div>
+    <div class="n-stat">
+      <div class="nlbl">실제 / 평균 점수</div>
+      <div class="nval">63.3 / 41.1</div>
+      <div class="nsub" style="color:var(--c-positive)">Z-score +3.29</div>
+    </div>
+    <div class="n-stat">
+      <div class="nlbl">표준편차 Z / Z값</div>
+      <div class="nval">6.75 / +3.29</div>
+      <div class="nsub">사용된 문항 20</div>
+    </div>
+  </div>
+
+  <div class="chart-wrap" style="height:200px; margin-bottom:14px;">
+    <canvas id="normalChart" role="img" aria-label="정규분포 곡선에 학생 위치 표시. 본인 63.3점, 1등급">정규분포 곡선: 평균 38.3, 본인 63.3 (상위 0%, 1등급)</canvas>
+  </div>
+
+  <div class="grade-row">
+    <div class="g-box">
+    <div class="g-box active">
+      <div class="g-num">5등급</div>
+      <div class="g-lbl">하위 10%</div>
+      <div class="g-cut">32.5 이하</div>
+    </div>
+    <div class="g-box">
+      <div class="g-num">4등급</div>
+      <div class="g-lbl">하위 34%</div>
+      <div class="g-cut">38.3 이하</div>
+    </div>
+    <div class="g-box">
+      <div class="g-num">3등급</div>
+      <div class="g-lbl">중간</div>
+      <div class="g-cut">38.4 ~ 43.9</div>
+    </div>
+    <div class="g-box">
+      <div class="g-num">2등급</div>
+      <div class="g-lbl">상위 34%</div>
+      <div class="g-cut">44.0 이상</div>
+    </div>
+    <div class="g-box">
+      <div class="g-num">1등급</div>
+      <div class="g-lbl">상위 10%</div>
+      <div class="g-cut">49.8 이상</div>
+    </div>
+    </div>
+
+  <div style="margin-top:16px; padding:12px; background:var(--c-bg); border-radius:8px; font-size:10px; color:var(--c-muted); line-height:1.8;">
+    <strong style="color:var(--c-text)">5등급 체계 안내</strong><br>
+    같은 시험지를 전국 학생 100명이 풀었다고 가정했을 때, 우리 학생의 위치를 5단계 등급으로 표시합니다.<br>
+    1등급 — 상위 10% · 2등급 — 상위 10~34% · 3등급 — 중간(34~66%) · 4등급 — 하위 10~34% · 5등급 — 하위 10%
+  </div>
+
+  <div class="page-footer">
+    <span>수직학원</span>
+    <span>6 / 9</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SCRIPTS
+     ═══════════════════════════════════════════════════ -->
+<script>
+Chart.defaults.font.family = "'Noto Sans KR', sans-serif";
+Chart.defaults.font.size = 10;
+Chart.defaults.color = '#666';
+const GRID = 'rgba(0,0,0,0.06)';
+
+const TYPE_LABELS = ["객관식", "주관식&서술형"];
+const TYPE_NATIONAL = [57.7, 63.9];
+const TYPE_OWN = [76.9, 52.9];
+const TYPE_PIE = [13, 17];
+const DIFF_LABELS = ["최상", "상", "중", "하", "최하"];
+const DIFF_NATIONAL = [29.9, 48.9, 67.8, 70.7, 80.8];
+const DIFF_OWN = [50.0, 40.0, 50.0, 75.0, 100.0];
+const DIFF_OWN_COLORS = ["#1a7a4a", "#e85d26", "#e85d26", "#1a7a4a", "#1a7a4a"];
+const COG_LABELS = ["계산", "이해", "추론", "해결"];
+const COG_OWN = [100.0, 52.6, 100.0, 66.7];
+const COG_NATIONAL = [100.0, 52.6, 100.0, 66.7];
+const UNIT_LABELS = ["3.1.2", "3.1.3", "4.1.1", "4.1.2", "4.2.1", "5.1.1", "5.1.2"];
+const UNIT_OWN = [80.0, 50.0, 75.0, 60.0, 50.0, 50.0, 75.0];
+const UNIT_COLORS = ["#1a5fd4", "#e85d26", "#1a5fd4", "#1a9e75", "#e85d26", "#e85d26", "#1a5fd4"];
+const TYPE_DATA = [{"code": "A106", "name": "이차부등식의 풀이", "correct": 1, "total": 1, "own": 100.0, "avg": 77.2, "course": "공통수학1"}, {"code": "A107", "name": "이차부등식의 작성", "correct": 1, "total": 1, "own": 100.0, "avg": 83.3, "course": "공통수학1"}, {"code": "A109", "name": "부등식의 해가 주어진 경우 미정계수 구하기", "correct": 0, "total": 1, "own": 0.0, "avg": 71.2, "course": "공통수학1"}, {"code": "A112", "name": "이차부등식이 해를 갖지 않을 조건", "correct": 1, "total": 1, "own": 100.0, "avg": 62.4, "course": "공통수학1"}];
+const IRT_MU = 41.1;
+const IRT_SIGMA = 6.75;
+const STUDENT_SCORE = 63.3;
+
+new Chart(document.getElementById('typeChart'), {
+  type: 'bar',
+  data: {
+    labels: TYPE_LABELS,
+    datasets: [
+      { label: '전국 추정', data: TYPE_NATIONAL, backgroundColor: '#ccc', borderRadius: 3 },
+      { label: '본인', data: TYPE_OWN,
+        backgroundColor: TYPE_OWN.map((v,i)=> v >= (TYPE_NATIONAL[i]||0) ? '#1a7a4a' : '#e85d26'),
+        borderRadius: 3 }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position:'top', labels:{ boxWidth:10, padding:10 } } },
+    scales: {
+      x: { grid:{ display:false } },
+      y: { min:0, max:100, grid:{ color:GRID }, ticks:{ stepSize:25 } }
+    }
+  }
+});
+
+new Chart(document.getElementById('pieChart').getContext('2d'), {
+  type: 'doughnut',
+  data: {
+    labels: TYPE_LABELS,
+    datasets: [{ data: TYPE_PIE, backgroundColor:['#5574d6','#9b5de5','#1a9e75','#e85d26'].slice(0, TYPE_LABELS.length), borderWidth:0 }]
+  },
+  options: { plugins:{ legend:{ display:false } }, cutout:'58%' }
+});
+
+new Chart(document.getElementById('diffChart'), {
+  type: 'bar',
+  data: {
+    labels: DIFF_LABELS,
+    datasets: [
+      { label:'전국 추정', data: DIFF_NATIONAL, backgroundColor:'#ccc', borderRadius:3 },
+      { label:'본인', data: DIFF_OWN, backgroundColor: DIFF_OWN_COLORS, borderRadius:3 }
+    ]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ position:'top', labels:{ boxWidth:10, padding:10 } } },
+    scales:{
+      x:{ grid:{ display:false } },
+      y:{ min:0, max:100, grid:{ color:GRID }, ticks:{ stepSize:25 } }
+    }
+  }
+});
+
+new Chart(document.getElementById('radarChart').getContext('2d'), {
+  type: 'radar',
+  data: {
+    labels: COG_LABELS,
+    datasets: [
+      { label:'전국 추정', data: COG_NATIONAL,
+        borderColor:'#aaa', backgroundColor:'rgba(170,170,170,0.1)', pointRadius:2 },
+      { label:'본인', data: COG_OWN,
+        borderColor:'#1a5fd4', backgroundColor:'rgba(26,95,212,0.15)', pointRadius:3, borderWidth:2 }
+    ]
+  },
+  options: {
+    responsive:false,
+    plugins:{ legend:{ display:false } },
+    scales:{ r:{
+      min:0, max:100,
+      ticks:{ display:false, stepSize:25 },
+      grid:{ color:GRID },
+      pointLabels:{ font:{ size:11 } }
+    }}
+  }
+});
+
+new Chart(document.getElementById('unitChart'), {
+  type: 'bar',
+  data: {
+    labels: UNIT_LABELS,
+    datasets: [
+      { label:'상위 10%', data: UNIT_LABELS.map(()=>90), type:'line',
+        borderColor:'#cc2e2e', borderDash:[4,3], pointRadius:3, borderWidth:1.5, fill:false, tension:0.3 },
+      { label:'상위 34%', data: UNIT_LABELS.map(()=>75), type:'line',
+        borderColor:'#888', borderDash:[6,4], pointRadius:3, borderWidth:1, fill:false, tension:0.3 },
+      { label:'개인 정답률', data: UNIT_OWN, backgroundColor: UNIT_COLORS, borderRadius:3 }
+    ]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ position:'top', labels:{ boxWidth:10, padding:8, font:{ size:9 } } } },
+    scales:{
+      x:{ grid:{ display:false } },
+      y:{ min:0, max:100, grid:{ color:GRID }, ticks:{ stepSize:25 } }
+    }
+  }
+});
+
+function renderTimebar(correct, total) {
+  let html = '<div style="display:flex;gap:2px;width:80px;">';
+  for (let i = 0; i < total; i++) {
+    const c = (i < correct) ? '#1a7a4a' : '#cc2e2e';
+    html += `<div style="flex:1;height:12px;border-radius:2px;background:${c}"></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderTypeTable(tbodyId, data) {
+  const tbody = document.getElementById(tbodyId);
+  tbody.innerHTML = '';
+  data.forEach(d => {
+    const ownColor = d.own >= 100 ? '#1a7a4a' : d.own === 0 ? '#cc2e2e' : '#e85d26';
+    tbody.innerHTML += `
+      <tr>
+        <td>${d.course || '공통수학1'}</td>
+        <td class="left">${d.code}. ${d.name}</td>
+        <td>${renderTimebar(d.correct, d.total)}</td>
+        <td>${d.correct}/${d.total}</td>
+        <td style="font-weight:700;color:${ownColor}">${d.own.toFixed(1)}</td>
+        <td>${d.avg.toFixed(1)}</td>
+      </tr>`;
+  });
+}
+
+renderTypeTable('typeTableBody1', TYPE_DATA.slice(0, Math.ceil(TYPE_DATA.length / 2)));
+renderTypeTable('typeTableBody2', TYPE_DATA.slice(Math.ceil(TYPE_DATA.length / 2)));
+
+const td1 = TYPE_DATA.slice(0, Math.ceil(TYPE_DATA.length / 2));
+if (document.getElementById('typeDetailChart1') && td1.length) {
+  new Chart(document.getElementById('typeDetailChart1'), {
+    type: 'bar',
+    data: {
+      labels: td1.map(d => d.code),
+      datasets: [
+        { label:'전체 평균', data: td1.map(d=>d.avg), backgroundColor:'#e0e0e0', borderRadius:2 },
+        { label:'본인', data: td1.map(d=>d.own),
+          backgroundColor: td1.map(d=>d.own===100?'#1a5fd4':d.own===0?'#cc2e2e':'#e85d26'),
+          borderRadius:2 }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ grid:{ display:false }, ticks:{ font:{ size:9 } } },
+        y:{ min:0, max:100, grid:{ color:GRID }, ticks:{ stepSize:25 } }
+      }
+    }
+  });
+}
+
+function normalPDF(x, mu, sigma) {
+  return Math.exp(-0.5*Math.pow((x-mu)/sigma,2)) / (sigma*Math.sqrt(2*Math.PI));
+}
+const xs=[], ys=[];
+for (let x=20; x<=70; x+=0.5) {
+  xs.push(x.toFixed(1));
+  ys.push(+(normalPDF(x, IRT_MU, IRT_SIGMA)*100).toFixed(5));
+}
+new Chart(document.getElementById('normalChart'), {
+  type: 'line',
+  data: {
+    labels: xs,
+    datasets: [
+      { data: ys, borderColor:'#1a5fd4', borderWidth:2,
+        fill:true, backgroundColor:'rgba(26,95,212,0.10)',
+        pointRadius:0, tension:0.4 },
+      { data: xs.map((x,i) => Math.abs(parseFloat(x)-STUDENT_SCORE)<0.3 ? ys[i] : null),
+        borderColor:'#cc2e2e', borderWidth:0,
+        pointRadius:7, pointBackgroundColor:'#cc2e2e', showLine:false }
+    ]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{
+      legend:{ display:false },
+      tooltip:{ callbacks:{ label: ctx => `점수: ${xs[ctx.dataIndex]}` } }
+    },
+    scales:{
+      x:{ ticks:{ maxTicksLimit:8, callback:(v,i)=>xs[i] }, grid:{ display:false } },
+      y:{ display:false }
+    }
+  }
+});
+</script>
+</body>
+</html>
