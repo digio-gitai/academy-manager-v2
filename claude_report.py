@@ -121,6 +121,10 @@ def generate_teacher_comment_draft(
         f"- 칭찬 + 구체적 피드백 + 응원 순서로\n"
         f"- 너무 형식적이지 않게, 진심이 느껴지게\n"
         f"- 학생 이름 꼭 포함\n"
+        f"- 학생을 높이는 표현('~해 드릴게요', '~드리겠습니다', '~짚어드릴 예정입니다' 등)은 "
+        f"쓰지 마세요. 존댓말(높임)은 이 글을 읽는 학부모님께만 적용하고, "
+        f"학생의 행동·앞으로 할 일을 서술할 때는 '~해 줄게요', '~짚어줄 예정입니다', "
+        f"'~봐줄게요'처럼 평서형으로 쓰세요.\n"
         f"- 코멘트 텍스트만 출력 (다른 설명 없이)\n"
     )
 
@@ -163,6 +167,9 @@ def generate_wrong_question_comments(
         f"- 각 문항마다 1~2문장으로 간결하게\n"
         f"- 어떤 개념이 부족한지 + 어떻게 보완하면 좋은지 포함\n"
         f"- 학부모가 이해할 수 있는 쉬운 표현 사용\n"
+        f"- 학생을 높이는 표현('~해 드릴게요', '~드리겠습니다' 등)은 쓰지 마세요. "
+        f"존댓말(높임)은 이 글을 읽는 학부모님께만 적용하고, 학생에 대한 서술은 "
+        f"'~해 줄게요', '~보완하면 좋습니다'처럼 평서형으로 쓰세요.\n"
         f"- 아래 JSON 형식으로만 출력 (다른 설명 없이):\n"
         f'{{"comments": [{{"number": 3, "comment": "한줄평 내용"}}, ...]}}'
     )
@@ -1169,7 +1176,16 @@ def _build_type_analysis(
     if not question_details:
         return ""
 
-    # 단원(대분류)별 정답/오답 집계
+    # 그룹 기준 결정: 시험 전체가 단원 1개짜리(단원테스트)면 "단원"으로 묶어봐야
+    # 전부 같은 값이라 대표 우수/취약이 무의미해짐(예: 30문항 전부 "삼각비").
+    # 이런 경우엔 더 세부적인 "풀이유형"으로 묶어서 실제 취약 포인트가 드러나게 한다.
+    # 단원이 2개 이상 섞인 일반 시험(주간/월간 테스트 등)은 기존처럼 단원 기준 유지.
+    distinct_topics = {
+        (d.get("topic") or "").strip() or "미분류" for d in question_details
+    }
+    group_by_method = len(distinct_topics) <= 1
+
+    # 단원(대분류) 또는 풀이유형(세부)별 정답/오답 집계
     type_stats: dict[str, dict] = {}
     wrong_set = set(wrong_numbers)
 
@@ -1178,12 +1194,17 @@ def _build_type_analysis(
             qnum = int(d["question_number"])
         except (KeyError, TypeError, ValueError):
             continue
-        topic = (d.get("topic") or "").strip() or "미분류"
-        if topic not in type_stats:
-            type_stats[topic] = {"total": 0, "wrong": 0}
-        type_stats[topic]["total"] += 1
+        if group_by_method:
+            label = (d.get("question_method") or "").strip() or (
+                (d.get("topic") or "").strip() or "미분류"
+            )
+        else:
+            label = (d.get("topic") or "").strip() or "미분류"
+        if label not in type_stats:
+            type_stats[label] = {"total": 0, "wrong": 0}
+        type_stats[label]["total"] += 1
         if qnum in wrong_set:
-            type_stats[topic]["wrong"] += 1
+            type_stats[label]["wrong"] += 1
 
     if not type_stats:
         return ""
@@ -1231,8 +1252,14 @@ def _build_type_analysis(
     ) or '<div class="type-rep-empty">해당 없음</div>'
 
     # 단원별 바 리스트 (개별 박스)
+    # 세부 풀이유형(question_method)으로 묶은 경우엔 문항 수만큼(예: 30개) 줄이
+    # 생겨 오히려 안 읽히므로, 오답이 하나라도 있었던 유형만 보여준다.
+    bar_source = type_list
+    if group_by_method:
+        bar_source = [t for t in type_list if t["correct"] < t["total"]] or type_list
+
     bar_rows = ""
-    for item in type_list:
+    for item in bar_source:
         pct = item["pct"]
         topic = item["method"]
         total = item["total"]

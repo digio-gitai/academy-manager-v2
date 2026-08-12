@@ -133,7 +133,7 @@ class GoogleVisionAuthError(RuntimeError):
 class OpenAIAuthError(RuntimeError):
     """Raised when OpenAI credentials are missing or rejected."""
 
-DEFAULT_MAX_PAGES = 6
+DEFAULT_MAX_PAGES = 15  # 6 → 15: 7페이지 이상 시험지(뒷 문항 통째 누락) 대응
 DEFAULT_DPI = 150
 MIN_EMBEDDED_CHARS = 30
 
@@ -1129,16 +1129,16 @@ TOPIC_ANALYSIS_SYSTEM_PROMPT = """당신은 수학 시험지 OCR 텍스트를 �
 
 
 # ── 통합 프롬프트: 수식 정제 + 문항 분석 한 번에 ──────────────────────
+# 주의: JSON 키 순서상 "questions"를 "refined_text"보다 먼저 쓰게 되어 있음.
+# 문항 수가 많은 시험지(28~30문항 이상)는 refined_text(전체 지문 LaTeX 정제본)만으로도
+# 출력 토큰을 많이 소비해서, 뒤에 오는 문항 배열을 쓸 차례에 토큰이 바닥나 마지막 1~2개
+# 문항이 통째로 누락되는 문제가 있었음 (예: 30문항 중 29·30번만 빠짐).
+# → questions를 먼저 완성시켜서, 토큰이 부족해도 refined_text만 잘리도록 순서를 바꿈.
 COMBINED_REFINE_ANALYZE_PROMPT = """당신은 수학 시험지 OCR 전문가이자 수학 교사입니다.
 Google Vision OCR로 추출된 시험지 원문 텍스트가 주어집니다.
 아래 두 가지 작업을 한 번에 수행하세요.
 
-[작업 A] 수식 정제
-- 수식·분수·지수·근호·부등식을 LaTeX로 표기 (인라인: $...$, 블록: $$...$$)
-- OCR 오타만 최소한으로 교정 (내용 추가·삭제 금지)
-- 문항 번호, 한글 지문, 선택지 구조는 원문 그대로 유지
-
-[작업 B] 문항 분석
+[작업 A] 문항 분석 (반드시 먼저 완료)
 모든 문항을 찾아 단원·풀이유형·난이도·유형을 분석하세요.
 - 객관식: "1.", "2)", "01", "02" 등 숫자+구분자 또는 두자리 앞자리0 형태 모두 포함
   (매쓰플랫 등 시험지는 "01", "02" 형태 사용 — 반드시 인식할 것)
@@ -1147,10 +1147,16 @@ Google Vision OCR로 추출된 시험지 원문 텍스트가 주어집니다.
 - 단원: 중학/고1/고2/고3 교육과정 기준
 - 풀이유형: "사인·코사인 부등식 동시 조건 추론" 수준으로 구체적으로
 - 난이도: A(킬러)~E(쉬움) 5단계
+- 문항이 많아도 절대 생략하지 말고 마지막 문항까지 빠짐없이 포함하세요.
 
-반드시 아래 JSON 형식만 반환하세요 (마크다운 펜스 절대 금지):
+[작업 B] 수식 정제 (작업 A를 모두 마친 뒤 작성)
+- 수식·분수·지수·근호·부등식을 LaTeX로 표기 (인라인: $...$, 블록: $$...$$)
+- OCR 오타만 최소한으로 교정 (내용 추가·삭제 금지)
+- 문항 번호, 한글 지문, 선택지 구조는 원문 그대로 유지
+
+반드시 아래 JSON 형식만 반환하세요 (마크다운 펜스 절대 금지).
+"questions" 배열을 먼저, "refined_text"를 나중에 작성하세요:
 {
-  "refined_text": "수식 정제된 전체 텍스트",
   "questions": [
     {
       "number": 1,
@@ -1159,7 +1165,8 @@ Google Vision OCR로 추출된 시험지 원문 텍스트가 주어집니다.
       "difficulty": "C",
       "question_type": "객관식"
     }
-  ]
+  ],
+  "refined_text": "수식 정제된 전체 텍스트"
 }"""
 
 
@@ -1203,14 +1210,51 @@ def refine_and_analyze_with_gpt(
             raise OpenAIAuthError(OPENAI_AUTH_USER_MESSAGE) from exc
         raise RuntimeError(f"GPT 통합 분석 오류: {exc}") from exc
 
-    raw_resp = (response.choices[0].message.content or "").strip()
+    choice = response.choices[0]
+    finish_reason = getattr(choice, "finish_reason", None)
+    raw_resp = (choice.message.content or "").strip()
     raw_resp = raw_resp.replace("```json", "").replace("```", "").strip()
+    was_truncated_before_recovery = not raw_resp.endswith("}")
 
     # JSON 잘림 복구
-    if not raw_resp.endswith("}"):
+    if was_truncated_before_recovery:
         last_brace = raw_resp.rfind("},")
         if last_brace != -1:
             raw_resp = raw_resp[:last_brace + 1] + "\n  ]\n}"
+
+    def _set_debug_log(extra_lines: list[str], questions_found: list[dict]) -> None:
+        """문항 수가 안 맞을 때 원인 추적용 로그. session_state에 저장 → 화면에 표시."""
+        try:
+            nums = sorted({
+                int(q["number"]) for q in questions_found
+                if str(q.get("number", "")).strip().lstrip("-").isdigit()
+            })
+            missing = [n for n in range(1, max(nums) + 1) if n not in nums] if nums else []
+            lines = [
+                f"OCR 원문 글자수: {len(full_text)}자",
+                f"GPT finish_reason: {finish_reason}"
+                + (
+                    "  ⚠️ length = 토큰 한도로 응답이 중간에 잘렸습니다"
+                    if finish_reason == "length"
+                    else ""
+                ),
+                f"JSON 잘림 복구 실행됨: {'예' if was_truncated_before_recovery else '아니오'}",
+                f"인식된 문항 번호({len(nums)}개): {nums}",
+            ]
+            if missing:
+                lines.append(f"⚠️ 빠진 번호: {missing}")
+                for n in missing:
+                    marker_found = bool(
+                        re.search(rf"(?m)^\s*0?{n}\s*[\.\)．、]", full_text)
+                    )
+                    lines.append(
+                        f"  · {n}번 — OCR 원문에 번호 패턴이 "
+                        + ("있음 → GPT가 놓친 것" if marker_found else "없음 → OCR이 애초에 못 읽음")
+                    )
+            lines.extend(extra_lines)
+            st.session_state["_topic_debug_log"] = lines
+        except Exception:
+            pass
 
     try:
         result = _json.loads(raw_resp)
@@ -1228,17 +1272,15 @@ def refine_and_analyze_with_gpt(
                         continue
         except Exception:
             pass
-        try:
-            st.session_state["_topic_debug_log"] = [
-                "⚠️ GPT 통합분석 JSON 파싱 실패 — "
-                f"부분 복구로 문항 {len(gpt_questions_fallback)}개 추출",
-            ]
-        except Exception:
-            pass
+        _set_debug_log(
+            [f"⚠️ GPT 통합분석 JSON 파싱 실패 — 부분 복구로 문항 {len(gpt_questions_fallback)}개 추출"],
+            gpt_questions_fallback,
+        )
         return raw_pages, gpt_questions_fallback
 
     refined_text = result.get("refined_text", full_text)
     gpt_questions = result.get("questions", [])
+    _set_debug_log([], gpt_questions)
 
     refined_pages = [{
         "page": 1,
@@ -1369,10 +1411,14 @@ def analyze_topics_with_gpt(
                         slot["topic"] = t
                         break
 
-    st.session_state["_topic_debug_log"] = [
-        f"✅ GPT 문항분석 완료 — {len(new_questions)}개 문항 인식",
-        f"문항 번호: {[q['number'] for q in new_questions]}",
-    ]
+    # _preanalyzed_questions로 호출된 경우(통합 분석 경로)는 refine_and_analyze_with_gpt가
+    # 이미 finish_reason·빠진 번호 등 상세 진단 로그를 _topic_debug_log에 남겨뒀으므로
+    # 여기서 단순 메시지로 덮어쓰지 않는다. 이 함수가 직접 GPT를 호출한 경우에만 기록.
+    if _preanalyzed_questions is None:
+        st.session_state["_topic_debug_log"] = [
+            f"✅ GPT 문항분석 완료 — {len(new_questions)}개 문항 인식",
+            f"문항 번호: {[q['number'] for q in new_questions]}",
+        ]
 
     return {
         **parsed,

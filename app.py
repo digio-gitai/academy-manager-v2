@@ -139,6 +139,8 @@ from database import (
     get_student_test_results,
     get_test_by_id,
     get_test_questions,
+    delete_test,
+    get_test_results_by_student,
     get_student_result_record,
     get_students_with_test_result,
     get_test_average_score,
@@ -3312,6 +3314,32 @@ def _render_existing_test_selector() -> int | None:
                         st.image(fpath, caption=file_name, width="stretch")
                     elif ext == "pdf":
                         st.caption(f"PDF 저장됨: `{file_name}`")
+
+                affected = get_students_with_test_result(picked_id)
+                with st.popover("🗑️ 이 시험지 삭제", use_container_width=True):
+                    st.warning(
+                        f"**{meta['test_name']}** ({meta['date']})를 삭제하시겠습니까?\n\n"
+                        "문항 정보와 저장된 학생 오답·점수 기록이 전부 삭제되며, "
+                        "되돌릴 수 없습니다."
+                        + (
+                            f"\n\n영향받는 학생: **{len(affected)}명**"
+                            if affected
+                            else "\n\n아직 저장된 학생 결과는 없습니다."
+                        )
+                    )
+                    if st.button(
+                        "예, 삭제합니다",
+                        key=f"del_test_confirm_btn_{picked_id}",
+                        type="primary",
+                        width="stretch",
+                    ):
+                        delete_test(picked_id)
+                        if st.session_state.get("active_test_id") == picked_id:
+                            _clear_test_sheet_session()
+                        st.session_state.pop("existing_test_sel", None)
+                        st.session_state.pop("_pending_sync_test_id", None)
+                        st.success("시험지가 삭제되었습니다.")
+                        st.rerun()
             return picked_id
     return None
 
@@ -3815,10 +3843,18 @@ def _render_ocr_class_student_picker(
         st.markdown(f"**② 학생별 오답 체크** — 총 **{len(all_students)}명**")
         st.caption(
             "시험을 보지 않은 학생은 expander 안에서 체크를 해제하면 저장 시 제외됩니다. "
-            "체크는 화면 재실행 없이 빠르게 되고, 점수는 **일괄 저장** 시 자동 계산됩니다."
+            "체크는 화면 재실행 없이 빠르게 되고, 점수는 **일괄 저장** 시 자동 계산됩니다. "
+            "이미 저장된 학생은 새로고침해도 오답 체크가 그대로 복원됩니다."
         )
 
         numbers = _ocr_wrong_question_numbers(parsed)
+
+        # 2026-08-10: 새로고침하면 체크박스가 비어 보여서 "저장이 날아갔나?" 헷갈리는
+        # 문제가 있었음 — DB(student_results)엔 그대로 있는데 화면만 초기화된 것.
+        # 여기서 기존 저장값을 미리 불러와 체크박스 기본값으로 채워서 화면에도
+        # "이미 저장된 상태"가 그대로 보이게 한다. (다른 반 학생을 오늘 추가로
+        # 입력해도, 먼저 저장했던 학생 데이터가 화면상 사라진 것처럼 보이지 않음)
+        _existing_results = get_test_results_by_student(int(st.session_state["active_test_id"]))
 
         # st.form: 체크박스를 아무리 눌러도 앱이 재실행되지 않고,
         # 아래 "일괄 저장" 버튼을 누를 때 한 번만 실행된다 (속도 개선 핵심).
@@ -3829,8 +3865,14 @@ def _render_ocr_class_student_picker(
                 cname = s["class_name"]
                 include_key = f"batch_include_{sid}"
                 wrong_key_prefix = f"batch_wrong_{sid}_"
+                existing = _existing_results.get(sid)
+                existing_wrong = set(existing["wrong_numbers"]) if existing else set()
 
-                with st.expander(f"📋 {cname} · {sname}", expanded=False):
+                status_badge = (
+                    f"✅ 저장됨 · {existing['score']:.1f}점 (오답 {existing['wrong_count']}개)"
+                    if existing else "⬜ 미저장"
+                )
+                with st.expander(f"📋 {cname} · {sname} — {status_badge}", expanded=False):
                     st.checkbox(
                         "이 학생 시험 봤음 (저장 포함)",
                         key=include_key,
@@ -3839,9 +3881,11 @@ def _render_ocr_class_student_picker(
                     cols_w = st.columns(5)
                     for idx, num in enumerate(numbers):
                         with cols_w[idx % 5]:
+                            wrong_key = f"{wrong_key_prefix}{num}"
                             st.checkbox(
                                 f"{num}번",
-                                key=f"{wrong_key_prefix}{num}",
+                                key=wrong_key,
+                                value=st.session_state.get(wrong_key, num in existing_wrong),
                             )
 
             save_all_btn = st.form_submit_button(
@@ -3886,13 +3930,19 @@ def _render_ocr_class_student_picker(
                 st.error(f"❌ 전원 저장 실패 ({fail_count}명)")
 
         # ── AI 코멘트 일괄 생성 + 보고서 일괄 생성 ──
-        saved_students = st.session_state.get("batch_saved_students", [])
-        saved_test_id = st.session_state.get("batch_saved_test_id")
-
-        # 저장된 학생 없으면 현재 시험지 DB에서 자동 불러오기
-        if not saved_students and st.session_state.get("active_test_id"):
+        # 2026-08-10: 세션에 캐시된 batch_saved_students(직전 "전원 저장" 클릭 때 체크된
+        # 학생만 담김)를 그대로 쓰면, 학생을 나눠서 여러 번 저장할 때(예: 오늘 1명만 응시 →
+        # 며칠 뒤 나머지 학생 응시) 가장 최근 저장분만 남고 이전 학생이 목록에서 빠져서
+        # "보고서 일괄 생성"이 일부만 생성되는 버그가 있었음. student_results 테이블이
+        # 진짜 기준이므로 매번 DB에서 새로 불러온다 (세션 캐시는 test_id 기억용으로만 사용).
+        saved_test_id = (
+            st.session_state.get("batch_saved_test_id")
+            or st.session_state.get("active_test_id")
+        )
+        saved_students: list[dict] = []
+        if saved_test_id:
             from db_connect import get_conn as _get_conn0
-            _tid0 = int(st.session_state["active_test_id"])
+            _tid0 = int(saved_test_id)
             _conn0 = _get_conn0()
             try:
                 _srows = _conn0.execute(
@@ -3900,18 +3950,16 @@ def _render_ocr_class_student_picker(
                        FROM student_results sr
                        JOIN students s ON s.id = sr.student_id
                        JOIN classes c ON c.id = s.class_id
-                       WHERE sr.test_id = ?""", (_tid0,)
+                       WHERE sr.test_id = ?
+                       ORDER BY c.name, s.name""", (_tid0,)
                 ).fetchall()
             finally:
                 _conn0.close()
-            if _srows:
-                saved_students = [
-                    {"student_id": r[0], "student_name": r[1], "class_name": r[2], "class_id": 0}
-                    for r in _srows
-                ]
-                st.session_state["batch_saved_students"] = saved_students
-                st.session_state["batch_saved_test_id"] = _tid0
-                saved_test_id = _tid0
+            saved_students = [
+                {"student_id": r[0], "student_name": r[1], "class_name": r[2], "class_id": 0}
+                for r in _srows
+            ]
+            saved_test_id = _tid0
 
         if saved_students and saved_test_id:
             st.markdown("---")
@@ -4819,7 +4867,8 @@ def _inject_theme() -> None:
     div[class*="nav_t_del_btn"] button,
     div[class*="del_student_btn"] button,
     div[class*="del_cls_"] button,
-    div[class*="consult_del_"] button {
+    div[class*="consult_del_"] button,
+    div[class*="del_test_confirm_btn_"] button {
         background-color: #e53e3e !important;
         border-color: #c53030 !important;
         color: white !important;
@@ -4828,16 +4877,18 @@ def _inject_theme() -> None:
     div[class*="nav_t_del_btn"] button:hover,
     div[class*="del_student_btn"] button:hover,
     div[class*="del_cls_"] button:hover,
-    div[class*="consult_del_"] button:hover {
+    div[class*="consult_del_"] button:hover,
+    div[class*="del_test_confirm_btn_"] button:hover {
         background-color: #c53030 !important;
         border-color: #9b2c2c !important;
     }
 
-    /* ＋ 시간대 추가 버튼 — 파란 테두리 강조 */
+    /* ＋ 시간대 추가 버튼 — 파란 배경(type="primary") 위에 글자색도 파란색으로
+       겹쳐서 안 보이던 문제 수정. "수업 생성" 버튼처럼 흰 글자로 통일. */
     div[class*="dash_add_slot_btn"] button,
     div[class*="edit_add_slot_btn"] button {
         border: 2px solid #1a56db !important;
-        color: #1a56db !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
     }
     </style>
@@ -5296,7 +5347,8 @@ def page_students():
                         st.markdown(f"**담당강사:** {sel_detail_row.get('teacher_name', '—')}")
                         st.markdown(f"**등록일:** {sel_detail_row.get('registered_at', '—')}")
                     with d2:
-                        st.markdown(f"**연락처:** {sel_detail_row.get('parent_phone', '—') or '—'}")
+                        st.markdown(f"**학부모 연락처:** {sel_detail_row.get('parent_phone', '—') or '—'}")
+                        st.markdown(f"**학생 연락처:** {sel_detail_row.get('student_phone', '') or '—'}")
                         st.markdown(f"**내원 전 진도:** {sel_detail_row.get('pre_visit_progress', '—') or '—'}")
                         st.markdown(f"**바라는 점:** {sel_detail_row.get('expectations', '—') or '—'}")
                         st.markdown(f"**비고:** {sel_detail_row.get('notes', '—') or '—'}")
@@ -5772,7 +5824,11 @@ def _dashboard_new_student_form() -> None:
                 sel_edit_id = edit_opts[sel_edit]
                 sel_row = students_df[students_df["id"] == sel_edit_id].iloc[0]
 
-                st.markdown(f"**이름:** {sel_row['name']}  |  **반:** {sel_row['class_name']}  |  **연락처:** {sel_row.get('parent_phone', '')}")
+                st.markdown(
+                    f"**이름:** {sel_row['name']}  |  **반:** {sel_row['class_name']}  |  "
+                    f"**학부모:** {sel_row.get('parent_phone', '') or '—'}  |  "
+                    f"**학생:** {sel_row.get('student_phone', '') or '—'}"
+                )
 
                 if st.button("수정하기", key="dash_edit_open_btn", type="primary"):
                     st.session_state["dash_edit_open"] = sel_edit_id
@@ -6549,7 +6605,8 @@ def page_classes():
                                         st.markdown(f"**반:** {r.get('class_name','—')}")
                                         st.markdown(f"**등록일:** {r.get('registered_at','—')}")
                                     with i2:
-                                        st.markdown(f"**연락처:** {r.get('parent_phone','—') or '—'}")
+                                        st.markdown(f"**학부모 연락처:** {r.get('parent_phone','—') or '—'}")
+                                        st.markdown(f"**학생 연락처:** {r.get('student_phone','') or '—'}")
                                         st.markdown(f"**내원 전 진도:** {r.get('pre_visit_progress','—') or '—'}")
                                         st.markdown(f"**바라는 점:** {r.get('expectations','—') or '—'}")
                                         st.markdown(f"**비고:** {r.get('notes','—') or '—'}")
@@ -8363,6 +8420,11 @@ def page_ai_test_analysis() -> None:
                 f"OCR 완료 — **{_detected}개** 문항 감지. "
                 "위 편집표에서 내용을 확인한 뒤 **확정**을 눌러 주세요."
             )
+
+    if st.session_state.get("_topic_debug_log"):
+        with st.expander("🔍 인식 디버그 로그 (문항 수가 안 맞을 때 확인)"):
+            for _line in st.session_state["_topic_debug_log"]:
+                st.text(_line)
 
     st.divider()
 

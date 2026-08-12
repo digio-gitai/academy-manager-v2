@@ -854,7 +854,9 @@ def get_student_profile(student_id: int) -> dict[str, Any] | None:
             """
             SELECT s.id, s.name, s.class_id, COALESCE(c.name, '—') AS class_name,
                    COALESCE(c.description, '') AS class_description,
-                   COALESCE(s.parent_phone, '') AS parent_phone
+                   COALESCE(s.parent_phone, '') AS parent_phone,
+                   COALESCE(s.school, '') AS school,
+                   COALESCE(s.grade, '') AS grade
             FROM students s
             LEFT JOIN classes c ON c.id = s.class_id
             WHERE s.id = ?
@@ -872,6 +874,8 @@ def get_student_profile(student_id: int) -> dict[str, Any] | None:
         "class_name": str(row[3]),
         "class_description": str(row[4]),
         "parent_phone": str(row[5] or ""),
+        "school": str(row[6] or ""),
+        "grade": str(row[7] or ""),
     }
 
 
@@ -1390,6 +1394,88 @@ def get_test_questions(test_id: int) -> list[dict[str, Any]]:
     return result
 
 
+def _remove_student_test_result_entry(
+    student_id: int,
+    *,
+    test_name: str,
+    test_date: str,
+) -> None:
+    """``students.test_results`` JSON 배열에서 test_name+date가 일치하는 기록 제거.
+
+    ``student_results`` 테이블(관계형, test_id FK)과 달리 이 JSON 컬럼은
+    test_name/date 문자열로만 매칭되므로, 테스트 삭제 시 여기도 같이 정리해야
+    학생 성적 이력에 삭제된 시험이 남아있지 않다.
+    """
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT test_results FROM students WHERE id = ?",
+            (int(student_id),),
+        ).fetchone()
+        history = _parse_test_results_json(row[0] if row else None)
+        filtered = [
+            e for e in history
+            if not (e.get("test_name") == test_name and e.get("date") == test_date)
+        ]
+        if len(filtered) != len(history):
+            conn.execute(
+                "UPDATE students SET test_results = ? WHERE id = ?",
+                (json.dumps(filtered, ensure_ascii=False), int(student_id)),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_test(test_id: int) -> dict[str, Any]:
+    """저장된 시험(``tests``)과 관련 데이터를 전부 삭제.
+
+    OCR 분석 오류(예: 문항 누락)로 잘못 저장된 시험지를 되돌릴 방법이 없다는
+    문제를 해결하기 위해 추가. 아래를 모두 정리한다:
+    - ``test_questions`` (문항 정의)
+    - ``student_results`` (학생별 오답/점수, test_id FK)
+    - ``students.test_results`` JSON 이력 (test_name+date로 매칭되는 항목)
+    - ``student_grade_unified`` 캐시 재계산 (영향받은 학생만)
+    - ``tests`` (시험 본 행)
+
+    Returns:
+        {"test_id", "test_name", "affected_student_ids"} — UI 안내용.
+    """
+    ensure_ai_test_tables()
+    ensure_students_test_results_column()
+
+    test = get_test_by_id(int(test_id))
+    if not test:
+        raise ValueError(f"test_id {test_id} 를 찾을 수 없습니다.")
+
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT student_id FROM student_results WHERE test_id = ?",
+            (int(test_id),),
+        ).fetchall()
+        affected_student_ids = [int(r[0]) for r in rows]
+
+        conn.execute("DELETE FROM student_results WHERE test_id = ?", (int(test_id),))
+        conn.execute("DELETE FROM test_questions WHERE test_id = ?", (int(test_id),))
+        conn.execute("DELETE FROM tests WHERE test_id = ?", (int(test_id),))
+        conn.commit()
+    finally:
+        conn.close()
+
+    test_name = test["test_name"]
+    test_date = test["date"]
+    for sid in affected_student_ids:
+        _remove_student_test_result_entry(sid, test_name=test_name, test_date=test_date)
+        sync_student_grade_unified(sid)
+
+    return {
+        "test_id": int(test_id),
+        "test_name": test_name,
+        "affected_student_ids": affected_student_ids,
+    }
+
+
 def list_tests(limit: int = 50, teacher_id: int | None = None) -> pd.DataFrame:
     """List saved AI test sheets. When ``teacher_id`` is set, include unused tests
     and tests linked to that teacher's students via ``student_results``."""
@@ -1550,6 +1636,42 @@ def get_students_with_test_result(test_id: int) -> list[dict[str, Any]]:
         {"student_id": int(r[0]), "student_name": str(r[1]), "class_name": str(r[2] or "")}
         for r in rows
     ]
+
+
+def get_test_results_by_student(test_id: int) -> dict[int, dict[str, Any]]:
+    """이 시험에 이미 저장된 학생별 오답/점수를 ``{student_id: {...}}``로 반환.
+
+    2026-08-10: "학생·오답 일괄 입력" 화면이 새로고침되면 체크박스가 전부
+    빈 상태로 보여서, 이미 저장된 학생 데이터가 없어진 것처럼 보이는 문제가 있었음
+    (실제로는 DB엔 남아있고, 화면만 초기화된 것). 이 함수로 기존 저장값을 불러와
+    체크박스 기본값을 다시 채워서 "이미 저장된 상태"가 화면에도 그대로 보이게 한다.
+    """
+    ensure_ai_test_tables()
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT student_id, wrong_numbers, wrong_count, score, recorded_at
+            FROM student_results
+            WHERE test_id = ?
+            """,
+            (int(test_id),),
+        ).fetchall()
+    finally:
+        conn.close()
+    result: dict[int, dict[str, Any]] = {}
+    for r in rows:
+        try:
+            wrong_numbers = json.loads(r[1]) if r[1] else []
+        except (json.JSONDecodeError, TypeError):
+            wrong_numbers = []
+        result[int(r[0])] = {
+            "wrong_numbers": [int(n) for n in wrong_numbers if str(n).lstrip("-").isdigit()],
+            "wrong_count": int(r[2]),
+            "score": float(r[3]),
+            "recorded_at": str(r[4]),
+        }
+    return result
 
 
 def get_test_average_score(
