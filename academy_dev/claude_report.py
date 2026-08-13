@@ -1354,7 +1354,7 @@ def _build_kpi_cards(
     cards.append(f"""
     <div class="kpi-card">
       <div class="kpi-label">이번 점수</div>
-      <div class="kpi-value">{score:.0f}<span class="kpi-unit">점</span></div>
+      <div class="kpi-value">{score:.1f}<span class="kpi-unit">점</span></div>
       <div class="kpi-sub">정답률 {accuracy}%</div>
     </div>""")
 
