@@ -863,6 +863,31 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
                     st.caption(f"{srow['student_name']} — {status_label}{notified_txt}")
                     st.code(link, language=None)
 
+                    # [2026-08-13] 업로드 링크 자체를 문자로 보내는 테스트용 버튼.
+                    # 기존 "완료/미완료 문자 발송"과는 다른 문구(요약 아님, 링크
+                    # 포함) — dev 로컬 주소(_DEV_LOCAL_BASE_URL)를 그대로 쓰므로
+                    # "localhost"는 이 문자를 받는 폰이 아니라 이 앱이 실행 중인
+                    # PC를 가리킨다. 그래서 폰에서 눌러도 안 열릴 수 있다 — PC와
+                    # 같은 와이파이에 있다면 PC의 로컬 IP로 바꿔서 열어야 한다.
+                    # 운영에 합쳐지면 app.py처럼 실제 배포 주소(APP_BASE_URL)로
+                    # 바뀔 예정이라 그때는 이 문제가 사라진다.
+                    if srow.get("parent_phone") and st.button(
+                        f"📩 {srow['student_name']}에게 업로드 링크 문자 발송 (테스트)",
+                        key=f"hw_link_sms_{int(row['id'])}_{int(srow['submission_id'])}",
+                    ):
+                        from sms_sender import send_text_sms
+
+                        link_text = (
+                            f"{SMS_GREETING}\n"
+                            f"{srow['student_name']} 학생, {row['assigned_date']} 과제"
+                            f"({row['title']}) 업로드 링크입니다.\n{link}"
+                        )
+                        result = send_text_sms(srow["parent_phone"], link_text)
+                        if result["success"]:
+                            st.success(f"✅ {srow['student_name']}에게 링크 문자를 보냈습니다.")
+                        else:
+                            st.error(f"발송 실패: {result['message']}")
+
                     # [2026-08-11] 제출 사진 확인 — "페이지 수만 맞으면 통과"
                     # 되던 빈틈을 메우려고 추가. AI가 1차로 페이지번호를 읽어
                     # 참고 배지를 붙여주지만, 최종 확인은 선생님이 사진을 직접
