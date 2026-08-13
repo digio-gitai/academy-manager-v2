@@ -1184,6 +1184,88 @@ def generate_parent_report_html(
 
 
 # ── 유형별 진단표 빌더 ────────────────────────────────────────────────────
+_DIFFICULTY_LABELS = {
+    "A": "최상난도(A)",
+    "B": "상(B)",
+    "C": "중(C)",
+    "D": "하(D)",
+    "E": "쉬움(E)",
+}
+
+
+def _cluster_question_methods_with_ai(
+    question_details: list[dict[str, Any]],
+) -> dict[str, str] | None:
+    """단원이 1개뿐인 시험(단원테스트)에서, 문항마다 제각각인 세부 풀이유형
+    이름을 AI로 몇 개의 더 큰 '유형'으로 묶어준다.
+
+    [2026-08-13 추가] question_method는 문항 하나에만 해당할 만큼 아주
+    구체적으로 붙게 설계돼 있어서(OCR 단계 프롬프트 참고), 문자열 그대로
+    묶으면 거의 다 1문항짜리로 쪼개져 "0/1문항 0%" 같은 의미 없는 통계가
+    나가버리는 문제가 실사용 중 발견됐다(30문항 중 4개 틀린 학생 보고서가
+    실제 학부모에게 발송된 뒤 확인). 이 함수는 그 문항들의 풀이유형 이름
+    목록을 Claude에게 다시 보여주고 "의미상 비슷한 것끼리" 묶게 해서, 실제
+    여러 문항이 함께 있는 "A유형 10/10문항" 같은 통계가 나오게 한다.
+
+    반환: {원래 question_method 문자열: 묶인 유형 이름} 매핑, 실패 시 None.
+    호출부(_build_type_analysis)는 None이면 난이도 기준으로 대신 묶는다
+    (폴백) — 즉 이 함수가 실패해도 보고서 생성 자체는 항상 성공한다.
+    """
+    methods = sorted({
+        (d.get("question_method") or "").strip()
+        for d in question_details
+        if (d.get("question_method") or "").strip()
+    })
+    if len(methods) < 2:
+        return None  # 묶을 게 없음(다 같거나 하나뿐)
+
+    try:
+        client = _get_client()
+    except Exception:
+        return None
+
+    methods_text = "\n".join(f"- {m}" for m in methods)
+    prompt = (
+        "다음은 한 수학 시험(같은 단원)의 문항들에 AI가 붙인 '세부 풀이유형' "
+        f"이름 목록이야 (총 {len(methods)}개, 문항마다 제각각 구체적으로 붙어서 "
+        "그대로는 통계로 묶이지 않아).\n\n"
+        f"{methods_text}\n\n"
+        "이 이름들을 의미상 비슷한 것끼리 묶어서, 4~6개 정도의 더 큰 '유형'으로 "
+        "분류해줘. 조건:\n"
+        "- 각 유형 이름은 학부모가 봐도 이해할 수 있게 8자 내외로 짧고 명확하게\n"
+        "- 목록에 있는 모든 항목이 정확히 하나의 유형에 속해야 함(빠짐 없이)\n"
+        "- 유형 개수는 2개 이상, 목록 개수보다는 적어야 함(안 그러면 묶는 의미가 없음)\n"
+        "- 아래 JSON 형식으로만 출력 (다른 설명 없이):\n"
+        '{"mapping": [{"original": "원래 이름", "type": "묶인 유형 이름"}, ...]}'
+    )
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = message.content[0].text.strip()
+        raw = re.sub(r"```json|```", "", raw).strip()
+        data = json.loads(raw)
+        mapping = {
+            str(item["original"]): str(item["type"]) for item in data.get("mapping", [])
+        }
+        # 결과 검증: 원본 목록을 전부 커버해야 하고, 실제로 묶여야(유형 수 < 원본 수) 함.
+        # 검증 실패하면 이상한 결과를 그대로 쓰지 말고 None을 반환해서 폴백시킨다.
+        if not mapping or not set(mapping.keys()).issuperset(set(methods)):
+            return None
+        n_types = len(set(mapping.values()))
+        if not (1 < n_types < len(methods)):
+            return None
+        return mapping
+    except Exception as e:
+        import traceback
+        print(f"[AI 유형 묶기 오류] {e}")
+        traceback.print_exc()
+        return None
+
+
 def _build_type_analysis(
     *,
     wrong_numbers: list[int],
@@ -1195,14 +1277,22 @@ def _build_type_analysis(
 
     # 그룹 기준 결정: 시험 전체가 단원 1개짜리(단원테스트)면 "단원"으로 묶어봐야
     # 전부 같은 값이라 대표 우수/취약이 무의미해짐(예: 30문항 전부 "삼각비").
-    # 이런 경우엔 더 세부적인 "풀이유형"으로 묶어서 실제 취약 포인트가 드러나게 한다.
+    # 이런 경우엔 아래 세 가지를 순서대로 시도한다:
+    #   1) AI로 세부 풀이유형을 의미상 몇 개 큰 유형으로 묶기 (가장 유용함)
+    #   2) 실패하면 난이도(A~E)로 묶기 (AI 호출 없이 항상 가능한 안전한 대안)
     # 단원이 2개 이상 섞인 일반 시험(주간/월간 테스트 등)은 기존처럼 단원 기준 유지.
     distinct_topics = {
         (d.get("topic") or "").strip() or "미분류" for d in question_details
     }
-    group_by_method = len(distinct_topics) <= 1
+    single_topic = len(distinct_topics) <= 1
 
-    # 단원(대분류) 또는 풀이유형(세부)별 정답/오답 집계
+    grouping_mode = "topic"
+    ai_mapping: dict[str, str] | None = None
+    if single_topic:
+        ai_mapping = _cluster_question_methods_with_ai(question_details)
+        grouping_mode = "ai_method" if ai_mapping else "difficulty"
+
+    # 단원/AI유형/난이도 중 하나로 묶어서 정답/오답 집계
     type_stats: dict[str, dict] = {}
     wrong_set = set(wrong_numbers)
 
@@ -1211,10 +1301,12 @@ def _build_type_analysis(
             qnum = int(d["question_number"])
         except (KeyError, TypeError, ValueError):
             continue
-        if group_by_method:
-            label = (d.get("question_method") or "").strip() or (
-                (d.get("topic") or "").strip() or "미분류"
-            )
+        if grouping_mode == "ai_method":
+            raw_method = (d.get("question_method") or "").strip()
+            label = ai_mapping.get(raw_method, raw_method or "미분류")
+        elif grouping_mode == "difficulty":
+            diff = (d.get("difficulty") or "").strip().upper()
+            label = _DIFFICULTY_LABELS.get(diff, diff or "미분류")
         else:
             label = (d.get("topic") or "").strip() or "미분류"
         if label not in type_stats:
@@ -1268,15 +1360,11 @@ def _build_type_analysis(
         for t in reversed(bot3)
     ) or '<div class="type-rep-empty">해당 없음</div>'
 
-    # 단원별 바 리스트 (개별 박스)
-    # 세부 풀이유형(question_method)으로 묶은 경우엔 문항 수만큼(예: 30개) 줄이
-    # 생겨 오히려 안 읽히므로, 오답이 하나라도 있었던 유형만 보여준다.
-    bar_source = type_list
-    if group_by_method:
-        bar_source = [t for t in type_list if t["correct"] < t["total"]] or type_list
-
+    # 유형별 바 리스트 (개별 박스) — AI유형/난이도/단원 어떤 기준이든 이제
+    # 여러 문항이 함께 묶이므로(예외적으로 1문항짜리가 섞일 수도 있음),
+    # 필터링 없이 전부 보여준다.
     bar_rows = ""
-    for item in bar_source:
+    for item in type_list:
         pct = item["pct"]
         topic = item["method"]
         total = item["total"]
@@ -1284,14 +1372,10 @@ def _build_type_analysis(
         is_top = topic in top3
         is_bot = topic in bot3
 
-        # [2026-08-13 버그 수정] 세부 풀이유형(question_method)으로 묶었을 때
-        # 그 유형에 해당하는 문항이 딱 1개뿐이면(total==1), "0/1문항 0%" 같은
-        # 퍼센트 바로 보여주는 게 실제로는 "이 문제 하나 틀림"일 뿐인데 마치
-        # 그 유형 전체의 정답률 통계인 것처럼 보여서 학부모가 오해하기 쉽다
-        # (실사용 중 발견 — 30문항 중 4개 틀린 학생 보고서에 이런 줄이 4개
-        # 나가서 "이게 뭐냐"는 문의가 들어옴). 문항이 1개뿐인 유형은 퍼센트
-        # 바 없이 "오답 1문항"이라는 단순 표시로만 보여준다.
-        if total == 1:
+        # 드물게 1문항짜리 유형이 섞여 나온 경우, 틀린 문항이면 "오답 1문항"으로
+        # 단순 표시(퍼센트 바가 0%/100%로 통계처럼 보여 오해를 주는 걸 방지).
+        # 맞은 1문항은 그냥 아래 일반 경로로 "1/1문항 100%"로 보여준다.
+        if total == 1 and correct == 0:
             bar_rows += f"""
 <div class="type-row-box">
   <div class="type-row-top">
