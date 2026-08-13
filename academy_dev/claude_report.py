@@ -1283,6 +1283,24 @@ def _build_type_analysis(
         correct = item["correct"]
         is_top = topic in top3
         is_bot = topic in bot3
+
+        # [2026-08-13 버그 수정] 세부 풀이유형(question_method)으로 묶었을 때
+        # 그 유형에 해당하는 문항이 딱 1개뿐이면(total==1), "0/1문항 0%" 같은
+        # 퍼센트 바로 보여주는 게 실제로는 "이 문제 하나 틀림"일 뿐인데 마치
+        # 그 유형 전체의 정답률 통계인 것처럼 보여서 학부모가 오해하기 쉽다
+        # (실사용 중 발견 — 30문항 중 4개 틀린 학생 보고서에 이런 줄이 4개
+        # 나가서 "이게 뭐냐"는 문의가 들어옴). 문항이 1개뿐인 유형은 퍼센트
+        # 바 없이 "오답 1문항"이라는 단순 표시로만 보여준다.
+        if total == 1:
+            bar_rows += f"""
+<div class="type-row-box">
+  <div class="type-row-top">
+    <span class="type-row-label">{topic}</span>
+    <span class="type-badge type-badge-bad">오답 1문항</span>
+  </div>
+</div>"""
+            continue
+
         badge = ""
         bar_color = BRAND_BLUE
         if is_top:
