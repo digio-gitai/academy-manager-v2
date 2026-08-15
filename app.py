@@ -167,11 +167,11 @@ from homework import (
 
 # ── [신규 추가] abc 과제 인증 시스템 — 완전히 새로운 모듈(hw_assign.py).
 #    hw_* 테이블은 database.py의 ensure_hw_tables()로 이미 생성됨. ──
-from hw_assign import render_hw_assign_page
+from hw_assign import render_hw_assign_page, get_student_assignment_history
 
 # ── [신규 추가] abc 과제 인증 시스템 3단계 — 학생용 업로드 페이지(hw_upload.py).
 #    로그인 없이 ?hw=토큰 링크로만 접속하는 화면. ──
-from hw_upload import render_hw_upload_page
+from hw_upload import render_hw_upload_page, compute_display_status
 
 
 def _load_student_report_pdf_module():
@@ -5569,6 +5569,24 @@ def page_students():
                     sel_grade_name = sel_grade_label.split(" · ")[0]
                     _render_student_unified_grades(sel_grade_sid, sel_grade_name)
 
+            # [신규 추가 2026-08-15] 이 학생이 과제를 잘 해왔는지 한눈에
+            # 확인하는 섹션 — 과제 인증(사진) 완료율 + 과제 수행도(상/중/하)
+            # 두 기록을 같이 보여준다 (자세한 배경은 함수 docstring 참고).
+            with st.expander("과제 수행 이력", expanded=False):
+                hw_track_opts = {
+                    f"{r['name']} · {r['class_name']}": int(r["id"])
+                    for _, r in df.iterrows()
+                }
+                if hw_track_opts:
+                    sel_hw_label = st.selectbox(
+                        "학생 선택",
+                        list(hw_track_opts.keys()),
+                        key="students_hw_track_sel",
+                    )
+                    sel_hw_sid = hw_track_opts[sel_hw_label]
+                    sel_hw_name = sel_hw_label.split(" · ")[0]
+                    _render_student_homework_track_record(sel_hw_sid, sel_hw_name)
+
             with st.expander("학생 반 재배정"):
                 student_options = {
                     f"{r['name']} (현재: {r['class_name']})": int(r["id"])
@@ -8145,6 +8163,52 @@ def _render_student_report_write_page(teacher_id: int | None) -> None:
 def _render_student_unified_grades(student_id: int, student_name: str) -> None:
     """Compact unified view (학생 명부 expander)."""
     _render_student_grade_view_panel(student_id, student_name)
+
+
+# ── [신규 추가 2026-08-15] 학생별 "과제를 잘 해왔는지" 한눈에 보기 ──────
+# 이 앱에는 과제 관련 기록이 두 군데 따로 있다:
+#   1) (구) 출석관리에서 매번 체크하는 과제 수행도(상/중/하) — homework.py
+#   2) (신) 과제 인증에서 사진으로 증빙하는 완료/미완료 — hw_assign.py
+# 아직 모든 반이 사진 인증으로 전환한 게 아니라 반에 따라 한쪽 기록만
+# 있을 수 있어서, 학생 상세 정보 화면에서 둘 다 같이 보여준다.
+def _render_student_homework_track_record(student_id: int, student_name: str) -> None:
+    # ── (신) 과제 인증(사진) 완료 이력 ──
+    st.markdown("###### 📷 과제 인증(사진) 완료 현황")
+    hist_df = get_student_assignment_history(student_id, class_id=None)
+    if hist_df.empty:
+        st.caption("아직 과제 인증(사진) 이력이 없습니다 — 이 학생 반이 아직 과제 인증을 안 썼거나, 받은 과제가 없습니다.")
+    else:
+        done_n = int((hist_df["status"] == "done").sum())
+        total_n = len(hist_df)
+        rate = round(done_n / total_n * 100, 1) if total_n else None
+        st.markdown(f"**전체 {total_n}건 중 완료 {done_n}건 (완료율 {rate}%)**" if rate is not None else f"전체 {total_n}건")
+
+        show_n = 10
+        recent = hist_df.head(show_n)
+        for _, hr in recent.iterrows():
+            status_label = compute_display_status(
+                status=hr["status"], viewed_at=hr["viewed_at"], due_date=hr["due_date"]
+            )
+            due_txt = f" · 기한 {hr['due_date']}" if hr["due_date"] else ""
+            st.caption(
+                f"{hr['assigned_date']} · {hr['class_name'] or '—'} · {hr['title']}{due_txt} — {status_label}"
+            )
+        if total_n > show_n:
+            st.caption(f"(최근 {show_n}건만 표시 — 전체 {total_n}건 중)")
+
+    # ── (구) 과제 수행도(상/중/하) 체크 이력 ──
+    st.markdown("###### ✅ 과제 수행도 체크 현황 (출석관리에서 체크한 상/중/하)")
+    perf_stats = get_student_homework_performance_stats(
+        student_id, from_date="2000-01-01", to_date=date.today().strftime("%Y-%m-%d")
+    )
+    if not perf_stats["total"]:
+        st.caption("아직 체크된 과제 수행도 기록이 없습니다.")
+    else:
+        rate_txt = f"{perf_stats['rate']}%" if perf_stats["rate"] is not None else "—"
+        st.markdown(
+            f"**전체 {perf_stats['total']}회 — 상 {perf_stats['high']}회 · "
+            f"중 {perf_stats['mid']}회 · 하 {perf_stats['low']}회 (수행률 {rate_txt})**"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════
