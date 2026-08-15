@@ -231,12 +231,16 @@ def get_items_for_assignment(assignment_id: int) -> pd.DataFrame:
     """이 과제의 항목 전체(공통 + 개별) — student_id가 NULL이면 공통 항목,
     아니면 그 학생 전용 개별 항목이다(2026-08-14 개별 과제 부여 추가).
     student_name은 개별 항목일 때만 채워진다(공통 항목은 NULL).
+
+    [2026-08-15 추가] i.id도 item_id로 같이 가져온다 — "최근 부여한 과제"
+    화면에서 항목을 하나씩 골라 삭제할 수 있게 하려면 각 행의 실제 id가
+    필요하다(delete_hw_item() 참고).
     """
     ensure_hw_tables()
     return _read_sql_df(
         """
-        SELECT i.item_type, i.material_name, i.page_start, i.page_end, i.description,
-               i.student_id, st.name AS student_name
+        SELECT i.id AS item_id, i.item_type, i.material_name, i.page_start, i.page_end,
+               i.description, i.student_id, st.name AS student_name
         FROM hw_items i
         LEFT JOIN students st ON st.id = i.student_id
         WHERE i.assignment_id = %s
@@ -425,6 +429,23 @@ def delete_assignment(assignment_id: int) -> None:
     ensure_hw_tables()
     conn = get_conn()
     conn.execute("DELETE FROM hw_assignments WHERE id = ?", (assignment_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_hw_item(item_id: int) -> None:
+    """[2026-08-15 추가] 항목 1개만 삭제한다(과제 전체는 그대로 둠).
+
+    잘못 중복 등록된 항목을 골라서 지우거나, 개별 항목 하나만 취소하고
+    싶을 때 쓴다. hw_items → hw_item_submissions → hw_photos가 전부
+    ON DELETE CASCADE로 걸려 있어서, 이 항목에 학생이 이미 올린 인증
+    기록·사진이 있었다면 그것도 같이 지워진다 — 항목 자체가 없어지는
+    것이므로 자연스러운 동작이다(save_assignment()에서 항목이 빠질 때와
+    동일한 동작).
+    """
+    ensure_hw_tables()
+    conn = get_conn()
+    conn.execute("DELETE FROM hw_items WHERE id = ?", (item_id,))
     conn.commit()
     conn.close()
 
@@ -1206,6 +1227,36 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
                 disp = disp[["item_type", "material_name", "page_start", "page_end", "description", "대상"]]
                 disp.columns = ["유형", "문제집/프린트", "시작p", "끝p", "설명", "대상"]
                 st.dataframe(disp, width="stretch", hide_index=True)
+
+                # [2026-08-15 추가] 항목을 하나씩 골라서 삭제할 수 있는 기능 —
+                # 잘못 중복 등록된 항목을 지우거나, 특정 학생의 개별 항목
+                # 하나만 취소하고 싶을 때 과제 전체를 안 지우고 그 항목만
+                # 지운다. 이미 학생이 그 항목에 올린 인증 사진이 있으면 그
+                # 기록도 같이 지워진다는 걸 미리 알려준다.
+                st.caption("항목별로 삭제하려면 아래에서 골라 지우세요.")
+                for _, item_row in items_df.iterrows():
+                    iid = int(item_row["item_id"])
+                    type_label = _ITEM_TYPE_LABELS.get(item_row["item_type"], item_row["item_type"])
+                    target_label = (
+                        item_row["student_name"] if pd.notna(item_row["student_name"]) else "공통"
+                    )
+                    if pd.notna(item_row["page_start"]) and pd.notna(item_row["page_end"]):
+                        page_txt = f" ({int(item_row['page_start'])}~{int(item_row['page_end'])}쪽)"
+                    else:
+                        page_txt = ""
+                    desc_txt = f" · {item_row['description']}" if item_row.get("description") else ""
+
+                    dc1, dc2 = st.columns([5, 1])
+                    with dc1:
+                        st.caption(
+                            f"[{target_label}] {type_label} · {item_row['material_name']}"
+                            f"{page_txt}{desc_txt}"
+                        )
+                    with dc2:
+                        if st.button("삭제", key=f"hw_item_del_{iid}", width="stretch"):
+                            delete_hw_item(iid)
+                            st.success("항목을 삭제했습니다.")
+                            st.rerun()
 
             subs_df = get_submissions_for_assignment(int(row["id"]))
             if not subs_df.empty:
