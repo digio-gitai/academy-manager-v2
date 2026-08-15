@@ -173,6 +173,10 @@ from hw_assign import render_hw_assign_page, get_student_assignment_history
 #    로그인 없이 ?hw=토큰 링크로만 접속하는 화면. ──
 from hw_upload import render_hw_upload_page, compute_display_status
 
+# ── [신규 추가 2026-08-15] 학사정보 — 학교·학년·연도별 학사일정 +
+#    교과서 목록. 완전히 새로운 모듈(school_info.py). ──
+from school_info import render_school_info_page
+
 
 def _load_student_report_pdf_module():
     """Load student_report_pdf from this directory (sys.path fallback)."""
@@ -9979,6 +9983,12 @@ def main():
                 "기출문제를 분석하고 출제 경향을 확인합니다.",
             )
             render_past_exam_analyzer_page()
+        elif selected == "학사정보":
+            _page_header(
+                "학사정보",
+                "학교·학년별 학사일정(중간고사/기말고사/방학/기타)과 교과서 목록을 연도별로 관리합니다.",
+            )
+            render_school_info_page(_current_teacher_id())
         elif selected == "설정":
             page_settings()
 

@@ -21,6 +21,7 @@ FERMA_MENU: list[tuple[str, str, str, str]] = [
     ("pastexam", "", "기출문제분석", "기출문제분석"),
     ("qbank", "", "문제 은행", "문제 은행"),
     ("hwassign", "", "과제 인증", "과제 인증"),
+    ("schoolinfo", "", "학사정보", "학사정보"),
     ("settings", "", "설정", "설정"),
 ]
 

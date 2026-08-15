@@ -3279,3 +3279,76 @@ def get_external_grade_records(
     df = pd.read_sql_query(q, conn, params=params)
     conn.close()
     return df
+
+
+# ═══════════════════════════════════════════════════════════════
+# [신규 추가 2026-08-15] 학사정보 — 학교·학년·연도별 학사일정 + 교과서 목록
+#   완전히 새로운 테이블 2개(school_calendar_events, school_textbooks).
+#   기존 테이블·함수는 전혀 건드리지 않는다. UI는 school_info.py 참고.
+# ═══════════════════════════════════════════════════════════════
+
+_SCHOOL_CALENDAR_DDL = """
+CREATE TABLE IF NOT EXISTS school_calendar_events (
+    id           SERIAL PRIMARY KEY,
+    school       TEXT NOT NULL,
+    grade        TEXT NOT NULL,
+    year         INTEGER NOT NULL,
+    event_type   TEXT NOT NULL,
+    event_name   TEXT DEFAULT '',
+    start_date   TEXT NOT NULL,
+    end_date     TEXT DEFAULT '',
+    note         TEXT DEFAULT '',
+    created_by   INTEGER REFERENCES teachers(id) ON DELETE SET NULL,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+)
+"""
+
+_SCHOOL_TEXTBOOKS_DDL = """
+CREATE TABLE IF NOT EXISTS school_textbooks (
+    id             SERIAL PRIMARY KEY,
+    school         TEXT NOT NULL,
+    grade          TEXT NOT NULL,
+    year           INTEGER NOT NULL,
+    textbook_name  TEXT NOT NULL,
+    publisher      TEXT DEFAULT '',
+    note           TEXT DEFAULT '',
+    created_by     INTEGER REFERENCES teachers(id) ON DELETE SET NULL,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+)
+"""
+
+_SCHOOL_INFO_INDEXES_DDL = """
+CREATE INDEX IF NOT EXISTS idx_school_calendar_lookup
+    ON school_calendar_events (school, grade, year);
+CREATE INDEX IF NOT EXISTS idx_school_textbooks_lookup
+    ON school_textbooks (school, grade, year);
+"""
+
+
+def ensure_school_info_tables(conn: sqlite3.Connection | None = None) -> None:
+    """학사정보(학사일정 + 교과서 목록) 테이블 2개가 없으면 생성.
+
+    학교(학생명부의 학교명 그대로)·학년·연도 단위로 학사일정(중간고사/
+    기말고사/여름방학/겨울방학/기타)과 교과서(출판사 포함)를 기록해두는
+    신규 메뉴 "학사정보"가 쓰는 테이블. 기존 테이블·함수는 손대지 않는다.
+    """
+    if "school_info_tables" in _ENSURED_ONCE:
+        return
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        for ddl in (_SCHOOL_CALENDAR_DDL, _SCHOOL_TEXTBOOKS_DDL):
+            conn.execute(ddl)
+        for stmt in _SCHOOL_INFO_INDEXES_DDL.strip().split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
+        if own_conn:
+            conn.commit()
+        _ENSURED_ONCE.add("school_info_tables")
+    finally:
+        if own_conn:
+            conn.close()
