@@ -231,6 +231,12 @@ def generate_parent_report_html(
     prev_month_avg: float | None = None,
     # 문항별 세부정보 (단원·풀이유형·난이도·AI한줄평)
     question_details: list[dict[str, Any]] | None = None,
+    # 출석 현황 (2026-08-06 추가, 전월+이번달 현재까지 두 달치)
+    show_attendance: bool = False,
+    attendance_stats: dict | None = None,
+    # 과제 수행도 현황 (2026-08-06 추가, 전월+이번달 현재까지 두 달치)
+    show_homework_perf: bool = False,
+    homework_perf_stats: dict | None = None,
 ) -> str:
     """HTML 보고서 문자열을 반환합니다. (A4 사이즈, 블루+핑크 테마)"""
 
@@ -281,6 +287,13 @@ def generate_parent_report_html(
         total_students=total_students,
         show_class_avg=show_class_avg,
         show_class_rank=show_class_rank and not is_lite,
+    )
+
+    attendance_section_html = _build_attendance_section(
+        show=show_attendance, stats=attendance_stats
+    )
+    homework_perf_section_html = _build_homework_performance_section(
+        show=show_homework_perf, stats=homework_perf_stats
     )
 
     # ── 오답 문항 빌드 (라이트는 간단 칩 + AI 한줄평 생략) ──
@@ -714,7 +727,7 @@ def generate_parent_report_html(
   /* ── KPI 카드 ── */
   .kpi-grid {{
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 16px;
   }}
   .kpi-card {{
@@ -1082,6 +1095,10 @@ def generate_parent_report_html(
       {kpi_cards}
     </div>
   </div>
+
+  {attendance_section_html}
+
+  {homework_perf_section_html}
 
   <!-- 유형별 진단 -->
   {"" if not type_analysis_html else f'''
@@ -1452,6 +1469,102 @@ def _build_kpi_cards(
     </div>""")
 
     return "\n".join(cards)
+
+
+# ── 출석 현황 섹션 (전월 + 이번 달 현재까지) [2026-08-06 추가] ───────────────
+def _build_attendance_section(*, show: bool, stats: dict | None) -> str:
+    """stats = {
+        'cur_month': int, 'cur_rate': float|None, 'cur_present'/'cur_late'/'cur_absent': int,
+        'prev_month': int|None, 'prev_rate': float|None, 'prev_present'/'prev_late'/'prev_absent': int,
+    }
+    이번 달(1일~보고서 기준일 현재까지)과 전월(1일~말일) 출석 현황을 나란히 보여준다.
+    """
+    if not show or not stats or stats.get("cur_month") is None:
+        return ""
+
+    def _card(label: str, rate, present, late, absent) -> str:
+        if rate is None:
+            return f"""
+    <div class="kpi-card">
+      <div class="kpi-label">{label}</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">기록 없음</div>
+    </div>"""
+        return f"""
+    <div class="kpi-card">
+      <div class="kpi-label">{label}</div>
+      <div class="kpi-value">{rate:.0f}<span class="kpi-unit">%</span></div>
+      <div class="kpi-sub">출석 {present or 0} · 지각 {late or 0} · 결석 {absent or 0}</div>
+    </div>"""
+
+    prev_month = stats.get("prev_month")
+    prev_card = _card(
+        f"{prev_month}월 출석" if prev_month else "지난달 출석",
+        stats.get("prev_rate"), stats.get("prev_present"),
+        stats.get("prev_late"), stats.get("prev_absent"),
+    )
+    cur_card = _card(
+        f"{stats['cur_month']}월 출석 (현재까지)",
+        stats.get("cur_rate"), stats.get("cur_present"),
+        stats.get("cur_late"), stats.get("cur_absent"),
+    )
+
+    return f"""
+  <div class="section">
+    <div class="sec-title">출석 현황</div>
+    <div class="mini-kpi-grid">
+      {prev_card}
+      {cur_card}
+    </div>
+  </div>"""
+
+
+# ── 과제 수행도 섹션 (전월 + 이번 달 현재까지) [2026-08-06 추가] ─────────────
+def _build_homework_performance_section(*, show: bool, stats: dict | None) -> str:
+    """stats = {
+        'cur_month': int, 'cur_rate': float|None, 'cur_high'/'cur_mid'/'cur_low': int,
+        'prev_month': int|None, 'prev_rate': float|None, 'prev_high'/'prev_mid'/'prev_low': int,
+    }
+    상=100점·중=50점·하=0점으로 환산한 평균을 "과제 수행률"로 표시한다.
+    """
+    if not show or not stats or stats.get("cur_month") is None:
+        return ""
+
+    def _card(label: str, rate, high, mid, low) -> str:
+        if rate is None:
+            return f"""
+    <div class="kpi-card">
+      <div class="kpi-label">{label}</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-sub">기록 없음</div>
+    </div>"""
+        return f"""
+    <div class="kpi-card">
+      <div class="kpi-label">{label}</div>
+      <div class="kpi-value">{rate:.0f}<span class="kpi-unit">%</span></div>
+      <div class="kpi-sub">상 {high or 0} · 중 {mid or 0} · 하 {low or 0}</div>
+    </div>"""
+
+    prev_month = stats.get("prev_month")
+    prev_card = _card(
+        f"{prev_month}월 과제 수행률" if prev_month else "지난달 과제 수행률",
+        stats.get("prev_rate"), stats.get("prev_high"),
+        stats.get("prev_mid"), stats.get("prev_low"),
+    )
+    cur_card = _card(
+        f"{stats['cur_month']}월 과제 수행률 (현재까지)",
+        stats.get("cur_rate"), stats.get("cur_high"),
+        stats.get("cur_mid"), stats.get("cur_low"),
+    )
+
+    return f"""
+  <div class="section">
+    <div class="sec-title">과제 수행도</div>
+    <div class="mini-kpi-grid">
+      {prev_card}
+      {cur_card}
+    </div>
+  </div>"""
 
 
 # ── 라이트: 오답 간단 칩 빌더 ─────────────────────────────────────────────

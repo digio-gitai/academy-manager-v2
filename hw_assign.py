@@ -73,10 +73,13 @@ from hw_upload import (
 
 _ITEM_TYPE_LABELS = {"page_range": "페이지 범위형", "wrong_note": "오답정리형"}
 
-# dev 환경 로컬 실행 주소. 실제 문자(SMS) 발송은 5단계에서 연결되며, 그때는
-# 배포된 앱 주소(app.py의 APP_BASE_URL)로 바뀐다. 지금은 학생 업로드 화면이
-# 잘 동작하는지 이 링크를 복사해 직접 열어보는 용도로만 쓴다.
-_DEV_LOCAL_BASE_URL = "http://localhost:8502"
+# [운영 병합 시 2026-08-14 수정] dev에서는 로컬 주소(http://localhost:8502)를
+# 썼지만, 운영에서는 학부모/학생이 문자로 받는 링크가 실제로 열려야 하므로
+# app.py와 동일한 배포 주소를 쓴다. app.py가 이 모듈을 import하기 때문에
+# (역방향 import는 순환참조가 되어 여기서 "from app import APP_BASE_URL"을
+# 쓸 수 없다) app.py의 APP_BASE_URL과 같은 값을 그대로 복제해서 상수로 둔다.
+# 나중에 APP_BASE_URL 값이 바뀌면 app.py와 이 값 둘 다 같이 바꿔줘야 한다.
+HW_UPLOAD_BASE_URL = "https://academy-manager-v2-36428o4i69sqpda2yc5xpg.streamlit.app"
 
 
 def _now() -> str:
@@ -225,14 +228,54 @@ def get_recent_assignments(class_id: int | None = None, limit: int = 20) -> pd.D
 
 
 def get_items_for_assignment(assignment_id: int) -> pd.DataFrame:
+    """이 과제의 항목 전체(공통 + 개별) — student_id가 NULL이면 공통 항목,
+    아니면 그 학생 전용 개별 항목이다(2026-08-14 개별 과제 부여 추가).
+    student_name은 개별 항목일 때만 채워진다(공통 항목은 NULL).
+    """
+    ensure_hw_tables()
+    return _read_sql_df(
+        """
+        SELECT i.item_type, i.material_name, i.page_start, i.page_end, i.description,
+               i.student_id, st.name AS student_name
+        FROM hw_items i
+        LEFT JOIN students st ON st.id = i.student_id
+        WHERE i.assignment_id = %s
+        ORDER BY (i.student_id IS NOT NULL), st.name, i.sort_order, i.id
+        """,
+        (assignment_id,),
+    )
+
+
+def get_individual_items(assignment_id: int, student_id: int) -> pd.DataFrame:
+    """[개별 과제 부여, 2026-08-14] 이 학생 전용 개별 항목만 가져온다
+    (공통 항목 제외) — 과제 부여 화면에서 학생별로 편집할 때 쓴다."""
     ensure_hw_tables()
     return _read_sql_df(
         """
         SELECT item_type, material_name, page_start, page_end, description
-        FROM hw_items WHERE assignment_id = %s ORDER BY sort_order, id
+        FROM hw_items
+        WHERE assignment_id = %s AND student_id = %s
+        ORDER BY sort_order, id
         """,
-        (assignment_id,),
+        (assignment_id, student_id),
     )
+
+
+def get_include_common(assignment_id: int, student_id: int) -> bool:
+    """[개별 과제 부여, 2026-08-14] 이 학생이 공통 항목도 같이 인증해야
+    하는지(기본값 True). hw_assignment_targets 행이 없으면(아직 이 과제의
+    대상으로 저장된 적 없는 학생) 안전하게 True를 기본으로 돌려준다."""
+    ensure_hw_tables()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT include_common FROM hw_assignment_targets "
+        "WHERE assignment_id = ? AND student_id = ?",
+        (assignment_id, student_id),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return True
+    return bool(row[0])
 
 
 def get_assignment_for_class_date(class_id: int, assigned_date: str) -> dict | None:
@@ -326,11 +369,20 @@ def get_student_assignment_history(student_id: int, class_id: int | None = None)
 
 
 def get_submissions_for_assignment(assignment_id: int) -> pd.DataFrame:
-    """이 과제를 받은 학생별 업로드 토큰·제출 상태를 가져온다 (3단계 링크 확인용)."""
+    """이 과제를 받은 학생별 업로드 토큰·제출 상태를 가져온다 (3단계 링크 확인용).
+
+    [2026-08-15 추가] student_phone(학생 본인 연락처)도 같이 가져온다 —
+    "업로드 링크 문자 발송" 버튼이 실제로는 항상 parent_phone(보호자
+    번호)으로만 나가고 있었는데, 버튼 문구는 "학생에게 발송"이라 학생
+    본인에게 가는 줄 알았다는 혼선이 있어서(학생용 링크는 학생이 직접
+    받아야 자연스러움) — 학생 연락처가 등록돼 있으면 그쪽으로 보내도록
+    고친다.
+    """
     ensure_hw_tables()
     return _read_sql_df(
         """
         SELECT st.id AS student_id, st.name AS student_name, st.parent_phone,
+               COALESCE(st.student_phone, '') AS student_phone,
                s.id AS submission_id, s.upload_token, s.status, s.viewed_at, s.notified_at
         FROM hw_submissions s
         JOIN students st ON st.id = s.student_id
@@ -450,6 +502,12 @@ def save_assignment(
                     "DELETE FROM hw_assignment_targets WHERE assignment_id = ? AND student_id = ?",
                     (assignment_id, sid),
                 )
+                # [2026-08-14] 대상에서 빠진 학생의 개별 항목(있었다면)도 같이
+                # 정리한다 — 안 지우면 아무도 안 쓰는 항목으로 DB에 계속 남는다.
+                conn.execute(
+                    "DELETE FROM hw_items WHERE assignment_id = ? AND student_id = ?",
+                    (assignment_id, sid),
+                )
         for sid in student_ids:
             requires_cert = sid not in no_cert_student_ids
             conn.execute(
@@ -473,20 +531,39 @@ def save_assignment(
 
         # (item_type, material_name)이 같은 기존 항목은 업데이트해서 id를
         # 유지하고 — id가 유지돼야 hw_item_submissions(학생이 인증한 페이지)가
-        # 안 끊긴다. 같은 이름이 두 번 나오는 경우를 대비해 한 번 매칭된
-        # 기존 항목은 다시 안 쓰도록 표시해둔다.
-        existing_items = {
-            (r[1], r[2]): int(r[0])
-            for r in conn.execute(
-                "SELECT id, item_type, material_name FROM hw_items WHERE assignment_id = ?",
-                (assignment_id,),
-            ).fetchall()
-        }
+        # 안 끊긴다.
+        # [2026-08-14 중요] 반드시 student_id IS NULL(공통 항목)로만 범위를
+        # 좁혀야 한다 — 이 함수는 공통 항목만 다루는데, 범위를 안 좁히면
+        # 특정 학생의 개별 항목(save_individual_items로 저장된 것)까지 같이
+        # 조회돼서, 아래 "새 목록에 없는 기존 항목 삭제" 단계에서 개별
+        # 항목이 매번 공통 과제 저장 때마다 통째로 지워지는 심각한 버그가
+        # 생긴다.
+        # [2026-08-15 버그 수정] 같은 문제집 이름이 페이지 범위만 다르게
+        # 두 번 이상 등록되는 건 정상적인 사용(예: "기본정석 74쪽" +
+        # "기본정석 78~81쪽"을 별개 항목 2개로 등록)인데, 예전 코드는
+        # (item_type, material_name)당 id를 "하나만" 딕셔너리에 담을 수
+        # 있어서 두 번째 이후 항목의 기존 id를 잃어버렸다. 그러면 저장할
+        # 때마다 잃어버린 항목은 그대로 안 지워지고 남아있는 채로 새 항목이
+        # 하나씩 더 생겨서, 저장을 반복할수록 같은 항목이 계속 늘어나는
+        # 버그가 있었다(실사용에서 발견). 이제는 이름이 같은 기존 항목들을
+        # 리스트로 다 모아두고, 새로 들어온 항목 순서대로 하나씩 꺼내
+        # 매칭한다 — 그러면 몇 개가 겹치든 정확히 1:1로 짝지어지고, 새
+        # 목록에 없는 나머지(진짜 중복)만 정리(삭제)된다.
+        existing_items: dict[tuple[str, str], list[int]] = {}
+        for r in conn.execute(
+            "SELECT id, item_type, material_name FROM hw_items "
+            "WHERE assignment_id = ? AND student_id IS NULL "
+            "ORDER BY sort_order, id",
+            (assignment_id,),
+        ).fetchall():
+            existing_items.setdefault((r[1], r[2]), []).append(int(r[0]))
+
         matched_ids: set[int] = set()
         for idx, item in enumerate(items):
             name = item["material_name"].strip()
-            existing_id = existing_items.get((item["item_type"], name))
-            if existing_id is not None and existing_id not in matched_ids:
+            bucket = existing_items.get((item["item_type"], name))
+            existing_id = bucket.pop(0) if bucket else None
+            if existing_id is not None:
                 matched_ids.add(existing_id)
                 conn.execute(
                     """
@@ -521,12 +598,14 @@ def save_assignment(
                     ),
                 )
 
-        # 새 목록에 더는 없는(이름이 바뀌었거나 진짜로 빠진) 기존 항목만 삭제.
+        # 새 목록에서 매칭이 안 되고 남은 기존 항목(이름이 바뀌었거나 진짜로
+        # 빠진 것, 또는 예전 버그로 쌓인 중복)은 여기서 정리(삭제)된다.
         # 이 경우엔 그 항목에 딸린 학생 인증 기록도 같이 없어지는 게 맞다 —
         # 항목 자체가 더 이상 존재하지 않으니까.
-        for (etype, ename), eid in existing_items.items():
-            if eid not in matched_ids:
-                conn.execute("DELETE FROM hw_items WHERE id = ?", (eid,))
+        for _key, ids in existing_items.items():
+            for eid in ids:
+                if eid not in matched_ids:
+                    conn.execute("DELETE FROM hw_items WHERE id = ?", (eid,))
 
         conn.commit()
 
@@ -548,9 +627,228 @@ def save_assignment(
         conn.close()
 
 
+def save_individual_items(
+    *,
+    assignment_id: int,
+    student_id: int,
+    items: list[dict],
+    include_common: bool,
+) -> None:
+    """[개별 과제 부여, 2026-08-14] 이 학생 한 명에게만 해당하는 개별 항목을
+    저장하고, "공통 항목도 같이 인증할지" 여부를 hw_assignment_targets에
+    기록한다.
+
+    save_assignment()과 똑같은 이유로, 이름이 같은 기존 개별 항목은 지우고
+    다시 만들지 않고 그 자리에서 업데이트한다 — hw_item_submissions가
+    item_id를 참조하고 있어서, 항목을 삭제하면 학생이 이미 인증한 기록도
+    같이 사라지기 때문이다. 다른 학생의 개별 항목이나 공통 항목(student_id
+    IS NULL)은 이 함수가 절대 건드리지 않는다 — WHERE 절에 항상
+    student_id = %s를 명시해서 범위를 이 학생으로만 한정한다.
+
+    [2026-08-14 변경] 예전엔 이 학생이 hw_assignment_targets에 이미 있어야만
+    (=공통 과제를 먼저 저장해야만) 동작했는데, "공통 과제가 없는 날도 있다"는
+    요청으로 이제는 대상이 없으면 여기서 직접 등록한다(업로드 토큰 발급까지
+    포함) — 공통 과제를 저장하지 않고 개별 과제만 먼저 저장해도 된다.
+    """
+    ensure_hw_tables()
+    conn = get_conn()
+    ts = _now()
+    try:
+        conn.execute(
+            """
+            INSERT INTO hw_assignment_targets (assignment_id, student_id, requires_certification, include_common)
+            VALUES (?, ?, TRUE, ?)
+            ON CONFLICT (assignment_id, student_id)
+            DO UPDATE SET include_common = EXCLUDED.include_common
+            """,
+            (assignment_id, student_id, include_common),
+        )
+        conn.execute(
+            """
+            INSERT INTO hw_submissions (assignment_id, student_id, upload_token, status, created_at)
+            VALUES (?, ?, ?, 'pending', ?)
+            ON CONFLICT (assignment_id, student_id) DO NOTHING
+            """,
+            (assignment_id, student_id, _new_token(), ts),
+        )
+
+        # [2026-08-15 버그 수정] save_assignment()와 같은 이유로, 같은
+        # 문제집 이름이 페이지 범위만 다르게 두 번 이상 등록될 수 있으므로
+        # id를 리스트로 모아뒀다가 입력 순서대로 하나씩 매칭한다(자세한
+        # 설명은 save_assignment()의 주석 참고).
+        existing_items: dict[tuple[str, str], list[int]] = {}
+        for r in conn.execute(
+            "SELECT id, item_type, material_name FROM hw_items "
+            "WHERE assignment_id = ? AND student_id = ? "
+            "ORDER BY sort_order, id",
+            (assignment_id, student_id),
+        ).fetchall():
+            existing_items.setdefault((r[1], r[2]), []).append(int(r[0]))
+
+        matched_ids: set[int] = set()
+        for idx, item in enumerate(items):
+            name = item["material_name"].strip()
+            bucket = existing_items.get((item["item_type"], name))
+            existing_id = bucket.pop(0) if bucket else None
+            if existing_id is not None:
+                matched_ids.add(existing_id)
+                conn.execute(
+                    """
+                    UPDATE hw_items
+                    SET page_start = ?, page_end = ?, description = ?, sort_order = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        item.get("page_start"),
+                        item.get("page_end"),
+                        item.get("description", "").strip(),
+                        idx,
+                        existing_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO hw_items
+                        (assignment_id, item_type, material_name, page_start, page_end,
+                         description, sort_order, created_at, student_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        assignment_id,
+                        item["item_type"],
+                        name,
+                        item.get("page_start"),
+                        item.get("page_end"),
+                        item.get("description", "").strip(),
+                        idx,
+                        ts,
+                        student_id,
+                    ),
+                )
+
+        # 새 목록에 더는 없는 이 학생의 기존 개별 항목만 삭제(다른 학생·공통
+        # 항목은 WHERE의 student_id = ? 조건 덕분에 애초에 조회 대상이 아님).
+        for _key, ids in existing_items.items():
+            for eid in ids:
+                if eid not in matched_ids:
+                    conn.execute("DELETE FROM hw_items WHERE id = ?", (eid,))
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _get_or_create_assignment_shell(
+    *, class_id: int, assigned_date: str, title: str, due_date: str, created_by: int | None
+) -> int:
+    """[개별 과제 부여, 2026-08-14] 공통 과제를 아직 저장하지 않은 채로
+    개별 과제부터 저장하려는 경우를 위해, hw_assignments 행이 없으면
+    만들어서 id를 돌려준다.
+
+    이미 그 반·날짜에 과제가 있으면(공통이든 개별이든 한 번이라도 저장된
+    적 있으면) 그 id를 그대로 쓰고 아무 것도 바꾸지 않는다 — 제목·기한
+    갱신은 공통 저장 버튼의 책임으로 남겨둔다(여기서 같이 덮어쓰면 "개별만
+    저장"했는데 공통 쪽 제목이 의도치 않게 바뀔 수 있어서).
+    """
+    existing = get_assignment_for_class_date(class_id, assigned_date)
+    if existing:
+        return int(existing["id"])
+    ensure_hw_tables()
+    conn = get_conn()
+    ts = _now()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO hw_assignments (class_id, title, assigned_date, due_date, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+            """,
+            (class_id, title.strip() or f"{assigned_date} 숙제", assigned_date, due_date, created_by, ts, ts),
+        )
+        new_id = int(cur.fetchone()[0])
+        conn.commit()
+        return new_id
+    finally:
+        conn.close()
+
+
 # ═══════════════════════════════════════════════════════════════
 # Streamlit UI
 # ═══════════════════════════════════════════════════════════════
+
+
+def _render_item_rows(
+    key_ctx: str, item_count: int, existing_items_df: pd.DataFrame
+) -> list[dict]:
+    """문제집/프린트 항목 입력칸 여러 개를 그리고, 입력된 값들을 리스트로
+    반환한다. 공통 항목 입력(반 전체 대상)과 개별 항목 입력(학생 1명 전용,
+    2026-08-14 추가) 양쪽에서 재사용한다 — key_ctx만 서로 다르게 주면
+    위젯 key가 겹치지 않는다.
+    """
+    item_inputs: list[dict] = []
+    for i in range(item_count):
+        prev = (
+            existing_items_df.iloc[i]
+            if i < len(existing_items_df)
+            else None
+        )
+        with st.container(border=True):
+            ic1, ic2 = st.columns([2, 1])
+            with ic1:
+                material_name = st.text_input(
+                    f"항목 {i + 1} — 문제집/프린트 이름",
+                    value=str(prev["material_name"]) if prev is not None else "",
+                    key=f"hw_item_name_{key_ctx}_{i}",
+                    placeholder="예: 쎈 수학(상)",
+                )
+            with ic2:
+                default_type_idx = 0
+                if prev is not None and prev["item_type"] == "wrong_note":
+                    default_type_idx = 1
+                item_type_label = st.radio(
+                    "유형",
+                    list(_ITEM_TYPE_LABELS.values()),
+                    index=default_type_idx,
+                    key=f"hw_item_type_{key_ctx}_{i}",
+                    horizontal=True,
+                )
+            item_type = (
+                "page_range" if item_type_label == "페이지 범위형" else "wrong_note"
+            )
+
+            pc1, pc2 = st.columns(2)
+            if item_type == "page_range":
+                ps_label, pe_label = "시작 페이지", "끝 페이지"
+                desc_label, desc_ph = "추가 설명 (선택)", "예: 홀수 번호만"
+            else:
+                ps_label, pe_label = "시작 페이지 (선택)", "끝 페이지 (선택)"
+                desc_label, desc_ph = "오답정리 대상", "예: 8/1 단원평가 오답정리"
+
+            prev_ps = int(prev["page_start"]) if prev is not None and pd.notna(prev["page_start"]) else 0
+            prev_pe = int(prev["page_end"]) if prev is not None and pd.notna(prev["page_end"]) else 0
+            prev_desc = str(prev["description"]) if prev is not None and pd.notna(prev["description"]) else ""
+
+            with pc1:
+                page_start = st.number_input(
+                    ps_label, min_value=0, step=1, value=prev_ps, key=f"hw_item_ps_{key_ctx}_{i}"
+                )
+            with pc2:
+                page_end = st.number_input(
+                    pe_label, min_value=0, step=1, value=prev_pe, key=f"hw_item_pe_{key_ctx}_{i}"
+                )
+            description = st.text_input(
+                desc_label, value=prev_desc, key=f"hw_item_desc_{key_ctx}_{i}", placeholder=desc_ph
+            )
+            item_inputs.append(
+                {
+                    "item_type": item_type,
+                    "material_name": material_name,
+                    "page_start": int(page_start) or None,
+                    "page_end": int(page_end) or None,
+                    "description": description,
+                }
+            )
+    return item_inputs
 
 
 def render_incomplete_students_section(class_id: int) -> None:
@@ -666,7 +964,14 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
             f"📌 이 반은 {assigned_date_str}에 이미 '{existing['title']}' 과제가 있습니다. "
             "그대로 저장하면 새로 만들지 않고 이 과제를 수정합니다."
         )
-        existing_items_df = get_items_for_assignment(existing["id"])
+        # [2026-08-14] get_items_for_assignment()는 이제 공통+개별 항목을
+        # 다 같이 반환한다(최근 부여한 과제 표시용) — 이 편집 폼에는 공통
+        # 항목(student_id가 비어있는 것)만 채워야 한다. 개별 항목은 이
+        # 폼이 아니라 아래 "개별 과제 부여" 섹션에서 학생별로 따로 편집한다.
+        _all_items_df = get_items_for_assignment(existing["id"])
+        existing_items_df = _all_items_df[
+            _all_items_df["student_id"].isna()
+        ].reset_index(drop=True)
         default_target_ids = set(get_target_student_ids(existing["id"]))
         default_no_cert_ids = set(get_no_certification_student_ids(existing["id"]))
     else:
@@ -674,17 +979,66 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
         default_target_ids = set(int(x) for x in students_df["id"])  # 기본: 반 전체
         default_no_cert_ids = set()
 
+    # ── 받을 학생 선택 (폼 밖) ─────────────────────────────────────────
+    # [2026-08-14 변경] 예전엔 이 선택이 "공통 과제 저장 폼" 안에 있어서,
+    # 폼을 실제로 저장하기 전까진 값이 확정되지 않았다(Streamlit 폼은
+    # 제출 전까지 즉시 반영이 안 됨). 그런데 아래 "개별 과제 부여" 섹션이
+    # 이제 이 학생 목록을 그 자리에서 바로 써야 해서(공통 과제를 저장하지
+    # 않아도 개별 항목만 먼저 등록할 수 있게 하려고) 폼 밖으로 옮겼다 —
+    # 부여일(assigned_d)과 같은 이유.
+    st.markdown("**받을 학생 선택**")
+    student_names = list(students_df["name"])
+    id_to_name = {int(r["id"]): r["name"] for _, r in students_df.iterrows()}
+    name_to_id = {r["name"]: int(r["id"]) for _, r in students_df.iterrows()}
+    default_names = [id_to_name[sid] for sid in default_target_ids if sid in id_to_name]
+    sel_student_names = st.multiselect(
+        "학생",
+        student_names,
+        default=default_names,
+        key=f"hw_assign_students_{ctx}",
+        label_visibility="collapsed",
+    )
+    student_ids = [name_to_id[n] for n in sel_student_names]
+
+    no_cert_default_names = [
+        id_to_name[sid]
+        for sid in default_no_cert_ids
+        if sid in id_to_name and id_to_name[sid] in sel_student_names
+    ]
+    no_cert_names = st.multiselect(
+        "이 중 인증(사진 업로드) 불필요한 학생 (선택)",
+        sel_student_names,
+        default=no_cert_default_names,
+        key=f"hw_assign_nocert_{ctx}",
+        help="체크한 학생은 과제는 받지만 업로드 링크·완료 추적 없이 진행됩니다.",
+    )
+    no_cert_ids = {name_to_id[n] for n in no_cert_names if n in name_to_id} & set(student_ids)
+
+    st.divider()
+    st.markdown("#### 공통 과제 (반 전체)")
+    st.caption(
+        "반 전체에게 공통으로 나갈 문제집/프린트입니다. "
+        "[2026-08-14] 항목 없이 학생만 등록해도 저장할 수 있어요 — "
+        "그날 개별 과제만 내줄 때는 아래 항목을 0개로 두고 저장하면 됩니다."
+    )
+
+    # +/- 버튼은 폼 밖에 있어야 클릭 즉시 반영된다(Streamlit 폼 제약: 폼
+    # 안에서는 form_submit_button 전까지 리렌더가 안 됨). 대신 버튼을
+    # "문제집 / 프린트 항목" 줄의 오른쪽에 나란히 두고, 실제 입력칸은 바로
+    # 아래 폼에서 그린다 — 사용자 입장에서는 한 줄로 이어져 보인다.
     item_count_key = f"hw_assign_item_count_{ctx}"
     if item_count_key not in st.session_state:
-        st.session_state[item_count_key] = max(1, len(existing_items_df))
+        st.session_state[item_count_key] = len(existing_items_df)
 
-    c_add, c_remove, _sp = st.columns([1, 1, 4])
-    with c_add:
-        if st.button("+ 항목 추가", key=f"hw_assign_item_add_{ctx}"):
+    head_col, add_col, remove_col = st.columns([3, 1, 1])
+    with head_col:
+        st.markdown("**문제집 / 프린트 항목**")
+    with add_col:
+        if st.button("+ 항목 추가", key=f"hw_assign_item_add_{ctx}", width="stretch"):
             st.session_state[item_count_key] += 1
-    with c_remove:
-        if st.button("- 항목 제거", key=f"hw_assign_item_remove_{ctx}"):
-            st.session_state[item_count_key] = max(1, st.session_state[item_count_key] - 1)
+    with remove_col:
+        if st.button("- 항목 제거", key=f"hw_assign_item_remove_{ctx}", width="stretch"):
+            st.session_state[item_count_key] = max(0, st.session_state[item_count_key] - 1)
 
     item_count = st.session_state[item_count_key]
 
@@ -703,95 +1057,9 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
             "제출 기한 (선택)", value=due_default, key=f"hw_assign_due_{ctx}"
         )
 
-        st.markdown("**받을 학생 선택**")
-        student_names = list(students_df["name"])
-        id_to_name = {int(r["id"]): r["name"] for _, r in students_df.iterrows()}
-        default_names = [id_to_name[sid] for sid in default_target_ids if sid in id_to_name]
-        sel_student_names = st.multiselect(
-            "학생",
-            student_names,
-            default=default_names,
-            key=f"hw_assign_students_{ctx}",
-            label_visibility="collapsed",
-        )
-
-        no_cert_default_names = [
-            id_to_name[sid]
-            for sid in default_no_cert_ids
-            if sid in id_to_name and id_to_name[sid] in sel_student_names
-        ]
-        no_cert_names = st.multiselect(
-            "이 중 인증(사진 업로드) 불필요한 학생 (선택)",
-            sel_student_names,
-            default=no_cert_default_names,
-            key=f"hw_assign_nocert_{ctx}",
-            help="체크한 학생은 과제는 받지만 업로드 링크·완료 추적 없이 진행됩니다.",
-        )
-
-        st.markdown("**문제집 / 프린트 항목**")
-        item_inputs: list[dict] = []
-        for i in range(item_count):
-            prev = (
-                existing_items_df.iloc[i]
-                if i < len(existing_items_df)
-                else None
-            )
-            with st.container(border=True):
-                ic1, ic2 = st.columns([2, 1])
-                with ic1:
-                    material_name = st.text_input(
-                        f"항목 {i + 1} — 문제집/프린트 이름",
-                        value=str(prev["material_name"]) if prev is not None else "",
-                        key=f"hw_item_name_{ctx}_{i}",
-                        placeholder="예: 쎈 수학(상)",
-                    )
-                with ic2:
-                    default_type_idx = 0
-                    if prev is not None and prev["item_type"] == "wrong_note":
-                        default_type_idx = 1
-                    item_type_label = st.radio(
-                        "유형",
-                        list(_ITEM_TYPE_LABELS.values()),
-                        index=default_type_idx,
-                        key=f"hw_item_type_{ctx}_{i}",
-                        horizontal=True,
-                    )
-                item_type = (
-                    "page_range" if item_type_label == "페이지 범위형" else "wrong_note"
-                )
-
-                pc1, pc2 = st.columns(2)
-                if item_type == "page_range":
-                    ps_label, pe_label = "시작 페이지", "끝 페이지"
-                    desc_label, desc_ph = "추가 설명 (선택)", "예: 홀수 번호만"
-                else:
-                    ps_label, pe_label = "시작 페이지 (선택)", "끝 페이지 (선택)"
-                    desc_label, desc_ph = "오답정리 대상", "예: 8/1 단원평가 오답정리"
-
-                prev_ps = int(prev["page_start"]) if prev is not None and pd.notna(prev["page_start"]) else 0
-                prev_pe = int(prev["page_end"]) if prev is not None and pd.notna(prev["page_end"]) else 0
-                prev_desc = str(prev["description"]) if prev is not None and pd.notna(prev["description"]) else ""
-
-                with pc1:
-                    page_start = st.number_input(
-                        ps_label, min_value=0, step=1, value=prev_ps, key=f"hw_item_ps_{ctx}_{i}"
-                    )
-                with pc2:
-                    page_end = st.number_input(
-                        pe_label, min_value=0, step=1, value=prev_pe, key=f"hw_item_pe_{ctx}_{i}"
-                    )
-                description = st.text_input(
-                    desc_label, value=prev_desc, key=f"hw_item_desc_{ctx}_{i}", placeholder=desc_ph
-                )
-                item_inputs.append(
-                    {
-                        "item_type": item_type,
-                        "material_name": material_name,
-                        "page_start": int(page_start) or None,
-                        "page_end": int(page_end) or None,
-                        "description": description,
-                    }
-                )
+        if item_count == 0:
+            st.caption("공통 항목이 없습니다. 이대로 저장하면 '개별 과제만' 부여하는 과제가 됩니다.")
+        item_inputs = _render_item_rows(ctx, item_count, existing_items_df)
 
         save_label = "과제 수정 저장" if existing else "과제 저장"
         save_btn = st.form_submit_button(save_label, width="stretch", type="primary")
@@ -804,16 +1072,9 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
             st.error("학생을 최소 1명 선택해주세요.")
             return
         valid_items = [it for it in item_inputs if it["material_name"].strip()]
-        if not valid_items:
-            st.error("문제집/프린트 항목을 최소 1개 입력해주세요.")
-            return
-
-        name_to_id = {r["name"]: int(r["id"]) for _, r in students_df.iterrows()}
-        student_ids = [name_to_id[n] for n in sel_student_names]
-        # sel_student_names는 폼이 마지막으로 그려질 때 기준이라, 그 사이에
-        # 학생 선택을 바꿨다면 no_cert_names에 이번엔 빠진 이름이 남아있을 수
-        # 있다 — 최종 student_ids와 교집합만 사용해서 안전하게 거른다.
-        no_cert_ids = {name_to_id[n] for n in no_cert_names if n in name_to_id} & set(student_ids)
+        # [2026-08-14] 공통 항목 0개도 허용 — "가끔은 공통과제가 없을 때도
+        # 있다"는 요청으로, 학생 등록만 하고 항목은 비워둔 채 저장할 수 있다
+        # (그 학생들에게는 아래 개별 과제로만 내주면 됨).
 
         _assignment_id, is_new = save_assignment(
             assignment_id=editing_id,
@@ -827,8 +1088,95 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
             no_cert_student_ids=no_cert_ids,
         )
         msg = "새 과제가 저장되었습니다!" if is_new else "과제가 수정되었습니다!"
-        st.success(f"{msg} (학생 {len(student_ids)}명, 항목 {len(valid_items)}개)")
+        item_txt = f"항목 {len(valid_items)}개" if valid_items else "공통 항목 없음(개별 과제만)"
+        st.success(f"{msg} (학생 {len(student_ids)}명, {item_txt})")
         st.rerun()
+
+    # ── [2026-08-14 추가/개편] 개별 과제 부여 ──────────────────────────
+    # 원칙은 위의 통합부여(반 전체 공통 과제)이고, 이 섹션은 특정 학생
+    # 한 명에게만 항목을 추가로(또는 공통 대신) 얹는 선택 기능이다.
+    #   - 개별 항목이 있고 "공통 과제도 포함" 체크가 켜져 있으면(기본값)
+    #     → 공통 항목 + 개별 항목 둘 다 인증
+    #   - 개별 항목이 있는데 체크를 끄면 → 개별 항목만 인증(공통 과제 제외)
+    #   - 개별 항목을 아예 안 만들면 → 공통 항목만 인증(변화 없음)
+    # [2026-08-14 개편] 예전엔 공통 과제를 먼저 저장해야만(existing이 있어야)
+    # 이 섹션이 나타났는데, "공통 과제 없는 날도 있다"는 요청으로 이제는
+    # 위에서 학생을 고르는 순간 바로 학생별로 펼쳐서 쓸 수 있다 — 위 공통
+    # 폼을 저장하지 않아도 된다(저장 시점에 필요하면 과제 뼈대를 알아서
+    # 만든다. _get_or_create_assignment_shell 참고).
+    st.divider()
+    st.markdown("#### 개별 과제 부여 (선택)")
+    st.caption(
+        "특정 학생에게만 문제집/프린트를 추가로(또는 공통 대신) 내줄 때 씁니다. "
+        "학생 이름을 눌러 펼치면 그 학생만의 항목을 등록할 수 있어요 — "
+        "위 공통 과제를 먼저 저장하지 않아도 바로 쓸 수 있습니다."
+    )
+
+    if not student_ids:
+        st.caption("위에서 먼저 학생을 선택해주세요.")
+    else:
+        for sid in student_ids:
+            sname = id_to_name[sid]
+            indiv_ctx = f"{ctx}_indiv_{sid}"
+            with st.expander(f"👤 {sname}"):
+                indiv_existing_df = get_individual_items(editing_id, sid)
+                indiv_count_key = f"hw_indiv_item_count_{indiv_ctx}"
+                if indiv_count_key not in st.session_state:
+                    st.session_state[indiv_count_key] = len(indiv_existing_df)
+
+                ic_head, ic_add, ic_remove = st.columns([3, 1, 1])
+                with ic_head:
+                    st.markdown("**개별 문제집 / 프린트 항목**")
+                with ic_add:
+                    if st.button("+ 항목 추가", key=f"hw_indiv_item_add_{indiv_ctx}", width="stretch"):
+                        st.session_state[indiv_count_key] += 1
+                with ic_remove:
+                    if st.button("- 항목 제거", key=f"hw_indiv_item_remove_{indiv_ctx}", width="stretch"):
+                        st.session_state[indiv_count_key] = max(0, st.session_state[indiv_count_key] - 1)
+
+                indiv_item_count = st.session_state[indiv_count_key]
+
+                with st.form(f"hw_indiv_form_{indiv_ctx}"):
+                    include_common_default = get_include_common(editing_id, sid)
+                    include_common_val = st.checkbox(
+                        f"공통 과제도 함께 인증 ({sname} 학생)",
+                        value=include_common_default,
+                        key=f"hw_indiv_include_common_{indiv_ctx}",
+                        help="꺼두면 이 학생은 공통 항목은 빼고 아래 개별 항목만 인증하면 됩니다.",
+                    )
+                    if indiv_item_count == 0:
+                        st.caption("아직 개별 항목이 없습니다. '+ 항목 추가'를 눌러 추가해주세요.")
+                    indiv_item_inputs = _render_item_rows(indiv_ctx, indiv_item_count, indiv_existing_df)
+                    indiv_save_btn = st.form_submit_button(
+                        f"{sname} 학생 개별 과제 저장", width="stretch"
+                    )
+
+                if indiv_save_btn:
+                    valid_indiv_items = [
+                        it for it in indiv_item_inputs if it["material_name"].strip()
+                    ]
+                    shell_id = editing_id or _get_or_create_assignment_shell(
+                        class_id=sel_cls_id,
+                        assigned_date=assigned_date_str,
+                        title=title,
+                        due_date=due_d.strftime("%Y-%m-%d") if due_d else "",
+                        created_by=teacher_id,
+                    )
+                    save_individual_items(
+                        assignment_id=shell_id,
+                        student_id=sid,
+                        items=valid_indiv_items,
+                        include_common=include_common_val,
+                    )
+                    if valid_indiv_items:
+                        st.success(
+                            f"{sname} 학생 개별 과제 저장 완료 "
+                            f"(항목 {len(valid_indiv_items)}개, "
+                            f"공통 과제 {'포함' if include_common_val else '제외'})"
+                        )
+                    else:
+                        st.success(f"{sname} 학생 개별 과제를 모두 지웠습니다.")
+                    st.rerun()
 
     st.divider()
     render_incomplete_students_section(sel_cls_id)
@@ -852,16 +1200,18 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
             else:
                 disp = items_df.copy()
                 disp["item_type"] = disp["item_type"].map(_ITEM_TYPE_LABELS)
-                disp.columns = ["유형", "문제집/프린트", "시작p", "끝p", "설명"]
+                # [2026-08-14] 대상 열 추가 — 공통 항목(student_id 없음)은
+                # "공통", 개별 항목은 그 학생 이름을 보여준다.
+                disp["대상"] = disp["student_name"].apply(lambda v: v if pd.notna(v) else "공통")
+                disp = disp[["item_type", "material_name", "page_start", "page_end", "description", "대상"]]
+                disp.columns = ["유형", "문제집/프린트", "시작p", "끝p", "설명", "대상"]
                 st.dataframe(disp, width="stretch", hide_index=True)
 
             subs_df = get_submissions_for_assignment(int(row["id"]))
             if not subs_df.empty:
-                st.markdown(
-                    "**학생별 업로드 링크** (dev 테스트용 — 실제 배포 시 SMS로 자동 발송됨)"
-                )
+                st.markdown("**학생별 업로드 링크**")
                 for _, srow in subs_df.iterrows():
-                    link = f"{_DEV_LOCAL_BASE_URL}/?hw={srow['upload_token']}"
+                    link = f"{HW_UPLOAD_BASE_URL}/?hw={srow['upload_token']}"
                     status_label = compute_display_status(
                         status=srow["status"], viewed_at=srow["viewed_at"], due_date=row["due_date"]
                     )
@@ -869,30 +1219,44 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
                     st.caption(f"{srow['student_name']} — {status_label}{notified_txt}")
                     st.code(link, language=None)
 
-                    # [2026-08-13] 업로드 링크 자체를 문자로 보내는 테스트용 버튼.
-                    # 기존 "완료/미완료 문자 발송"과는 다른 문구(요약 아님, 링크
-                    # 포함) — dev 로컬 주소(_DEV_LOCAL_BASE_URL)를 그대로 쓰므로
-                    # "localhost"는 이 문자를 받는 폰이 아니라 이 앱이 실행 중인
-                    # PC를 가리킨다. 그래서 폰에서 눌러도 안 열릴 수 있다 — PC와
-                    # 같은 와이파이에 있다면 PC의 로컬 IP로 바꿔서 열어야 한다.
-                    # 운영에 합쳐지면 app.py처럼 실제 배포 주소(APP_BASE_URL)로
-                    # 바뀔 예정이라 그때는 이 문제가 사라진다.
-                    if srow.get("parent_phone") and st.button(
-                        f"📩 {srow['student_name']}에게 업로드 링크 문자 발송 (테스트)",
-                        key=f"hw_link_sms_{int(row['id'])}_{int(srow['submission_id'])}",
-                    ):
-                        from sms_sender import send_text_sms
-
-                        link_text = (
-                            f"{SMS_GREETING}\n"
-                            f"{srow['student_name']} 학생, {row['assigned_date']} 과제"
-                            f"({row['title']}) 업로드 링크입니다.\n{link}"
+                    # [2026-08-13] 업로드 링크 자체를 문자로 보내는 버튼.
+                    # 기존 "완료/미완료 문자 발송"과는 다른 문구(요약 아님, 링크 포함).
+                    # [2026-08-15 버그 수정] 버튼 문구는 "학생에게 발송"인데
+                    # 실제로는 항상 parent_phone(보호자 번호)으로만 나가고
+                    # 있었다 — 업로드는 학생이 직접 하는 거라 학생 번호로
+                    # 가는 게 맞는데, 학생 본인에게 안 가고 보호자에게 가서
+                    # 혼선이 있었다(실사용에서 발견). 이제는 학생 연락처
+                    # (student_phone)가 등록돼 있으면 그쪽으로 보내고, 없으면
+                    # 보호자 번호로 대신 보내되 버튼 문구에 그 사실을
+                    # 명시해서 어디로 가는지 헷갈리지 않게 한다.
+                    _stu_phone = (srow.get("student_phone") or "").strip()
+                    _parent_phone = (srow.get("parent_phone") or "").strip()
+                    _target_phone = _stu_phone or _parent_phone
+                    if _target_phone:
+                        _btn_label = (
+                            f"📩 {srow['student_name']}에게 업로드 링크 문자 발송"
+                            if _stu_phone
+                            else f"📩 {srow['student_name']}에게 업로드 링크 문자 발송 (학생 번호 없어 보호자 번호로 발송)"
                         )
-                        result = send_text_sms(srow["parent_phone"], link_text)
-                        if result["success"]:
-                            st.success(f"✅ {srow['student_name']}에게 링크 문자를 보냈습니다.")
-                        else:
-                            st.error(f"발송 실패: {result['message']}")
+                        if st.button(
+                            _btn_label,
+                            key=f"hw_link_sms_{int(row['id'])}_{int(srow['submission_id'])}",
+                        ):
+                            from sms_sender import send_text_sms
+
+                            link_text = (
+                                f"{SMS_GREETING}\n"
+                                f"{srow['student_name']} 학생, {row['assigned_date']} 과제"
+                                f"({row['title']}) 업로드 링크입니다.\n{link}"
+                            )
+                            result = send_text_sms(_target_phone, link_text)
+                            if result["success"]:
+                                _to_txt = "학생 번호" if _stu_phone else "보호자 번호"
+                                st.success(f"✅ {srow['student_name']}에게 링크 문자를 보냈습니다 ({_to_txt}).")
+                            else:
+                                st.error(f"발송 실패: {result['message']}")
+                    else:
+                        st.caption("⚠️ 학생·보호자 연락처가 모두 없어 링크 문자를 보낼 수 없습니다.")
 
                     # [2026-08-11] 제출 사진 확인 — "페이지 수만 맞으면 통과"
                     # 되던 빈틈을 메우려고 추가. AI가 1차로 페이지번호를 읽어

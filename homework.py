@@ -7,6 +7,7 @@
 제공 기능
   - 반 공통 과제 저장/조회 (수업일 단위, 1개)
   - 학생별 개별 추가 과제 저장/조회 (선택 사항)
+  - 학생별 "과제 수행도" 상/중/하 체크 저장/조회 (2026-08-06 추가)
   - 출석 체크 화면 하단에 붙는 "오늘 과제" 입력 UI
     (직전 수업 과제를 참고용으로 함께 보여줌)
   - 전체 과제 이력을 반/학생/키워드/기간으로 검색하는 UI
@@ -15,9 +16,13 @@ Public API:
   - ensure_homework_tables()
   - save_class_homework(class_id, session_date, content)
   - get_class_homework(class_id, session_date) -> str
+  - get_hw_assignment_summary(class_id, session_date) -> dict | None  [신규 2026-08-08]
   - get_previous_class_homework(class_id, before_date) -> dict | None
   - save_student_homework_note(student_id, class_id, session_date, note)
   - get_student_homework_notes(class_id, session_date) -> dict[int, str]
+  - save_student_homework_performance(student_id, class_id, session_date, level)
+  - get_student_homework_performance(class_id, session_date) -> dict[int, str]
+  - get_student_homework_performance_stats(student_id, from_date, to_date) -> dict
   - search_homework_history(...) -> pandas.DataFrame
   - render_homework_section(class_id, class_name, session_date_str, students_df)
   - render_homework_history_section(classes_df)
@@ -78,6 +83,23 @@ def ensure_homework_tables() -> None:
         )
         """
     )
+    # [신규 추가 2026-08-06] 학생별 "과제 수행도(상/중/하)" — 오늘 수업에서
+    # 직전 과제를 얼마나 해왔는지 체크. student_homework_notes(과제 내용 메모)와는
+    # 별개 테이블로 둔다 (의미가 다르므로 섞지 않음).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS student_homework_performance (
+            id           SERIAL PRIMARY KEY,
+            student_id   INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            class_id     INTEGER REFERENCES classes(id) ON DELETE SET NULL,
+            session_date TEXT NOT NULL,
+            level        TEXT NOT NULL DEFAULT '중',
+            created_at   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL,
+            UNIQUE(student_id, session_date)
+        )
+        """
+    )
     conn.commit()
     conn.close()
     _TABLES_READY = True
@@ -118,6 +140,68 @@ def get_class_homework(class_id: int, session_date: str) -> str:
     ).fetchone()
     conn.close()
     return row[0] if row and row[0] else ""
+
+
+def get_hw_assignment_summary(class_id: int, session_date: str) -> dict | None:
+    """이 반·날짜에 '과제 인증'(hw_assign.py) 메뉴에서 등록한 과제가 있으면
+    제목과 항목 요약을 반환한다(없으면 None). {"title": str, "summary": str}
+
+    [신규 추가 2026-08-08] 과제인증 쪽에서 과제를 등록하면 출석부의 "오늘
+    과제"에도 자동으로 항목 요약이 채워지는데(hw_assign.save_assignment()가
+    save_class_homework()를 호출), 여기서 또 수동으로 고쳐 쓸 수 있으면
+    두 화면의 내용이 어긋날 수 있다. render_homework_section()이 이 함수로
+    "출처가 과제인증인지"를 확인해서, 그런 경우엔 반 공통 과제 입력칸을
+    읽기 전용으로 바꾼다 — 수정은 '과제 인증' 메뉴에서만 하도록 통일.
+
+    class_homework에 복사돼 있는 값(save_assignment() 저장 시점에 채워짐)을
+    그대로 믿지 않고, hw_assignments/hw_items를 매번 직접 조회해서 항목
+    요약을 실시간으로 다시 만든다 — 이 동기화 기능이 생기기 전에 이미
+    등록해 둔 과제(class_homework에 복사분이 없는 경우)도 여기서 바로
+    보이게 하기 위해서다.
+
+    hw_assignments/hw_items 테이블은 이 모듈이 만드는 게 아니라 database.py의
+    ensure_hw_tables()가 만든다. 아직 그 테이블이 없는 상태(과제인증 기능을
+    한 번도 안 쓴 환경)에서 조회하면 에러가 날 수 있으므로, 실패하면 그냥
+    "과제인증에서 등록된 과제 없음"으로 간주하고 기존처럼 수동 입력을
+    허용한다(안전한 기본값).
+    """
+    conn = get_conn()
+    try:
+        arow = conn.execute(
+            "SELECT id, title FROM hw_assignments WHERE class_id = ? AND assigned_date = ?",
+            (class_id, session_date),
+        ).fetchone()
+        if not arow:
+            return None
+        assignment_id, title = int(arow[0]), arow[1]
+        # [2026-08-14] 개별 과제 부여 기능 추가로 hw_items에 특정 학생 전용
+        # 항목(student_id 있음)도 섞여 있을 수 있다. 이 출석부 요약은 반
+        # 전체 공용 텍스트 한 칸이라 특정 학생만의 항목을 넣으면 안 되므로,
+        # 반드시 공통 항목(student_id IS NULL)만 가져온다.
+        items = conn.execute(
+            """
+            SELECT item_type, material_name, page_start, page_end, description
+            FROM hw_items WHERE assignment_id = ? AND student_id IS NULL
+            ORDER BY sort_order
+            """,
+            (assignment_id,),
+        ).fetchall()
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+    parts: list[str] = []
+    for item_type, material_name, page_start, page_end, description in items:
+        name = (material_name or "").strip()
+        if not name:
+            continue
+        if item_type == "page_range" and page_start and page_end:
+            parts.append(f"{name} ({page_start}~{page_end}쪽)")
+        else:
+            desc = (description or "").strip()
+            parts.append(f"{name} 오답정리 ({desc})" if desc else f"{name} 오답정리")
+    return {"title": title, "summary": ", ".join(parts)}
 
 
 def get_previous_class_homework(class_id: int, before_date: str) -> dict | None:
@@ -177,6 +261,81 @@ def get_student_homework_notes(class_id: int, session_date: str) -> dict[int, st
     ).fetchall()
     conn.close()
     return {r[0]: r[1] for r in rows if r[1]}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 학생별 과제 수행도 (상/중/하) — [신규 추가 2026-08-06]
+# ═══════════════════════════════════════════════════════════════
+
+HOMEWORK_PERFORMANCE_LEVELS = ["상", "중", "하"]
+
+
+def save_student_homework_performance(
+    student_id: int, class_id: int | None, session_date: str, level: str
+) -> None:
+    ensure_homework_tables()
+    if level not in HOMEWORK_PERFORMANCE_LEVELS:
+        level = "중"
+    conn = get_conn()
+    ts = _now()
+    conn.execute(
+        """
+        INSERT INTO student_homework_performance
+            (student_id, class_id, session_date, level, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(student_id, session_date)
+        DO UPDATE SET level = excluded.level, class_id = excluded.class_id,
+                      updated_at = excluded.updated_at
+        """,
+        (student_id, class_id, session_date, level, ts, ts),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_student_homework_performance(class_id: int, session_date: str) -> dict[int, str]:
+    """오늘 세션에 이미 저장된 학생별 과제 수행도 {student_id: '상'|'중'|'하'}."""
+    ensure_homework_tables()
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT student_id, level FROM student_homework_performance
+        WHERE class_id = ? AND session_date = ?
+        """,
+        (class_id, session_date),
+    ).fetchall()
+    conn.close()
+    return {r[0]: r[1] for r in rows if r[1]}
+
+
+# 보고서용 환산 점수: 상=100, 중=50, 하=0
+HOMEWORK_PERFORMANCE_SCORES = {"상": 100, "중": 50, "하": 0}
+
+
+def get_student_homework_performance_stats(
+    student_id: int, from_date: str, to_date: str
+) -> dict:
+    """보고서용 — 특정 학생의 기간 과제 수행도 요약(반 무관, 학생 기준).
+
+    반환: {"high": 상 횟수, "mid": 중 횟수, "low": 하 횟수, "total": 전체 횟수,
+           "rate": 수행률(%) | None(기록 없음)}
+    """
+    ensure_homework_tables()
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT level FROM student_homework_performance
+        WHERE student_id = ? AND session_date BETWEEN ? AND ?
+        """,
+        (student_id, from_date, to_date),
+    ).fetchall()
+    conn.close()
+    high = sum(1 for r in rows if r[0] == "상")
+    mid = sum(1 for r in rows if r[0] == "중")
+    low = sum(1 for r in rows if r[0] == "하")
+    total = high + mid + low
+    rate = round((high * 100 + mid * 50) / total, 1) if total else None
+    return {"high": high, "mid": mid, "low": low, "total": total, "rate": rate}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -246,13 +405,43 @@ def search_homework_history(
         params2.append(f"%{keyword}%")
 
     indiv_df = pd.read_sql_query(q2, conn, params=params2)
+
+    # [신규 추가 2026-08-06] 과제 수행도(상/중/하) — 일단 간단히 같은 표에
+    # '과제 수행도' 구분으로 얹어서 보여준다. 자유 텍스트가 아니라 상/중/하
+    # 값이라 키워드 검색은 적용하지 않는다(키워드 있으면 이 결과는 제외).
+    if keyword:
+        perf_df = pd.DataFrame(
+            columns=["session_date", "class_name", "class_id", "student_name",
+                     "student_id", "homework_text", "kind"]
+        )
+    else:
+        q3 = """
+            SELECT shp.session_date, c.name AS class_name, shp.class_id,
+                   s.name AS student_name, shp.student_id,
+                   shp.level AS homework_text, '과제 수행도' AS kind
+            FROM student_homework_performance shp
+            JOIN students s ON s.id = shp.student_id
+            LEFT JOIN classes c ON c.id = shp.class_id
+            WHERE 1=1
+        """
+        params3: list = []
+        if class_id is not None:
+            q3 += " AND shp.class_id = ?"
+            params3.append(class_id)
+        if student_id is not None:
+            q3 += " AND shp.student_id = ?"
+            params3.append(student_id)
+        if from_date:
+            q3 += " AND shp.session_date >= ?"
+            params3.append(from_date)
+        if to_date:
+            q3 += " AND shp.session_date <= ?"
+            params3.append(to_date)
+        perf_df = pd.read_sql_query(q3, conn, params=params3)
+
     conn.close()
 
-    if student_id is not None:
-        # 특정 학생 검색일 때는 그 학생의 반 공통 과제도 같이 보여준다.
-        combined = pd.concat([common_df, indiv_df], ignore_index=True)
-    else:
-        combined = pd.concat([common_df, indiv_df], ignore_index=True)
+    combined = pd.concat([common_df, indiv_df, perf_df], ignore_index=True)
 
     if combined.empty:
         return combined
@@ -270,8 +459,9 @@ def render_homework_section(
 ) -> None:
     """출석 체크 탭 맨 아래에 붙이는 '오늘 과제' 입력 영역.
 
-    - 직전 수업에 등록된 반 공통 과제를 참고용으로 먼저 보여준다.
+    - 직전 수업에 등록된 반 공통 과제를 참고용으로 먼저 보여준다. (유지)
     - 오늘 날짜의 반 공통 과제를 입력/수정할 수 있다.
+    - 학생별로 "과제 수행도(상/중/하)"를 체크할 수 있다. (2026-08-06 추가)
     - 필요할 때만 펼쳐서 학생별 개별 추가 과제를 넣을 수 있다.
     """
     ensure_homework_tables()
@@ -279,6 +469,7 @@ def render_homework_section(
     with st.container(border=True):
         st.markdown("#### 오늘 과제")
 
+        # ── 직전 수업 과제 참고 표시 — 그대로 유지 ──
         prev = get_previous_class_homework(class_id, session_date_str)
         if prev:
             st.caption(f"직전 수업 과제 ({prev['session_date']}) — 참고용")
@@ -295,14 +486,61 @@ def render_homework_section(
 
         current_common = get_class_homework(class_id, session_date_str)
         current_notes = get_student_homework_notes(class_id, session_date_str)
+        current_perf = get_student_homework_performance(class_id, session_date_str)
+
+        # [신규 2026-08-08] 과제인증(hw_assign.py)에서 이 반·날짜에 이미 과제를
+        # 등록했으면, 반 공통 과제는 거기가 원본이다 — 여기서는 확인만 하고
+        # 수정은 막는다(두 화면 내용이 어긋나는 것을 방지). 학생별 개별 추가
+        # 과제·과제 수행도 체크는 과제인증과 무관한 별개 기능이라 그대로 둔다.
+        # class_homework 복사본이 아니라 hw_assignments/hw_items를 매번 직접
+        # 조회해서 보여준다 — 이 동기화가 생기기 전에 등록해 둔 과제도 바로
+        # 보이게 하기 위해서(복사본에만 의존하면 옛날 과제는 빈칸으로 보임).
+        hw_assignment = get_hw_assignment_summary(class_id, session_date_str)
+        common_locked = hw_assignment is not None
 
         with st.form(f"homework_form_{class_id}_{session_date_str}"):
-            common_val = st.text_area(
-                f"오늘({session_date_str}) 과제 — {class_name} 공통",
-                value=current_common,
-                height=110,
-                placeholder="예: 문제집 p.30~35, 오답 3문제 오답노트 정리",
-            )
+            if common_locked:
+                st.caption(
+                    f"📌 이 과제는 '과제 인증' 메뉴에서 등록된 과제입니다("
+                    f"{hw_assignment['title']}). 내용 확인만 가능하며, 수정은 "
+                    f"'과제 인증' 메뉴에서 해주세요."
+                )
+                display_val = hw_assignment["summary"] or "(등록된 과제 항목이 없습니다 — '과제 인증' 메뉴에서 확인해주세요.)"
+                st.text_area(
+                    f"오늘({session_date_str}) 과제 — {class_name} 공통",
+                    value=display_val,
+                    height=110,
+                    disabled=True,
+                )
+                common_val = hw_assignment["summary"]
+            else:
+                common_val = st.text_area(
+                    f"오늘({session_date_str}) 과제 — {class_name} 공통",
+                    value=current_common,
+                    height=110,
+                    placeholder="예: 문제집 p.30~35, 오답 3문제 오답노트 정리",
+                )
+
+            st.markdown("##### 과제 수행도 체크 (직전 과제 기준, 상/중/하)")
+            perf_inputs: dict[int, str] = {}
+            if students_df.empty:
+                st.caption("배정된 학생이 없습니다.")
+            else:
+                for _, student in students_df.iterrows():
+                    sid = int(student["id"])
+                    current_level = current_perf.get(sid, "중")
+                    if current_level not in HOMEWORK_PERFORMANCE_LEVELS:
+                        current_level = "중"
+                    prc = st.columns([2, 3])
+                    prc[0].markdown(f"**{student['name']}**")
+                    perf_inputs[sid] = prc[1].radio(
+                        "과제 수행도",
+                        HOMEWORK_PERFORMANCE_LEVELS,
+                        index=HOMEWORK_PERFORMANCE_LEVELS.index(current_level),
+                        horizontal=True,
+                        key=f"hw_perf_{class_id}_{session_date_str}_{sid}",
+                        label_visibility="collapsed",
+                    )
 
             indiv_inputs: dict[int, str] = {}
             with st.expander("학생별 개별 추가 과제 (필요한 학생만 작성)"):
@@ -323,9 +561,12 @@ def render_homework_section(
             )
 
         if hw_save_btn:
-            save_class_homework(class_id, session_date_str, common_val)
+            if not common_locked:
+                save_class_homework(class_id, session_date_str, common_val)
             for sid, note_val in indiv_inputs.items():
                 save_student_homework_note(sid, class_id, session_date_str, note_val)
+            for sid, level_val in perf_inputs.items():
+                save_student_homework_performance(sid, class_id, session_date_str, level_val)
             st.success("과제가 저장되었습니다.")
             st.rerun()
 

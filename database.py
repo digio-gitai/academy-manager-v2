@@ -2,6 +2,7 @@
 
 Public API (used by app.py):
   - ensure_grade_reports_table()  — create grade_reports table on startup
+  - ensure_hw_tables()             — create abc 과제 인증 시스템 테이블 6개 (hw_*) on startup
   - ensure_students_test_results_column() — add students.test_results JSON column
   - seed_test_classroom()         — demo class + students A,B,C,D
   - save_grade_report(report, ...) — INSERT after AI report generation
@@ -149,6 +150,116 @@ CREATE TABLE IF NOT EXISTS grade_reports (
     report_mode    TEXT NOT NULL DEFAULT 'ai',
     report_json    TEXT NOT NULL,
     created_at     TEXT NOT NULL
+)
+"""
+
+
+# ── abc 과제 인증 시스템 (hw_*) ──────────────────────────────────
+# 학생이 숙제 완료 사진을 올리면 학부모에게 완료/미완료를 자동 알림하는 기능.
+# 기존 class_homework / student_homework_notes(선생님이 남기는 과제 "메모")와는
+# 완전히 별개 기능이라 hw_ 접두사로 구분한다.
+_HW_ASSIGNMENTS_DDL = """
+CREATE TABLE IF NOT EXISTS hw_assignments (
+    id             SERIAL PRIMARY KEY,
+    class_id       INTEGER REFERENCES classes(id) ON DELETE SET NULL,
+    title          TEXT NOT NULL,
+    assigned_date  TEXT NOT NULL,
+    due_date       TEXT DEFAULT '',
+    created_by     INTEGER REFERENCES teachers(id) ON DELETE SET NULL,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+)
+"""
+
+_HW_ASSIGNMENT_TARGETS_DDL = """
+CREATE TABLE IF NOT EXISTS hw_assignment_targets (
+    id                      SERIAL PRIMARY KEY,
+    assignment_id           INTEGER NOT NULL REFERENCES hw_assignments(id) ON DELETE CASCADE,
+    student_id              INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    requires_certification  BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE (assignment_id, student_id)
+)
+"""
+
+_HW_ITEMS_DDL = """
+CREATE TABLE IF NOT EXISTS hw_items (
+    id             SERIAL PRIMARY KEY,
+    assignment_id  INTEGER NOT NULL REFERENCES hw_assignments(id) ON DELETE CASCADE,
+    item_type      TEXT NOT NULL CHECK (item_type IN ('page_range', 'wrong_note')),
+    material_name  TEXT NOT NULL,
+    page_start     INTEGER,
+    page_end       INTEGER,
+    description    TEXT DEFAULT '',
+    sort_order     INTEGER DEFAULT 0,
+    created_at     TEXT NOT NULL
+)
+"""
+
+_HW_SUBMISSIONS_DDL = """
+CREATE TABLE IF NOT EXISTS hw_submissions (
+    id             SERIAL PRIMARY KEY,
+    assignment_id  INTEGER NOT NULL REFERENCES hw_assignments(id) ON DELETE CASCADE,
+    student_id     INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    upload_token   TEXT NOT NULL UNIQUE,
+    status         TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'partial', 'done')),
+    viewed_at      TEXT,
+    submitted_at   TEXT,
+    notified_at    TEXT,
+    created_at     TEXT NOT NULL,
+    UNIQUE (assignment_id, student_id)
+)
+"""
+
+_HW_ITEM_SUBMISSIONS_DDL = """
+CREATE TABLE IF NOT EXISTS hw_item_submissions (
+    id               SERIAL PRIMARY KEY,
+    submission_id    INTEGER NOT NULL REFERENCES hw_submissions(id) ON DELETE CASCADE,
+    item_id          INTEGER NOT NULL REFERENCES hw_items(id) ON DELETE CASCADE,
+    status           TEXT NOT NULL DEFAULT 'not_done' CHECK (status IN ('done', 'not_done')),
+    completed_pages  TEXT DEFAULT '',
+    student_note     TEXT DEFAULT '',
+    updated_at       TEXT NOT NULL,
+    UNIQUE (submission_id, item_id)
+)
+"""
+
+_HW_PHOTOS_DDL = """
+CREATE TABLE IF NOT EXISTS hw_photos (
+    id                   SERIAL PRIMARY KEY,
+    item_submission_id   INTEGER NOT NULL REFERENCES hw_item_submissions(id) ON DELETE CASCADE,
+    photo_url            TEXT NOT NULL,
+    uploaded_at          TEXT NOT NULL,
+    ai_page_guess        TEXT,
+    ai_flag              TEXT,
+    teacher_verified      BOOLEAN NOT NULL DEFAULT FALSE,
+    teacher_verified_at   TEXT
+)
+"""
+
+_HW_INDEXES_DDL = """
+CREATE INDEX IF NOT EXISTS idx_hw_assignment_targets_student ON hw_assignment_targets(student_id);
+CREATE INDEX IF NOT EXISTS idx_hw_items_assignment ON hw_items(assignment_id);
+CREATE INDEX IF NOT EXISTS idx_hw_submissions_student ON hw_submissions(student_id);
+CREATE INDEX IF NOT EXISTS idx_hw_submissions_assignment ON hw_submissions(assignment_id);
+CREATE INDEX IF NOT EXISTS idx_hw_item_submissions_submission ON hw_item_submissions(submission_id);
+"""
+
+# ── 과제 자료(PDF) 업로드 [2026-08-13 추가] ────────────────────────
+# 손글씨/인쇄 페이지번호를 AI가 읽는 방식의 인식률 한계 때문에, 선생님이
+# 문제집/프린트 PDF를 미리 올려두면 학생 사진을 실제 페이지 이미지와 직접
+# 비교하는 방식으로 페이지를 찾는 기능(hw_reference.py)이 쓰는 테이블.
+# hw_items.material_name과 이름이 같아야 자동으로 연결된다.
+_HW_REFERENCE_MATERIALS_DDL = """
+CREATE TABLE IF NOT EXISTS hw_reference_materials (
+    id             SERIAL PRIMARY KEY,
+    class_id       INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    material_name  TEXT NOT NULL,
+    file_path      TEXT NOT NULL,
+    page_count     INTEGER NOT NULL DEFAULT 0,
+    page_offset    INTEGER NOT NULL DEFAULT 0,
+    uploaded_at    TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    UNIQUE (class_id, material_name)
 )
 """
 
@@ -569,6 +680,161 @@ def ensure_grade_reports_table(conn: sqlite3.Connection | None = None) -> None:
             conn.close()
 
 
+def ensure_hw_tables(conn: sqlite3.Connection | None = None) -> None:
+    """abc 과제 인증 시스템 테이블 6개(hw_*)가 없으면 생성.
+
+    학생이 숙제 완료 사진을 올리면 학부모에게 완료/미완료를 자동 알림하는 기능.
+    기존 class_homework / student_homework_notes(과제 "메모")와는 별개 기능.
+    """
+    if "hw_tables" in _ENSURED_ONCE:
+        return
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        for ddl in (
+            _HW_ASSIGNMENTS_DDL,
+            _HW_ASSIGNMENT_TARGETS_DDL,
+            _HW_ITEMS_DDL,
+            _HW_SUBMISSIONS_DDL,
+            _HW_ITEM_SUBMISSIONS_DDL,
+            _HW_PHOTOS_DDL,
+        ):
+            conn.execute(ddl)
+        for stmt in _HW_INDEXES_DDL.strip().split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
+        # 마이그레이션: 3단계에서 페이지별 체크리스트를 추가하며 새로 생긴 컬럼.
+        # 이미 hw_item_submissions 테이블이 있던 dev DB에도 안전하게 추가되도록
+        # report_links와 동일한 "컬럼 존재 확인 후 ALTER" 패턴을 그대로 씀.
+        hw_isub_cols = [
+            row[1] for row in conn.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns "
+                "WHERE table_name = 'hw_item_submissions'"
+            ).fetchall()
+        ]
+        if "completed_pages" not in hw_isub_cols:
+            conn.execute(
+                "ALTER TABLE hw_item_submissions ADD COLUMN completed_pages TEXT DEFAULT ''"
+            )
+
+        # 마이그레이션: 4단계에서 추가된 컬럼 2개 — 학생이 링크를 열어봤는지
+        # 추적(viewed_at), 학생별 인증 필요 여부(requires_certification).
+        # 동일한 "컬럼 존재 확인 후 ALTER" 패턴.
+        hw_sub_cols = [
+            row[1] for row in conn.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns "
+                "WHERE table_name = 'hw_submissions'"
+            ).fetchall()
+        ]
+        if "viewed_at" not in hw_sub_cols:
+            conn.execute("ALTER TABLE hw_submissions ADD COLUMN viewed_at TEXT")
+
+        hw_target_cols = [
+            row[1] for row in conn.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns "
+                "WHERE table_name = 'hw_assignment_targets'"
+            ).fetchall()
+        ]
+        if "requires_certification" not in hw_target_cols:
+            conn.execute(
+                "ALTER TABLE hw_assignment_targets ADD COLUMN requires_certification "
+                "BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+
+        # 마이그레이션 [2026-08-11]: 사진 속 페이지번호 AI 검증 + 선생님 최종
+        # 확인 기능. "학생이 1~4쪽 했다면서 엉뚱한 페이지 사진을 올리면 어떡하나"
+        # 라는 우려로 추가 — GPT-4o Vision이 사진 속 손글씨 페이지번호를 1차로
+        # 읽어서 항목의 페이지 범위와 다르면 표시해주고(참고용, 손글씨라 오차
+        # 가능), 최종 판단은 선생님이 사진을 직접 보고 확인 버튼을 눌러야
+        # teacher_verified가 True가 된다 — AI 혼자 확정하지 않음.
+        hw_photo_cols = [
+            row[1] for row in conn.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns "
+                "WHERE table_name = 'hw_photos'"
+            ).fetchall()
+        ]
+        if "ai_page_guess" not in hw_photo_cols:
+            conn.execute("ALTER TABLE hw_photos ADD COLUMN ai_page_guess TEXT")
+        if "ai_flag" not in hw_photo_cols:
+            conn.execute("ALTER TABLE hw_photos ADD COLUMN ai_flag TEXT")
+        if "teacher_verified" not in hw_photo_cols:
+            conn.execute(
+                "ALTER TABLE hw_photos ADD COLUMN teacher_verified BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        if "teacher_verified_at" not in hw_photo_cols:
+            conn.execute("ALTER TABLE hw_photos ADD COLUMN teacher_verified_at TEXT")
+
+        # 마이그레이션 [2026-08-14]: 개별 과제 부여 — 반 공통 과제 외에 특정
+        # 학생에게만 추가로 항목을 부여할 수 있게 하는 기능. hw_items에
+        # student_id를 추가해서(NULL=공통 항목, 값이 있으면 그 학생 전용
+        # 개별 항목) 항목 단위로 공통/개별을 구분한다. hw_assignment_targets에는
+        # include_common을 추가해서, 개별 항목이 있는 학생이 공통 항목도 같이
+        # 인증해야 하는지(기본값 True) 아니면 개별 항목만 인증하면 되는지
+        # (False로 끄면) 학생별로 정할 수 있게 한다. get_items_with_state()
+        # (hw_upload.py)가 이 두 값을 보고 항목을 걸러주므로, 학생 업로드
+        # 화면·선생님 사진검수·문자 요약은 전부 자동으로 맞춰진다.
+        hw_items_cols = [
+            row[1] for row in conn.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns "
+                "WHERE table_name = 'hw_items'"
+            ).fetchall()
+        ]
+        if "student_id" not in hw_items_cols:
+            conn.execute(
+                "ALTER TABLE hw_items ADD COLUMN student_id INTEGER "
+                "REFERENCES students(id) ON DELETE CASCADE"
+            )
+        if "include_common" not in hw_target_cols:
+            conn.execute(
+                "ALTER TABLE hw_assignment_targets ADD COLUMN include_common "
+                "BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+
+        if own_conn:
+            conn.commit()
+        _ENSURED_ONCE.add("hw_tables")
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def ensure_hw_reference_table(conn: sqlite3.Connection | None = None) -> None:
+    """[2026-08-13 추가] "과제 자료 업로드" 기능용 hw_reference_materials 테이블.
+
+    선생님이 문제집/프린트 PDF를 반별로 올려두면, 학생이 인증샷을 올렸을 때
+    hw_photo_review.py가 손글씨 페이지번호를 읽는 대신 사진을 이 PDF의 실제
+    페이지 이미지와 직접 비교해서 몇 쪽인지 찾는다(hw_reference.py 참고).
+    """
+    if "hw_reference_materials" in _ENSURED_ONCE:
+        return
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        conn.execute(_HW_REFERENCE_MATERIALS_DDL)
+        # 마이그레이션 [2026-08-13]: page_offset 컬럼 — 표지·목차 등으로
+        # "인쇄된 페이지 번호"와 "PDF 파일 내 실제 장 번호"가 어긋나는 경우
+        # 보정하는 값. 이 컬럼이 없던 이전 버전 DB에도 안전하게 추가.
+        hw_ref_cols = [
+            row[1] for row in conn.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns "
+                "WHERE table_name = 'hw_reference_materials'"
+            ).fetchall()
+        ]
+        if "page_offset" not in hw_ref_cols:
+            conn.execute(
+                "ALTER TABLE hw_reference_materials ADD COLUMN page_offset INTEGER NOT NULL DEFAULT 0"
+            )
+        if own_conn:
+            conn.commit()
+        _ENSURED_ONCE.add("hw_reference_materials")
+    finally:
+        if own_conn:
+            conn.close()
+
+
 def seed_test_classroom(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     """Ensure demo class '테스트 반'exists with students A, B, C, D."""
     own_conn = conn is None
@@ -929,28 +1195,60 @@ def save_report_link(
 
     student_id·test_type을 함께 저장하면 학부모 열람 페이지에서
     같은 학생의 다른 보고서를 시험유형별 탭으로 볼 수 있습니다.
+
+    [2026-08-13 수정] 같은 학생 + 같은 시험유형 + 같은 시험일자로 이미 저장된
+    보고서가 있으면 새로 만들지 않고 그 보고서를 덮어씁니다 — 예전엔 보고서를
+    다시 생성할 때마다(재확인·재발송 등) 매번 새 줄이 추가돼서, 학부모 열람
+    화면에 같은 날짜가 여러 번 중복 표시되는 문제가 있었습니다. 토큰도 그대로
+    유지되므로 이미 발송된 문자 속 링크가 계속 최신 내용을 보여줍니다.
+    student_id가 없거나 test_type/test_date가 비어있으면(어느 시험인지 특정할
+    수 없음) 중복 판단이 불가능하므로 예전처럼 새로 저장합니다.
     """
     import uuid
 
-    token = uuid.uuid4().hex[:16]
     conn = get_conn()
     try:
         ensure_report_links_table(conn)
-        conn.execute(
-            """INSERT INTO report_links
-               (token, html_content, student_name, created_at, student_id, test_type, test_date, test_name)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                token,
-                html_content,
-                student_name,
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
-                int(student_id) if student_id is not None else None,
-                (test_type or "").strip(),
-                (test_date or "").strip(),
-                (test_name or "").strip(),
-            ),
-        )
+
+        existing_token = None
+        test_type = (test_type or "").strip()
+        test_date = (test_date or "").strip()
+        if student_id is not None and test_type and test_date:
+            row = conn.execute(
+                """SELECT token FROM report_links
+                   WHERE student_id = ? AND test_type = ? AND test_date = ?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (int(student_id), test_type, test_date),
+            ).fetchone()
+            if row:
+                existing_token = str(row[0])
+
+        token = existing_token or uuid.uuid4().hex[:16]
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        if existing_token:
+            conn.execute(
+                """UPDATE report_links
+                   SET html_content = ?, student_name = ?, created_at = ?, test_name = ?
+                   WHERE token = ?""",
+                (html_content, student_name, ts, (test_name or "").strip(), token),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO report_links
+                   (token, html_content, student_name, created_at, student_id, test_type, test_date, test_name)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    token,
+                    html_content,
+                    student_name,
+                    ts,
+                    int(student_id) if student_id is not None else None,
+                    test_type,
+                    test_date,
+                    (test_name or "").strip(),
+                ),
+            )
         conn.commit()
     finally:
         conn.close()

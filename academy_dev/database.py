@@ -244,6 +244,25 @@ CREATE INDEX IF NOT EXISTS idx_hw_submissions_assignment ON hw_submissions(assig
 CREATE INDEX IF NOT EXISTS idx_hw_item_submissions_submission ON hw_item_submissions(submission_id);
 """
 
+# ── 과제 자료(PDF) 업로드 [2026-08-13 추가] ────────────────────────
+# 손글씨/인쇄 페이지번호를 AI가 읽는 방식의 인식률 한계 때문에, 선생님이
+# 문제집/프린트 PDF를 미리 올려두면 학생 사진을 실제 페이지 이미지와 직접
+# 비교하는 방식으로 페이지를 찾는 기능(hw_reference.py)이 쓰는 테이블.
+# hw_items.material_name과 이름이 같아야 자동으로 연결된다.
+_HW_REFERENCE_MATERIALS_DDL = """
+CREATE TABLE IF NOT EXISTS hw_reference_materials (
+    id             SERIAL PRIMARY KEY,
+    class_id       INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    material_name  TEXT NOT NULL,
+    file_path      TEXT NOT NULL,
+    page_count     INTEGER NOT NULL DEFAULT 0,
+    page_offset    INTEGER NOT NULL DEFAULT 0,
+    uploaded_at    TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    UNIQUE (class_id, material_name)
+)
+"""
+
 
 # ── ensure_* 1회 실행 캐시 ───────────────────────────────────────
 # ensure_* 함수들은 테이블/컬럼이 있는지 매번 DB에 물어보는 "존재 확인"용이다.
@@ -755,6 +774,41 @@ def ensure_hw_tables(conn: sqlite3.Connection | None = None) -> None:
             conn.close()
 
 
+def ensure_hw_reference_table(conn: sqlite3.Connection | None = None) -> None:
+    """[2026-08-13 추가] "과제 자료 업로드" 기능용 hw_reference_materials 테이블.
+
+    선생님이 문제집/프린트 PDF를 반별로 올려두면, 학생이 인증샷을 올렸을 때
+    hw_photo_review.py가 손글씨 페이지번호를 읽는 대신 사진을 이 PDF의 실제
+    페이지 이미지와 직접 비교해서 몇 쪽인지 찾는다(hw_reference.py 참고).
+    """
+    if "hw_reference_materials" in _ENSURED_ONCE:
+        return
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        conn.execute(_HW_REFERENCE_MATERIALS_DDL)
+        # 마이그레이션 [2026-08-13]: page_offset 컬럼 — 표지·목차 등으로
+        # "인쇄된 페이지 번호"와 "PDF 파일 내 실제 장 번호"가 어긋나는 경우
+        # 보정하는 값. 이 컬럼이 없던 이전 버전 DB에도 안전하게 추가.
+        hw_ref_cols = [
+            row[1] for row in conn.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns "
+                "WHERE table_name = 'hw_reference_materials'"
+            ).fetchall()
+        ]
+        if "page_offset" not in hw_ref_cols:
+            conn.execute(
+                "ALTER TABLE hw_reference_materials ADD COLUMN page_offset INTEGER NOT NULL DEFAULT 0"
+            )
+        if own_conn:
+            conn.commit()
+        _ENSURED_ONCE.add("hw_reference_materials")
+    finally:
+        if own_conn:
+            conn.close()
+
+
 def seed_test_classroom(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     """Ensure demo class '테스트 반'exists with students A, B, C, D."""
     own_conn = conn is None
@@ -1115,28 +1169,61 @@ def save_report_link(
 
     student_id·test_type을 함께 저장하면 학부모 열람 페이지에서
     같은 학생의 다른 보고서를 시험유형별 탭으로 볼 수 있습니다.
+
+    [2026-08-13 수정] 같은 학생 + 같은 시험유형 + 같은 시험일자로 이미 저장된
+    보고서가 있으면 새로 만들지 않고 그 보고서를 덮어씁니다 — 예전엔 보고서를
+    다시 생성할 때마다(재확인·재발송 등) 매번 새 줄이 추가돼서, 학부모 열람
+    화면에 같은 날짜가 여러 번 중복 표시되는 문제가 있었습니다(운영에서 실제
+    발견됨). 토큰도 그대로 유지되므로 이미 발송된 문자 속 링크가 계속 최신
+    내용을 보여줍니다. student_id가 없거나 test_type/test_date가 비어있으면
+    (어느 시험인지 특정할 수 없음) 중복 판단이 불가능하므로 예전처럼 새로
+    저장합니다.
     """
     import uuid
 
-    token = uuid.uuid4().hex[:16]
     conn = get_conn()
     try:
         ensure_report_links_table(conn)
-        conn.execute(
-            """INSERT INTO report_links
-               (token, html_content, student_name, created_at, student_id, test_type, test_date, test_name)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                token,
-                html_content,
-                student_name,
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
-                int(student_id) if student_id is not None else None,
-                (test_type or "").strip(),
-                (test_date or "").strip(),
-                (test_name or "").strip(),
-            ),
-        )
+
+        existing_token = None
+        test_type = (test_type or "").strip()
+        test_date = (test_date or "").strip()
+        if student_id is not None and test_type and test_date:
+            row = conn.execute(
+                """SELECT token FROM report_links
+                   WHERE student_id = ? AND test_type = ? AND test_date = ?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (int(student_id), test_type, test_date),
+            ).fetchone()
+            if row:
+                existing_token = str(row[0])
+
+        token = existing_token or uuid.uuid4().hex[:16]
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        if existing_token:
+            conn.execute(
+                """UPDATE report_links
+                   SET html_content = ?, student_name = ?, created_at = ?, test_name = ?
+                   WHERE token = ?""",
+                (html_content, student_name, ts, (test_name or "").strip(), token),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO report_links
+                   (token, html_content, student_name, created_at, student_id, test_type, test_date, test_name)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    token,
+                    html_content,
+                    student_name,
+                    ts,
+                    int(student_id) if student_id is not None else None,
+                    test_type,
+                    test_date,
+                    (test_name or "").strip(),
+                ),
+            )
         conn.commit()
     finally:
         conn.close()

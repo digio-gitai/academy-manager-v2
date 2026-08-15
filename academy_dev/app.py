@@ -9734,6 +9734,19 @@ def _build_report_nav_html(
     # 같은 유형 안의 날짜 칩 (2개 이상일 때만)
     dates_html = ""
     same_type = by_type.get(current_type, [])
+    # [2026-08-13 수정] 보고서를 재생성할 때마다(재확인·재발송 등) 예전엔 매번
+    # 새 줄이 쌓였어서, 같은 시험 날짜가 여러 번 중복 표시되는 문제가 있었다
+    # (save_report_link()가 이제 덮어쓰기로 바뀌어 앞으로는 안 쌓이지만, 이미
+    # 쌓여있던 옛날 중복 기록은 여기서도 한 번 걸러준다). same_type은 이미
+    # created_at 최신순 정렬이라, 같은 날짜는 처음 나오는(=가장 최신) 것만
+    # 남긴다 — 단, 지금 보고 있는 보고서가 더 오래된 중복이었다면 활성 표시가
+    # 깨지지 않도록 그 항목으로 바꿔치기한다.
+    _by_date: dict[str, dict] = {}
+    for r in same_type:
+        d = (r.get("test_date") or r.get("created_at", "")[:10] or "날짜 미상")
+        if d not in _by_date or r["token"] == token:
+            _by_date[d] = r
+    same_type = list(_by_date.values())
     if len(same_type) >= 2:
         chip_parts = []
         for r in same_type:

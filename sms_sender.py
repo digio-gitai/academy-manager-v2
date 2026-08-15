@@ -146,6 +146,44 @@ def send_report_sms(
         return {"success": False, "message": f"발송 실패: {str(e)}"}
 
 
+def send_text_sms(phone: str, text: str) -> dict:
+    """
+    [신규 추가 2026-08-08 — abc 과제 인증 5단계] 링크 없이 순수 텍스트만 문자로
+    보내는 범용 함수. send_report_sms()는 "성적표 링크"용으로 문구가
+    고정돼 있어서(단축 URL 필수), 과제 완료/미완료 요약처럼 자유 문구를
+    보낼 땐 이 함수를 쓴다. hw_assign.py의 학부모 과제 알림 발송에서 사용.
+
+    Args:
+        phone: 학부모 연락처
+        text: 보낼 문구 전체 (인사말 포함해서 호출하는 쪽에서 완성해서 넘김)
+
+    Returns:
+        {"success": True/False, "message": "결과 설명"}
+    """
+    if not SOLAPI_SENDER:
+        return {"success": False, "message": "발신번호(SOLAPI_SENDER)가 설정되지 않았습니다."}
+
+    cleaned = clean_phone(phone)
+    if len(cleaned) < 9:
+        return {"success": False, "message": f"연락처가 올바르지 않습니다: {phone!r}"}
+
+    message = RequestMessage(
+        from_=clean_phone(SOLAPI_SENDER),
+        to=cleaned,
+        text=text,
+    )
+
+    try:
+        service = _get_service()
+        response = service.send(message)
+        return {
+            "success": True,
+            "message": f"발송 완료 (성공 {response.group_info.count.registered_success}건)",
+        }
+    except Exception as e:
+        return {"success": False, "message": f"발송 실패: {str(e)}"}
+
+
 def send_report_sms_bulk(recipients: list) -> list:
     """
     여러 학부모에게 한 번에 발송합니다.

@@ -159,7 +159,19 @@ from database import (
 
 # ── [신규 추가] 과제 관리 기능 — 완전히 새로운 모듈(homework.py)이며
 #    기존 database.py / 위 함수들에는 어떤 수정도 하지 않았다. ──
-from homework import render_homework_section, render_homework_history_section
+from homework import (
+    render_homework_section,
+    render_homework_history_section,
+    get_student_homework_performance_stats,
+)
+
+# ── [신규 추가] abc 과제 인증 시스템 — 완전히 새로운 모듈(hw_assign.py).
+#    hw_* 테이블은 database.py의 ensure_hw_tables()로 이미 생성됨. ──
+from hw_assign import render_hw_assign_page
+
+# ── [신규 추가] abc 과제 인증 시스템 3단계 — 학생용 업로드 페이지(hw_upload.py).
+#    로그인 없이 ?hw=토큰 링크로만 접속하는 화면. ──
+from hw_upload import render_hw_upload_page
 
 
 def _load_student_report_pdf_module():
@@ -985,6 +997,67 @@ def get_attendance_summary(
             (df["present"] + df["late"]) / df["total_sessions"] * 100
         ).round(1).astype(str) + "%"
     return df
+
+
+# [신규 추가 2026-08-06] 보고서에 출석 현황을 넣기 위한 학생 단건 조회.
+# 기존 get_attendance_summary()는 반 전체를 대상으로 하고 student_id를
+# 반환하지 않아서, 기존 "출석 이력 및 통계" 탭 로직은 건드리지 않고
+# 별도 함수로 추가한다.
+def get_student_attendance_summary_for_report(
+    student_id: int, from_date: str, to_date: str
+) -> dict:
+    """보고서용 — 특정 학생의 기간 출석 요약(반 무관, 학생 기준)."""
+    conn = get_conn()
+    row = conn.execute(
+        """
+        SELECT
+            COUNT(*) AS total_sessions,
+            SUM(CASE WHEN status='present' THEN 1 ELSE 0 END) AS present,
+            SUM(CASE WHEN status='late'    THEN 1 ELSE 0 END) AS late,
+            SUM(CASE WHEN status='absent'  THEN 1 ELSE 0 END) AS absent
+        FROM attendance
+        WHERE student_id = ? AND session_date BETWEEN ? AND ?
+        """,
+        (student_id, from_date, to_date),
+    ).fetchone()
+    conn.close()
+    total = int(row[0] or 0)
+    present = int(row[1] or 0)
+    late = int(row[2] or 0)
+    absent = int(row[3] or 0)
+    rate = round((present + late) / total * 100, 1) if total else None
+    return {
+        "total_sessions": total,
+        "present": present,
+        "late": late,
+        "absent": absent,
+        "attendance_rate": rate,
+    }
+
+
+# [신규 추가 2026-08-06] 보고서용 — 시험일 기준 "이번 달(1일~시험일 현재까지)"과
+# "전월(1일~말일)" 두 기간을 계산. 출석 현황 / 과제 수행도 섹션에서 공용으로 쓴다.
+def _report_month_periods(test_date_str: str) -> dict:
+    from database import prev_year_month
+
+    cur_ym = str(test_date_str)[:7]
+    cur_from, cur_to = f"{cur_ym}-01", str(test_date_str)
+    cur_month_num = int(cur_ym[5:7])
+
+    prev_ym = prev_year_month(cur_ym)
+    if prev_ym:
+        py, pm = int(prev_ym[:4]), int(prev_ym[5:7])
+        prev_from = f"{prev_ym}-01"
+        prev_to = f"{prev_ym}-{monthrange(py, pm)[1]:02d}"
+        prev_month_num = pm
+    else:
+        prev_from = prev_to = None
+        prev_month_num = None
+
+    return {
+        "cur_from": cur_from, "cur_to": cur_to, "cur_month_num": cur_month_num,
+        "prev_from": prev_from, "prev_to": prev_to, "prev_month_num": prev_month_num,
+    }
 
 
 def _month_date_range(picked: date) -> tuple[str, str, str]:
@@ -4067,13 +4140,21 @@ def _render_ocr_class_student_picker(
 
             st.markdown("---")
             st.markdown("#### ⑦ 보고서 일괄 생성")
-            col_opt1, col_opt2, col_opt3 = st.columns(3)
+            col_opt1, col_opt2, col_opt3, col_opt4, col_opt5 = st.columns(5)
             with col_opt1:
                 batch_show_avg = st.checkbox("반 평균 포함", value=True, key="batch_show_avg")
             with col_opt2:
                 batch_show_rank = st.checkbox("반 석차 포함", value=True, key="batch_show_rank")
             with col_opt3:
                 batch_show_chart = st.checkbox("누적 그래프 포함", value=True, key="batch_show_chart")
+            with col_opt4:
+                batch_show_attendance = st.checkbox(
+                    "출석 현황 포함", value=True, key="batch_show_attendance"
+                )
+            with col_opt5:
+                batch_show_hw_perf = st.checkbox(
+                    "과제 수행도 포함", value=True, key="batch_show_hw_perf"
+                )
 
             # 보고서 형식 (시험 유형에 따라 자동, 필요 시 수동 변경)
             from database import get_test_type as _bgt
@@ -4136,7 +4217,57 @@ def _render_ocr_class_student_picker(
                         "comment": comment,
                         "monthly_topic_stats": None,
                         "prev_month_avg": None,
+                        "attendance_stats": None,
+                        "hw_perf_stats": None,
                     }
+                    # 출석 현황 / 과제 수행도 — 전월(1일~말일) + 이번 달(1일~시험일 현재까지)
+                    # (스레드 밖에서 미리 조회)
+                    if batch_show_attendance or batch_show_hw_perf:
+                        _periods = _report_month_periods(record["date"])
+                        if batch_show_attendance:
+                            _att_cur = get_student_attendance_summary_for_report(
+                                int(sid), _periods["cur_from"], _periods["cur_to"]
+                            )
+                            _att_prev = (
+                                get_student_attendance_summary_for_report(
+                                    int(sid), _periods["prev_from"], _periods["prev_to"]
+                                )
+                                if _periods["prev_from"] else None
+                            )
+                            _job["attendance_stats"] = {
+                                "cur_month": _periods["cur_month_num"],
+                                "cur_rate": _att_cur["attendance_rate"],
+                                "cur_present": _att_cur["present"],
+                                "cur_late": _att_cur["late"],
+                                "cur_absent": _att_cur["absent"],
+                                "prev_month": _periods["prev_month_num"],
+                                "prev_rate": _att_prev["attendance_rate"] if _att_prev else None,
+                                "prev_present": _att_prev["present"] if _att_prev else None,
+                                "prev_late": _att_prev["late"] if _att_prev else None,
+                                "prev_absent": _att_prev["absent"] if _att_prev else None,
+                            }
+                        if batch_show_hw_perf:
+                            _hw_cur = get_student_homework_performance_stats(
+                                int(sid), _periods["cur_from"], _periods["cur_to"]
+                            )
+                            _hw_prev = (
+                                get_student_homework_performance_stats(
+                                    int(sid), _periods["prev_from"], _periods["prev_to"]
+                                )
+                                if _periods["prev_from"] else None
+                            )
+                            _job["hw_perf_stats"] = {
+                                "cur_month": _periods["cur_month_num"],
+                                "cur_rate": _hw_cur["rate"],
+                                "cur_high": _hw_cur["high"],
+                                "cur_mid": _hw_cur["mid"],
+                                "cur_low": _hw_cur["low"],
+                                "prev_month": _periods["prev_month_num"],
+                                "prev_rate": _hw_prev["rate"] if _hw_prev else None,
+                                "prev_high": _hw_prev["high"] if _hw_prev else None,
+                                "prev_mid": _hw_prev["mid"] if _hw_prev else None,
+                                "prev_low": _hw_prev["low"] if _hw_prev else None,
+                            }
                     # 프리미엄이면 이번 달 누적 데이터 준비 (스레드 밖에서 미리 조회)
                     if batch_report_mode == "premium":
                         from database import get_student_month_topic_stats, prev_year_month
@@ -4177,6 +4308,10 @@ def _render_ocr_class_student_picker(
                         monthly_topic_stats=job.get("monthly_topic_stats"),
                         prev_month_avg=job.get("prev_month_avg"),
                         question_details=_q_details,
+                        show_attendance=batch_show_attendance,
+                        attendance_stats=job.get("attendance_stats"),
+                        show_homework_perf=batch_show_hw_perf,
+                        homework_perf_stats=job.get("hw_perf_stats"),
                     )
                     return job, html_content
 
@@ -4368,13 +4503,17 @@ def _parent_report_preview_dialog(
 
     # 포함 항목 선택
     st.markdown("##### 보고서 포함 항목")
-    col_c1, col_c2, col_c3 = st.columns(3)
+    col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns(5)
     with col_c1:
         show_avg = st.checkbox("반 평균", value=True, key="rpt_show_avg")
     with col_c2:
         show_rank = st.checkbox("반 석차", value=True, key="rpt_show_rank")
     with col_c3:
         show_chart = st.checkbox("누적 그래프", value=True, key="rpt_show_chart")
+    with col_c4:
+        show_attendance = st.checkbox("출석 현황", value=True, key="rpt_show_attendance")
+    with col_c5:
+        show_hw_perf = st.checkbox("과제 수행도", value=True, key="rpt_show_hw_perf")
 
     st.markdown("---")
 
@@ -4423,6 +4562,56 @@ def _parent_report_preview_dialog(
     if gen_btn:
         with st.spinner("보고서를 생성 중입니다... 잠시만 기다려주세요."):
             try:
+                # 출석 현황 / 과제 수행도 — 전월(1일~말일) + 이번 달(1일~시험일 현재까지)
+                _attendance_stats = None
+                _hw_perf_stats = None
+                if show_attendance or show_hw_perf:
+                    _periods = _report_month_periods(record["date"])
+                    if show_attendance:
+                        _att_cur = get_student_attendance_summary_for_report(
+                            int(student_id), _periods["cur_from"], _periods["cur_to"]
+                        )
+                        _att_prev = (
+                            get_student_attendance_summary_for_report(
+                                int(student_id), _periods["prev_from"], _periods["prev_to"]
+                            )
+                            if _periods["prev_from"] else None
+                        )
+                        _attendance_stats = {
+                            "cur_month": _periods["cur_month_num"],
+                            "cur_rate": _att_cur["attendance_rate"],
+                            "cur_present": _att_cur["present"],
+                            "cur_late": _att_cur["late"],
+                            "cur_absent": _att_cur["absent"],
+                            "prev_month": _periods["prev_month_num"],
+                            "prev_rate": _att_prev["attendance_rate"] if _att_prev else None,
+                            "prev_present": _att_prev["present"] if _att_prev else None,
+                            "prev_late": _att_prev["late"] if _att_prev else None,
+                            "prev_absent": _att_prev["absent"] if _att_prev else None,
+                        }
+                    if show_hw_perf:
+                        _hw_cur = get_student_homework_performance_stats(
+                            int(student_id), _periods["cur_from"], _periods["cur_to"]
+                        )
+                        _hw_prev = (
+                            get_student_homework_performance_stats(
+                                int(student_id), _periods["prev_from"], _periods["prev_to"]
+                            )
+                            if _periods["prev_from"] else None
+                        )
+                        _hw_perf_stats = {
+                            "cur_month": _periods["cur_month_num"],
+                            "cur_rate": _hw_cur["rate"],
+                            "cur_high": _hw_cur["high"],
+                            "cur_mid": _hw_cur["mid"],
+                            "cur_low": _hw_cur["low"],
+                            "prev_month": _periods["prev_month_num"],
+                            "prev_rate": _hw_prev["rate"] if _hw_prev else None,
+                            "prev_high": _hw_prev["high"] if _hw_prev else None,
+                            "prev_mid": _hw_prev["mid"] if _hw_prev else None,
+                            "prev_low": _hw_prev["low"] if _hw_prev else None,
+                        }
+
                 # 프리미엄이면 이번 달 누적 데이터 준비
                 monthly_topic_stats = None
                 prev_month_avg = None
@@ -4461,6 +4650,10 @@ def _parent_report_preview_dialog(
                     monthly_topic_stats=monthly_topic_stats,
                     prev_month_avg=prev_month_avg,
                     question_details=get_test_questions(int(test_id)),
+                    show_attendance=show_attendance,
+                    attendance_stats=_attendance_stats,
+                    show_homework_perf=show_hw_perf,
+                    homework_perf_stats=_hw_perf_stats,
                 )
                 import pathlib
                 report_dir = pathlib.Path(__file__).parent / "reports"
@@ -9540,6 +9733,19 @@ def _build_report_nav_html(
     # 같은 유형 안의 날짜 칩 (2개 이상일 때만)
     dates_html = ""
     same_type = by_type.get(current_type, [])
+    # [2026-08-13 수정] 보고서를 재생성할 때마다(재확인·재발송 등) 예전엔 매번
+    # 새 줄이 쌓였어서, 같은 시험 날짜가 여러 번 중복 표시되는 문제가 있었다
+    # (save_report_link()가 이제 덮어쓰기로 바뀌어 앞으로는 안 쌓이지만, 이미
+    # 쌓여있던 옛날 중복 기록은 여기서도 한 번 걸러준다). same_type은 이미
+    # created_at 최신순 정렬이라, 같은 날짜는 처음 나오는(=가장 최신) 것만
+    # 남긴다 — 단, 지금 보고 있는 보고서가 더 오래된 중복이었다면 활성 표시가
+    # 깨지지 않도록 그 항목으로 바꿔치기한다.
+    _by_date: dict[str, dict] = {}
+    for r in same_type:
+        d = (r.get("test_date") or r.get("created_at", "")[:10] or "날짜 미상")
+        if d not in _by_date or r["token"] == token:
+            _by_date[d] = r
+    same_type = list(_by_date.values())
     if len(same_type) >= 2:
         chip_parts = []
         for r in same_type:
@@ -9626,6 +9832,12 @@ def main():
         _render_parent_report_view(_report_token)
         return
 
+    # 학생용 과제 인증 업로드 링크 (?hw=토큰) — 로그인 없이 업로드 화면만 바로 표시
+    _hw_upload_token = st.query_params.get("hw")
+    if _hw_upload_token:
+        render_hw_upload_page(_hw_upload_token)
+        return
+
     # 지금 보고 있는 화면이 로컬 실행본인지 클라우드 배포본인지 한눈에 구분하기 위한 배지
     if _IS_LOCAL_ENV:
         st.markdown(
@@ -9691,6 +9903,12 @@ def main():
                 "문제집 OCR 등록, 검수, DB 저장 — 유사문제 추출의 데이터 소스입니다.",
             )
             render_question_bank_page(sync_csvs=sync_all_csvs)
+        elif selected == "과제 인증":
+            _page_header(
+                "과제 인증",
+                "문제집/프린트 과제를 부여하고, 학생의 완료 사진 제출 현황을 관리합니다.",
+            )
+            render_hw_assign_page(classes_df, _current_teacher_id())
         elif selected == "기출문제분석":
             _page_header(
                 "기출문제분석",

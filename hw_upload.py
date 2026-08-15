@@ -210,7 +210,17 @@ def get_submission_by_token(token: str) -> dict[str, Any] | None:
 
 
 def get_items_with_state(assignment_id: int, submission_id: int) -> pd.DataFrame:
-    """과제 항목 목록 + 이 학생이 그동안 체크·저장해둔 상태를 함께 가져온다."""
+    """과제 항목 목록 + 이 학생이 그동안 체크·저장해둔 상태를 함께 가져온다.
+
+    [2026-08-14 추가 — 개별 과제 부여] hw_items.student_id가 NULL이면 반
+    공통 항목, 값이 있으면 그 학생 전용 개별 항목이다. 이 학생에게 보여줄
+    항목은: (1) 공통 항목 — 단, hw_assignment_targets.include_common이
+    False로 꺼져 있으면 제외, (2) 이 학생 전용 개별 항목 — 항상 포함.
+    이 함수 하나가 학생 업로드 화면(hw_upload.py)·선생님 사진검수
+    (hw_photo_review.py)·문자 요약(hw_assign._build_hw_sms_text)에서 전부
+    공통으로 쓰이기 때문에, 여기서만 걸러주면 세 화면이 자동으로 맞춰진다
+    (호출부는 하나도 안 바뀜 — 기존 시그니처 그대로).
+    """
     ensure_hw_tables()
     return _read_sql_df(
         """
@@ -218,10 +228,18 @@ def get_items_with_state(assignment_id: int, submission_id: int) -> pd.DataFrame
                i.description, i.sort_order,
                isub.id AS item_submission_id, isub.status AS sub_status,
                isub.completed_pages, isub.student_note
-        FROM hw_items i
+        FROM hw_submissions sub
+        JOIN hw_assignment_targets t
+             ON t.assignment_id = sub.assignment_id AND t.student_id = sub.student_id
+        JOIN hw_items i
+             ON i.assignment_id = sub.assignment_id
+            AND (
+                  (i.student_id IS NULL AND t.include_common = TRUE)
+                  OR i.student_id = sub.student_id
+                )
         LEFT JOIN hw_item_submissions isub
-               ON isub.item_id = i.id AND isub.submission_id = %s
-        WHERE i.assignment_id = %s
+               ON isub.item_id = i.id AND isub.submission_id = sub.id
+        WHERE sub.id = %s AND sub.assignment_id = %s
         ORDER BY i.sort_order, i.id
         """,
         (submission_id, assignment_id),
@@ -396,9 +414,17 @@ def _render_page_range_item(row: pd.Series, prev_completed: set[int]) -> dict[st
 
     체크박스로 먼저 "오늘 진행했어요"를 켜야 버튼이 나타나던 예전 방식은
     버튼이 안 보인다는 오해를 사서(체크 전엔 아예 안 그려짐) 없앴다 — 지금은
-    숫자 입력 두 개가 처음부터 항상 보이고, 기본값은 "오늘 아직 아무것도
-    안 함"에 해당하는 마지막 페이지(시작-1)로 잡아서 아무것도 안 건드리면
-    자동으로 완료 처리되는 일이 없게 했다.
+    숫자 입력 두 개가 처음부터 항상 보인다.
+
+    [2026-08-14 변경] 마지막 페이지의 기본값을 "시작-1"(=오늘 진행 안 함)에서
+    "시작 페이지와 동일"로 바꿨다 — 처음 화면에 "시작 10 / 마지막 9"처럼
+    거꾸로 된 숫자가 보여서 오타·오류로 오해하기 쉽다는 지적을 받아서다.
+    "아무것도 안 건드리면 자동 완료된다"는 걱정은 실제로는 문제가 안 된다 —
+    아래 제출 검증에서 "오늘 인증 페이지 수 = 올린 사진 수"를 항상 정확히
+    맞춰야 하므로(photo_rule), 사진을 안 올리면 어차피 제출 자체가 막힌다.
+    정말 "오늘은 진행 안 함"을 명시하고 싶으면 마지막 페이지를 시작 페이지보다
+    작게(예: 시작-1) 내리면 되고, 그 경우는 지금처럼 새로 인증할 페이지가
+    없는 것으로 처리된다.
 
     이 두 숫자 입력도 사진 위젯처럼 key에 "세대" 번호를 붙인다 — 안 그러면
     항목 A를 오늘 저장한 뒤, 나중에 항목 B만 새로 제출할 때도 항목 A의
@@ -454,14 +480,18 @@ def _render_page_range_item(row: pd.Series, prev_completed: set[int]) -> dict[st
             key=f"hw_up_pgstart_{item_id}_{range_gen}",
         )
     with c2:
-        # 기본값을 "시작-1"로 잡아 아무것도 안 누르면 0쪽(오늘 진행 없음)이
-        # 되게 한다. min_value도 시작-1까지 허용해서, 끝이 시작보다 작으면
-        # "오늘은 안 함"으로 자연스럽게 해석한다(에러가 아니라 정상 상태).
+        # [2026-08-14 변경] 기본값을 "시작과 동일"로 잡아 처음 화면에 "시작
+        # 10 / 마지막 9" 같은 거꾸로 된 숫자가 안 보이게 했다(시작 페이지만
+        # 딱 한 쪽 진행한 것처럼 보여서 자연스럽다). min_value는 여전히
+        # 시작-1까지 허용해서, 학생이 직접 끝을 시작보다 작게 내리면 "오늘은
+        # 안 함"으로 해석된다(에러가 아니라 정상 상태) — 다만 그렇게 안
+        # 건드려도, 제출 시 사진 개수 검증이 그대로 걸려있어서 사진 없이는
+        # 어차피 제출이 안 된다.
         end_val = st.number_input(
             "오늘 마지막 페이지",
             min_value=page_start - 1,
             max_value=page_end,
-            value=int(start_val) - 1,
+            value=int(start_val),
             step=1,
             key=f"hw_up_pgend_{item_id}_{range_gen}",
         )

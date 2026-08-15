@@ -1,3 +1,8 @@
+# abc 과제 인증 — 선생님이 올리는 문제집/프린트 PDF 원본 (저작권 있는 자료라
+# 커밋하지 않고 로컬에만 둠. 2026-08-13 추가)
+hw_reference_files/
+academy_dev/hw_reference_files/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -229,3 +234,18 @@ static/reports/
 diagnose_log.txt
 reset_log.txt
 *_log.txt
+
+# 개인 백업 복사본 / 생성된 테스트 산출물 — 소스 코드가 아니라 버전관리 대상 아님 (2026-08-15)
+*복사본*
+*.bak
+*.bak_*
+*_bak
+app_backup_*.py
+_병합전_백업_*/
+_새기능_시작전_백업_*/
+academy_dev/*.bak_before_*
+*.lnk
+sample_report.html
+test_report_output.html
+academy_dev/sample_report.html
+academy_dev/test_report_output.html
