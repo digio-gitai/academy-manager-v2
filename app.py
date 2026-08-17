@@ -9313,11 +9313,17 @@ def _nav_teacher_selectbox() -> None:
         if teachers_df.empty:
             st.info("등록된 강사가 없습니다.")
             return
-        # "테스트 강사"는 로그인 목록에서 숨김 (데이터 유지용 내부 계정)
+        # 이름에 "test"/"테스트"가 들어간 강사 계정은 로그인 목록에서 숨김
+        # (계정·비밀번호는 그대로 DB에 남겨둠 — 나중에 테스트가 필요하면
+        # 관리자가 "강사 추가/삭제" 화면에서 이름으로 직접 찾아 쓸 수 있음)
+        def _is_test_teacher_name(name: str) -> bool:
+            n = str(name or "")
+            return "test" in n.lower() or "테스트" in n
+
         teacher_opts = {
             r["name"]: int(r["id"])
             for _, r in teachers_df.iterrows()
-            if r["name"] != TEST_CLASS_NAME and r["name"] != "테스트 강사"
+            if not _is_test_teacher_name(r["name"]) and r["name"] != TEST_CLASS_NAME
         }
         if not teacher_opts:
             st.info("등록된 강사가 없습니다.")
