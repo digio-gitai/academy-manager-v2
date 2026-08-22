@@ -1,0 +1,179 @@
+.headerRow {
+  margin-bottom: 20px;
+}
+
+.pageTitle {
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 4px;
+}
+
+.pageSub {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.card {
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.07);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(31, 61, 43, 0.05);
+  margin-bottom: 16px;
+}
+
+.cardTitle {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 14px;
+}
+
+.conditionRow {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 200px;
+}
+
+.label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.selectInput,
+.textInput {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 13px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.errorText {
+  font-size: 12px;
+  color: #b23a3a;
+  margin: 10px 0 0;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.summaryTile {
+  border-radius: 12px;
+  background: var(--color-surface);
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.summaryLabel {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.summaryValue {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.emptyText {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.studentRowWrap {
+  border-radius: 12px;
+  background: var(--color-surface);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.studentRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.studentName {
+  flex: 1.4;
+  min-width: 90px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.statusSelect {
+  flex: 1;
+  min-width: 110px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-white);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+
+.amountInput {
+  flex: 1;
+  min-width: 120px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-white);
+  font-size: 12.5px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.saveButton {
+  flex: none;
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.saveButton:hover {
+  background: var(--color-accent-hover);
+}
+
+.successText {
+  font-size: 11.5px;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+@media (max-width: 700px) {
+  .summaryGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

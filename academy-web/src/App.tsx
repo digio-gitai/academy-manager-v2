@@ -8,6 +8,7 @@ import { ClassManagement } from './pages/ClassManagement';
 import { AttendanceManagement } from './pages/AttendanceManagement';
 import { GradeReport } from './pages/GradeReport';
 import { HomeworkCertification } from './pages/HomeworkCertification';
+import { TuitionManagement } from './pages/TuitionManagement';
 import { ComingSoon } from './pages/ComingSoon';
 import { AppLayout } from './components/layout/AppLayout';
 
@@ -27,7 +28,7 @@ function App() {
         <Route path="/classes" element={<ClassManagement />} />
         <Route path="/students" element={<StudentRoster />} />
         <Route path="/attendance" element={<AttendanceManagement />} />
-        <Route path="/tuition" element={<ComingSoon title="수강료 관리" />} />
+        <Route path="/tuition" element={<TuitionManagement />} />
         <Route path="/consultation" element={<ComingSoon title="상담 일지" />} />
         <Route path="/reports" element={<GradeReport />} />
         <Route path="/past-exams" element={<ComingSoon title="기출문제분석" />} />
