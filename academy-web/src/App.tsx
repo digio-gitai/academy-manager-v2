@@ -9,6 +9,9 @@ import { AttendanceManagement } from './pages/AttendanceManagement';
 import { GradeReport } from './pages/GradeReport';
 import { HomeworkCertification } from './pages/HomeworkCertification';
 import { TuitionManagement } from './pages/TuitionManagement';
+import { ConsultationLog } from './pages/ConsultationLog';
+import { SchoolInfo } from './pages/SchoolInfo';
+import { SettingsPage } from './pages/SettingsPage';
 import { ComingSoon } from './pages/ComingSoon';
 import { AppLayout } from './components/layout/AppLayout';
 
@@ -29,13 +32,13 @@ function App() {
         <Route path="/students" element={<StudentRoster />} />
         <Route path="/attendance" element={<AttendanceManagement />} />
         <Route path="/tuition" element={<TuitionManagement />} />
-        <Route path="/consultation" element={<ComingSoon title="상담 일지" />} />
+        <Route path="/consultation" element={<ConsultationLog />} />
         <Route path="/reports" element={<GradeReport />} />
         <Route path="/past-exams" element={<ComingSoon title="기출문제분석" />} />
         <Route path="/question-bank" element={<ComingSoon title="문제 은행" />} />
         <Route path="/homework" element={<HomeworkCertification />} />
-        <Route path="/school-info" element={<ComingSoon title="학사정보" />} />
-        <Route path="/settings" element={<ComingSoon title="설정" />} />
+        <Route path="/school-info" element={<SchoolInfo />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>
   );
