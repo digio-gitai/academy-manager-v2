@@ -1,0 +1,38 @@
+.details {
+  border-top: 1px solid rgba(31, 61, 43, 0.08);
+}
+
+.details:first-of-type {
+  border-top: none;
+}
+
+.summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-primary);
+  user-select: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.chevron {
+  transition: transform 0.15s ease;
+  flex: none;
+  color: rgba(31, 61, 43, 0.4);
+}
+
+.details[open] > .summary .chevron {
+  transform: rotate(90deg);
+}
+
+.body {
+  padding: 0 2px 18px;
+}
