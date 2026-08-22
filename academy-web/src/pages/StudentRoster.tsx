@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StudentListItem } from '../components/students/StudentListItem';
 import { ConsultationLog } from '../components/students/ConsultationLog';
 import { ExpandableSection } from '../components/students/ExpandableSection';
 import { HomeworkHistoryList } from '../components/students/HomeworkHistoryList';
 import { badgePalette } from '../components/dashboard/badgePalette';
-import { students as initialStudents, classNames } from '../data/mockStudents';
+import { fetchStudents } from '../lib/students';
 import type { HomeworkLevel, StudentProfile } from '../types/student';
 import styles from './StudentRoster.module.css';
 
@@ -17,15 +17,53 @@ function toneForLevel(level: HomeworkLevel) {
 const CLASS_FILTER_ALL = '전체 수업';
 
 export function StudentRoster() {
-  // 실제 DB 연동 전이라 로컬 state로 관리 — 반 재배정/삭제 버튼 동작을
-  // 화면에서 바로 확인할 수 있도록 함(데이터는 새로고침하면 원래대로 돌아옴).
-  const [roster, setRoster] = useState<StudentProfile[]>(initialStudents);
+  // 2026-08-22부터: 실제 dev Supabase(kpimhidgkrqtegcumrul)에서 학생 목록을 조회함
+  // (이 화면이 실제 DB 연동 파일럿). 조회는 실제 DB, 반 재배정/삭제는 아직
+  // 화면에서만 반영되고 DB에 저장되지는 않음 — 다음 단계에서 쓰기 연동 예정.
+  const [roster, setRoster] = useState<StudentProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [query, setQuery] = useState('');
   const [classFilter, setClassFilter] = useState(CLASS_FILTER_ALL);
-  const [selectedId, setSelectedId] = useState<string | undefined>(roster[0]?.id);
-  const [reassignTarget, setReassignTarget] = useState(classNames[0] ?? '');
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const [reassignTarget, setReassignTarget] = useState('');
   const [reassignNotice, setReassignNotice] = useState('');
   const [deleteNotice, setDeleteNotice] = useState('');
+
+  const classNames = useMemo(
+    () => Array.from(new Set(roster.map((s) => s.className))),
+    [roster],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError('');
+    fetchStudents()
+      .then((data) => {
+        if (cancelled) return;
+        setRoster(data);
+        setSelectedId(data[0]?.id);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLoadError(
+          err instanceof Error ? err.message : 'DB에서 학생 목록을 불러오지 못했습니다.',
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!reassignTarget && classNames.length > 0) {
+      setReassignTarget(classNames[0]);
+    }
+  }, [classNames, reassignTarget]);
 
   const filtered = useMemo(() => {
     let list = roster;
@@ -40,7 +78,7 @@ export function StudentRoster() {
   }, [roster, query, classFilter]);
 
   const selected = roster.find((s) => s.id === selectedId) ?? filtered[0];
-  const unassignedCount = 0; // 데모 데이터는 전부 반 배정된 상태
+  const unassignedCount = roster.filter((s) => s.className === '반 미배정').length;
 
   function handleReassign() {
     if (!selected) return;
@@ -67,6 +105,12 @@ export function StudentRoster() {
         </div>
       </div>
 
+      {loading && <p className={styles.inlineNotice}>DB에서 학생 목록을 불러오는 중입니다...</p>}
+      {loadError && !loading && (
+        <p className={styles.inlineNotice}>
+          학생 목록을 불러오지 못했습니다: {loadError} (dev DB 접속 설정을 확인해 주세요)
+        </p>
+      )}
       {deleteNotice && <p className={styles.inlineNotice}>{deleteNotice}</p>}
 
       <div className={styles.summaryCard}>
@@ -260,6 +304,9 @@ export function StudentRoster() {
                   </button>
                 </div>
                 {reassignNotice && <p className={styles.inlineNotice}>{reassignNotice}</p>}
+                <p className={styles.pageSub}>
+                  * 지금은 화면에서만 반영되고 DB에는 저장되지 않습니다 (조회는 실제 DB 연동 완료, 저장 연동은 다음 단계).
+                </p>
               </ExpandableSection>
 
               <ExpandableSection title="학생 삭제">
@@ -269,6 +316,9 @@ export function StudentRoster() {
                     선택한 학생 삭제
                   </button>
                 </div>
+                <p className={styles.pageSub}>
+                  * 지금은 화면에서만 반영되고 DB에는 저장되지 않습니다 (조회는 실제 DB 연동 완료, 저장 연동은 다음 단계).
+                </p>
               </ExpandableSection>
             </div>
           </div>
