@@ -1,0 +1,75 @@
+.card {
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.07);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(31, 61, 43, 0.05);
+}
+
+.sectionTitle {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 4px;
+}
+
+.caption {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0 0 14px;
+}
+
+.filterRow {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.checkLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.chartWrap {
+  overflow-x: auto;
+}
+
+.svgChart {
+  width: 100%;
+  height: auto;
+  min-width: 460px;
+}
+
+.legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.emptyText {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
