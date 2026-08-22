@@ -1,0 +1,11 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  background: var(--color-surface);
+}
+
+.main {
+  flex: 1;
+  padding: 34px 40px 56px;
+  min-width: 0;
+}
