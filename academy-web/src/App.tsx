@@ -7,6 +7,7 @@ import { StudentRoster } from './pages/StudentRoster';
 import { ClassManagement } from './pages/ClassManagement';
 import { AttendanceManagement } from './pages/AttendanceManagement';
 import { GradeReport } from './pages/GradeReport';
+import { HomeworkCertification } from './pages/HomeworkCertification';
 import { ComingSoon } from './pages/ComingSoon';
 import { AppLayout } from './components/layout/AppLayout';
 
@@ -31,7 +32,7 @@ function App() {
         <Route path="/reports" element={<GradeReport />} />
         <Route path="/past-exams" element={<ComingSoon title="기출문제분석" />} />
         <Route path="/question-bank" element={<ComingSoon title="문제 은행" />} />
-        <Route path="/homework" element={<ComingSoon title="과제 인증" />} />
+        <Route path="/homework" element={<HomeworkCertification />} />
         <Route path="/school-info" element={<ComingSoon title="학사정보" />} />
         <Route path="/settings" element={<ComingSoon title="설정" />} />
       </Route>

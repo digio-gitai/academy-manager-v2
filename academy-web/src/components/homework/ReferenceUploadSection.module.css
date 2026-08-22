@@ -1,0 +1,166 @@
+.card {
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.07);
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 6px 18px rgba(31, 61, 43, 0.05);
+  margin-bottom: 16px;
+}
+
+.expanderToggle {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.body {
+  margin-top: 14px;
+}
+
+.caption {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.subTitle {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 4px 0 10px;
+}
+
+.materialRow {
+  border-radius: 10px;
+  background: var(--color-surface);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.materialInfo {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--color-text);
+  margin-bottom: 6px;
+}
+
+.materialIcon {
+  flex: none;
+}
+
+.deleteButton {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(178, 58, 58, 0.3);
+  background: transparent;
+  color: #b23a3a;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
+.offsetToggle {
+  display: block;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.offsetBody {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--color-white);
+  border: 1px dashed rgba(31, 61, 43, 0.16);
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: 5px;
+}
+
+.textInput,
+.numberInput,
+.fileInput {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 12.5px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.fileInput {
+  padding: 6px 8px;
+}
+
+.smallButton {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-white);
+  color: var(--color-primary);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.smallButton:hover {
+  background: var(--color-tint);
+}
+
+.uploadButton {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 9px;
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.uploadButton:hover {
+  background: var(--color-accent-hover);
+}
+
+.errorText {
+  font-size: 12px;
+  color: #b23a3a;
+  margin: 0 0 10px;
+}
+
+.successText {
+  font-size: 11.5px;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin: 8px 0;
+}

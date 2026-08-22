@@ -1,0 +1,95 @@
+.card {
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.07);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(31, 61, 43, 0.05);
+  margin-bottom: 16px;
+}
+
+.cardTitle {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 14px;
+}
+
+.emptyText {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.studentBlock {
+  border-top: 1px solid rgba(31, 61, 43, 0.07);
+  padding: 10px 0;
+}
+
+.studentToggle {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.assignmentBlock {
+  margin: 8px 0 4px 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.assignmentDate {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.itemRow {
+  margin-bottom: 8px;
+}
+
+.itemLabel {
+  font-size: 12.5px;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+
+.progressBarOuter {
+  height: 8px;
+  border-radius: 100px;
+  background: rgba(31, 61, 43, 0.1);
+  overflow: hidden;
+}
+
+.progressBarInner {
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.progressText {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 3px;
+}
+
+.wrongNoteStatus {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 100px;
+  background: rgba(178, 58, 58, 0.12);
+  color: #b23a3a;
+}
+
+.wrongNoteStatus[data-done='true'] {
+  background: rgba(31, 61, 43, 0.1);
+  color: var(--color-primary);
+}
