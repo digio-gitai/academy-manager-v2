@@ -1,0 +1,119 @@
+.sidebar {
+  width: 232px;
+  flex: none;
+  background: var(--color-primary);
+  padding: 28px 18px;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.logoRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  margin-bottom: 36px;
+}
+
+.logoBadge {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--color-accent);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.logoLetter {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.logoText {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-white);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.navItem[data-active='true'] {
+  background: rgba(201, 169, 97, 0.16);
+}
+
+.navIcon {
+  flex: none;
+}
+
+.navLabel {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: rgba(240, 230, 210, 0.72);
+}
+
+.navLabel[data-active='true'] {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.profile {
+  margin-top: auto;
+  padding: 14px;
+  border-top: 1px solid rgba(240, 230, 210, 0.14);
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.avatarInitial {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.profileName {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-white);
+}
+
+.profileEmail {
+  font-size: 11px;
+  color: var(--color-tint);
+  opacity: 0.6;
+}
