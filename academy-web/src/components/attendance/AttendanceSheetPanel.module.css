@@ -1,0 +1,110 @@
+.card {
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.07);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(31, 61, 43, 0.05);
+  margin-bottom: 16px;
+}
+
+.controlRow {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.selectInput,
+.numberInput {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 13px;
+  box-sizing: border-box;
+  font-family: inherit;
+  width: 130px;
+}
+
+.summaryLine {
+  font-size: 13px;
+  color: var(--color-text);
+  margin: 4px 0;
+}
+
+.summaryCaption {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.warnText {
+  font-size: 12.5px;
+  color: #9a7a1f;
+  background: rgba(201, 169, 97, 0.14);
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.sheetWrap {
+  overflow-x: auto;
+}
+
+.sheetTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 600px;
+}
+
+.sheetTable th,
+.sheetTable td {
+  border: 1px solid rgba(31, 61, 43, 0.15);
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.sheetTable th {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.nameCell {
+  text-align: left !important;
+  font-weight: 600;
+}
+
+.printButton {
+  margin-top: 14px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 9px;
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.printButton:hover {
+  background: var(--color-accent-hover);
+}
+
+@media print {
+  .noPrint {
+    display: none !important;
+  }
+}

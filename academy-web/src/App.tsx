@@ -5,6 +5,7 @@ import { TeacherLogin } from './pages/TeacherLogin';
 import { TeacherDashboard } from './pages/TeacherDashboard';
 import { StudentRoster } from './pages/StudentRoster';
 import { ClassManagement } from './pages/ClassManagement';
+import { AttendanceManagement } from './pages/AttendanceManagement';
 import { ComingSoon } from './pages/ComingSoon';
 import { AppLayout } from './components/layout/AppLayout';
 
@@ -23,7 +24,7 @@ function App() {
         <Route path="/dashboard" element={<TeacherDashboard />} />
         <Route path="/classes" element={<ClassManagement />} />
         <Route path="/students" element={<StudentRoster />} />
-        <Route path="/attendance" element={<ComingSoon title="출석 관리" />} />
+        <Route path="/attendance" element={<AttendanceManagement />} />
         <Route path="/tuition" element={<ComingSoon title="수강료 관리" />} />
         <Route path="/consultation" element={<ComingSoon title="상담 일지" />} />
         <Route path="/reports" element={<ComingSoon title="성적 리포트" />} />
