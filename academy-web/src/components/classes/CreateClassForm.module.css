@@ -1,0 +1,141 @@
+.card {
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.07);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(31, 61, 43, 0.05);
+}
+
+.title {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 16px;
+}
+
+.field {
+  margin-bottom: 14px;
+}
+
+.label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: 6px;
+}
+
+.textInput {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 13px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.textInput:focus,
+.selectInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.slotRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.dayToggleGroup {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex: 1.6;
+}
+
+.dayToggle {
+  width: 28px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dayToggle[data-active='true'] {
+  background: var(--color-primary);
+  color: var(--color-tint);
+  border-color: var(--color-primary);
+}
+
+.selectInput {
+  height: 32px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.removeSlotButton {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  flex: none;
+}
+
+.addSlotButton {
+  width: 100%;
+  height: 36px;
+  border-radius: 9px;
+  border: 1.5px dashed rgba(31, 61, 43, 0.2);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 14px;
+}
+
+.submitButton {
+  width: 100%;
+  height: 42px;
+  border-radius: 10px;
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-primary);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.submitButton:hover {
+  background: var(--color-accent-hover);
+}
+
+.errorText {
+  font-size: 12px;
+  color: #b23a3a;
+  margin: -6px 0 12px;
+}
+
+.successText {
+  font-size: 12px;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin: 12px 0 0;
+}

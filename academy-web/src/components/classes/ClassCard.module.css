@@ -1,0 +1,136 @@
+.card {
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.07);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 4px 14px rgba(31, 61, 43, 0.05);
+  margin-bottom: 12px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.nameBlock {
+  flex: 1;
+  min-width: 160px;
+}
+
+.className {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 2px;
+}
+
+.classDesc {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.teacherLabel {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.teacherLabel strong {
+  display: block;
+  color: var(--color-primary);
+  font-size: 13px;
+}
+
+.countButton {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.countButton[data-active='true'] {
+  background: var(--color-primary);
+  color: var(--color-tint);
+  border-color: var(--color-primary);
+}
+
+.actionGroup {
+  position: relative;
+  display: flex;
+  gap: 8px;
+}
+
+.reassignWrap {
+  position: relative;
+}
+
+.smallButton {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-white);
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dangerButton {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(178, 58, 58, 0.35);
+  background: var(--color-white);
+  color: #b23a3a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dangerButton:hover {
+  background: rgba(178, 58, 58, 0.06);
+}
+
+.popover {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  z-index: 5;
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(31, 61, 43, 0.15);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.popoverSelect {
+  height: 34px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 12.5px;
+  padding: 0 8px;
+}
+
+.expandArea {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(31, 61, 43, 0.08);
+}

@@ -4,6 +4,7 @@ import { ParentReport } from './pages/ParentReport';
 import { TeacherLogin } from './pages/TeacherLogin';
 import { TeacherDashboard } from './pages/TeacherDashboard';
 import { StudentRoster } from './pages/StudentRoster';
+import { ClassManagement } from './pages/ClassManagement';
 import { ComingSoon } from './pages/ComingSoon';
 import { AppLayout } from './components/layout/AppLayout';
 
@@ -20,7 +21,7 @@ function App() {
           아래 ComingSoon 자리를 그 화면 컴포넌트로 바꿔 끼우면 됨. */}
       <Route element={<AppLayout />}>
         <Route path="/dashboard" element={<TeacherDashboard />} />
-        <Route path="/classes" element={<ComingSoon title="내 수업 관리" />} />
+        <Route path="/classes" element={<ClassManagement />} />
         <Route path="/students" element={<StudentRoster />} />
         <Route path="/attendance" element={<ComingSoon title="출석 관리" />} />
         <Route path="/tuition" element={<ComingSoon title="수강료 관리" />} />
