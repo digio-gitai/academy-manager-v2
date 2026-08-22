@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import type { MenuItem, TeacherProfile } from '../../types/dashboard';
 import styles from './Sidebar.module.css';
 
@@ -8,32 +8,22 @@ interface SidebarProps {
 }
 
 export function Sidebar({ menuItems, profile }: SidebarProps) {
-  const [activeId, setActiveId] = useState(menuItems[0]?.id);
+  const location = useLocation();
 
   return (
     <aside className={styles.sidebar}>
-      <div className={styles.logoRow}>
+      <Link to="/dashboard" className={styles.logoRow}>
         <div className={styles.logoBadge}>
           <span className={styles.logoLetter}>J</span>
         </div>
         <span className={styles.logoText}>J MATH</span>
-      </div>
+      </Link>
 
       <nav className={styles.nav}>
         {menuItems.map((m) => {
-          const active = m.id === activeId;
+          const active = location.pathname === m.path;
           return (
-            <div
-              key={m.id}
-              className={styles.navItem}
-              data-active={active}
-              onClick={() => setActiveId(m.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') setActiveId(m.id);
-              }}
-            >
+            <Link key={m.id} to={m.path} className={styles.navItem} data-active={active}>
               <svg
                 width="18"
                 height="18"
@@ -50,7 +40,7 @@ export function Sidebar({ menuItems, profile }: SidebarProps) {
               <span className={styles.navLabel} data-active={active}>
                 {m.label}
               </span>
-            </div>
+            </Link>
           );
         })}
       </nav>

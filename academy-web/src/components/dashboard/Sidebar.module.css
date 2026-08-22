@@ -16,6 +16,7 @@
   gap: 10px;
   padding: 0 8px;
   margin-bottom: 36px;
+  text-decoration: none;
 }
 
 .logoBadge {
@@ -58,6 +59,7 @@
   cursor: pointer;
   background: transparent;
   transition: background 0.15s ease;
+  text-decoration: none;
 }
 
 .navItem[data-active='true'] {

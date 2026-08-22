@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PasswordField } from '../components/login/PasswordField';
 import { RememberToggle } from '../components/login/RememberToggle';
 import styles from './TeacherLogin.module.css';
 
 export function TeacherLogin() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pwHidden, setPwHidden] = useState(true);
@@ -11,7 +13,9 @@ export function TeacherLogin() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // 실제 인증 연동은 다음 단계에서 진행
+    // 실제 인증(이메일/비밀번호 검증)은 DB 연동 단계에서 진행 — 지금은
+    // 화면 이동만 연결(라우팅 연결 단계). 로그인 버튼을 누르면 대시보드로 이동.
+    navigate('/dashboard');
   };
 
   return (
