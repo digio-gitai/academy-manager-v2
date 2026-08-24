@@ -1,4 +1,5 @@
 import type { ClassStudentInfo } from '../../types/classManagement';
+import type { ConsultationLogEntry } from '../../types/consultation';
 import styles from './ClassStudentPanel.module.css';
 
 interface ClassStudentPanelProps {
@@ -6,13 +7,26 @@ interface ClassStudentPanelProps {
   students: ClassStudentInfo[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  consultations: ConsultationLogEntry[];
+  consultationsLoading: boolean;
 }
 
 /**
  * 스트림릿 page_classes()의 "📋 {반} 학생 명단" 펼침 영역과 동일한 기능:
  * 학생 이름 버튼 목록 → 클릭 시 아래 상세정보(학교/학년/반/등록일/연락처 등 + 상담일지 최근 3건) 표시.
+ *
+ * 2026-08-24부터: 상담일지는 학생을 선택했을 때 부모(ClassManagement.tsx)가
+ * lib/consultation.ts로 실제 DB에서 조회해서 넘겨줌(전체 학생을 미리 다 조회하지
+ * 않고, 펼친 학생 것만 그때그때 조회 — 원본 스트림릿과 동일한 방식).
  */
-export function ClassStudentPanel({ className, students, selectedId, onSelect }: ClassStudentPanelProps) {
+export function ClassStudentPanel({
+  className,
+  students,
+  selectedId,
+  onSelect,
+  consultations,
+  consultationsLoading,
+}: ClassStudentPanelProps) {
   const selected = students.find((s) => s.id === selectedId) ?? null;
 
   return (
@@ -85,12 +99,13 @@ export function ClassStudentPanel({ className, students, selectedId, onSelect }:
             </div>
           </div>
 
-          {selected.recentConsultations.length > 0 && (
+          {consultationsLoading && <p className={styles.consultTitle}>상담일지를 불러오는 중입니다...</p>}
+          {!consultationsLoading && consultations.length > 0 && (
             <div className={styles.consultBlock}>
-              <p className={styles.consultTitle}>📋 상담일지 ({selected.recentConsultations.length}건)</p>
-              {selected.recentConsultations.slice(0, 3).map((c, i) => (
-                <div key={i} className={styles.consultItem}>
-                  • {c.date} — {c.content}
+              <p className={styles.consultTitle}>📋 상담일지 ({consultations.length}건)</p>
+              {consultations.slice(0, 3).map((c) => (
+                <div key={c.id} className={styles.consultItem}>
+                  • {c.createdAt} — {c.note}
                 </div>
               ))}
             </div>

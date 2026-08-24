@@ -10,6 +10,7 @@ interface ClassCardProps {
   onToggleOpen: () => void;
   onAssignTeacher: (teacherId: string | null) => void;
   onDelete: () => void;
+  disabled?: boolean;
   children?: ReactNode;
 }
 
@@ -25,6 +26,7 @@ export function ClassCard({
   onToggleOpen,
   onAssignTeacher,
   onDelete,
+  disabled = false,
   children,
 }: ClassCardProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -63,6 +65,7 @@ export function ClassCard({
               type="button"
               className={styles.smallButton}
               onClick={() => setPopoverOpen((v) => !v)}
+              disabled={disabled}
             >
               강사 변경
             </button>
@@ -80,13 +83,13 @@ export function ClassCard({
                     </option>
                   ))}
                 </select>
-                <button type="button" className={styles.smallButton} onClick={handleSave}>
+                <button type="button" className={styles.smallButton} onClick={handleSave} disabled={disabled}>
                   저장
                 </button>
               </div>
             )}
           </div>
-          <button type="button" className={styles.dangerButton} onClick={onDelete}>
+          <button type="button" className={styles.dangerButton} onClick={onDelete} disabled={disabled}>
             삭제
           </button>
         </div>

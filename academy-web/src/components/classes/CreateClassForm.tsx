@@ -10,21 +10,27 @@ interface CreateClassFormProps {
     description: string;
     teacherId: string | null;
     schedule: ScheduleSlot[];
-  }) => void;
+  }) => Promise<void>;
+  disabled?: boolean;
 }
 
 /**
  * 실제 스트림릿의 "새 수업 만들기"(_dashboard_class_manage, 원래는 대시보드에 있었음)를
  * 내 수업 관리 화면으로 옮겨와 통합함 — 수업 만들기와 수업 목록 관리가 한 화면에서 되는 게
  * 더 자연스럽다고 판단해 이렇게 정리함 (원본 스트림릿 UX 그대로가 아니라 개선한 부분).
+ *
+ * 2026-08-24부터: onCreate가 실제 DB insert를 기다리는 비동기 함수로 바뀜(이름
+ * 중복 시 서버가 돌려주는 에러 메시지를 그대로 보여줌 — app.py도 UNIQUE 제약
+ * 위반을 "같은 이름의 수업이 이미 존재합니다"로 안내하는 것과 동일).
  */
-export function CreateClassForm({ teachers, onCreate }: CreateClassFormProps) {
+export function CreateClassForm({ teachers, onCreate, disabled = false }: CreateClassFormProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [teacherId, setTeacherId] = useState<string>('');
   const [slots, setSlots] = useState<ScheduleSlot[]>([{ days: [], start: '17:00', end: '18:30' }]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [saving, setSaving] = useState(false);
 
   function toggleDay(slotIdx: number, day: string) {
     setSlots((prev) =>
@@ -48,24 +54,32 @@ export function CreateClassForm({ teachers, onCreate }: CreateClassFormProps) {
     setSlots((prev) => [...prev, { days: [], start: '17:00', end: '18:30' }]);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     setError('');
     setSuccess('');
     if (!name.trim()) {
       setError('수업 이름을 입력해 주세요.');
       return;
     }
-    onCreate({
-      name: name.trim(),
-      description: description.trim(),
-      teacherId: teacherId === '' ? null : teacherId,
-      schedule: slots,
-    });
-    setSuccess(`수업 "${name.trim()}" 이(가) 생성되었습니다.`);
-    setName('');
-    setDescription('');
-    setTeacherId('');
-    setSlots([{ days: [], start: '17:00', end: '18:30' }]);
+    const submittedName = name.trim();
+    setSaving(true);
+    try {
+      await onCreate({
+        name: submittedName,
+        description: description.trim(),
+        teacherId: teacherId === '' ? null : teacherId,
+        schedule: slots,
+      });
+      setSuccess(`수업 "${submittedName}" 이(가) 생성되었습니다.`);
+      setName('');
+      setDescription('');
+      setTeacherId('');
+      setSlots([{ days: [], start: '17:00', end: '18:30' }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '수업 생성 중 오류가 발생했습니다.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -166,8 +180,13 @@ export function CreateClassForm({ teachers, onCreate }: CreateClassFormProps) {
 
       {error && <p className={styles.errorText}>{error}</p>}
 
-      <button type="button" className={styles.submitButton} onClick={handleSubmit}>
-        수업 생성
+      <button
+        type="button"
+        className={styles.submitButton}
+        onClick={handleSubmit}
+        disabled={disabled || saving}
+      >
+        {saving ? '생성 중...' : '수업 생성'}
       </button>
 
       {success && <p className={styles.successText}>{success}</p>}

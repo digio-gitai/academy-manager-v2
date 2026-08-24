@@ -4,7 +4,8 @@ import { ConsultationLog } from '../components/students/ConsultationLog';
 import { ExpandableSection } from '../components/students/ExpandableSection';
 import { HomeworkHistoryList } from '../components/students/HomeworkHistoryList';
 import { badgePalette } from '../components/dashboard/badgePalette';
-import { fetchStudents } from '../lib/students';
+import { fetchStudents, fetchClassOptions, reassignStudentClass } from '../lib/students';
+import type { ClassOption } from '../lib/students';
 import type { HomeworkLevel, StudentProfile } from '../types/student';
 import styles from './StudentRoster.module.css';
 
@@ -18,9 +19,12 @@ const CLASS_FILTER_ALL = '전체 수업';
 
 export function StudentRoster() {
   // 2026-08-22부터: 실제 dev Supabase(kpimhidgkrqtegcumrul)에서 학생 목록을 조회함
-  // (이 화면이 실제 DB 연동 파일럿). 조회는 실제 DB, 반 재배정/삭제는 아직
-  // 화면에서만 반영되고 DB에 저장되지는 않음 — 다음 단계에서 쓰기 연동 예정.
+  // (이 화면이 실제 DB 연동 파일럿). 2026-08-24: 반 재배정도 실제 DB 저장으로
+  // 연동함(그전엔 화면에서만 바뀌었음). 반 재배정 드롭다운은 "지금 명부에 있는
+  // 학생들의 반 이름"이 아니라 classes 테이블 전체를 조회해서 채움 — 학생이
+  // 0명인 새 반도 뜨도록(사용자가 실사용 중 이 버그를 발견해서 수정함).
   const [roster, setRoster] = useState<StudentProfile[]>([]);
+  const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [query, setQuery] = useState('');
@@ -28,8 +32,11 @@ export function StudentRoster() {
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [reassignTarget, setReassignTarget] = useState('');
   const [reassignNotice, setReassignNotice] = useState('');
+  const [reassigning, setReassigning] = useState(false);
   const [deleteNotice, setDeleteNotice] = useState('');
 
+  // 필터 드롭다운/요약 카드는 원래대로 "지금 명부에 있는 학생들의 반 이름"
+  // 기준(빈 반을 골라 필터링해봐야 어차피 목록이 비어 보이므로).
   const classNames = useMemo(
     () => Array.from(new Set(roster.map((s) => s.className))),
     [roster],
@@ -39,11 +46,12 @@ export function StudentRoster() {
     let cancelled = false;
     setLoading(true);
     setLoadError('');
-    fetchStudents()
-      .then((data) => {
+    Promise.all([fetchStudents(), fetchClassOptions()])
+      .then(([studentData, classData]) => {
         if (cancelled) return;
-        setRoster(data);
-        setSelectedId(data[0]?.id);
+        setRoster(studentData);
+        setClassOptions(classData);
+        setSelectedId(studentData[0]?.id);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -59,11 +67,15 @@ export function StudentRoster() {
     };
   }, []);
 
+  // 선택된 학생이 바뀌면, 재배정 드롭다운 기본값을 그 학생의 현재 반으로 맞춤.
   useEffect(() => {
-    if (!reassignTarget && classNames.length > 0) {
-      setReassignTarget(classNames[0]);
-    }
-  }, [classNames, reassignTarget]);
+    if (classOptions.length === 0) return;
+    const current = roster.find((s) => s.id === selectedId);
+    const match = current ? classOptions.find((c) => c.name === current.className) : undefined;
+    setReassignTarget(match ? match.id : classOptions[0].id);
+    setReassignNotice('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, classOptions]);
 
   const filtered = useMemo(() => {
     let list = roster;
@@ -80,12 +92,25 @@ export function StudentRoster() {
   const selected = roster.find((s) => s.id === selectedId) ?? filtered[0];
   const unassignedCount = roster.filter((s) => s.className === '반 미배정').length;
 
-  function handleReassign() {
-    if (!selected) return;
-    setRoster((prev) =>
-      prev.map((s) => (s.id === selected.id ? { ...s, className: reassignTarget } : s)),
-    );
-    setReassignNotice(`${selected.name} 학생을 "${reassignTarget}"(으)로 반 배정을 변경했습니다.`);
+  async function handleReassign() {
+    if (!selected || !reassignTarget) return;
+    const targetClass = classOptions.find((c) => c.id === reassignTarget);
+    if (!targetClass) return;
+    setReassigning(true);
+    setReassignNotice('');
+    try {
+      await reassignStudentClass(selected.id, reassignTarget);
+      setRoster((prev) =>
+        prev.map((s) => (s.id === selected.id ? { ...s, className: targetClass.name } : s)),
+      );
+      setReassignNotice(`${selected.name} 학생을 "${targetClass.name}"(으)로 반 배정을 변경했습니다.`);
+    } catch (err) {
+      setReassignNotice(
+        err instanceof Error ? `저장 실패: ${err.message}` : '반 배정 저장에 실패했습니다.',
+      );
+    } finally {
+      setReassigning(false);
+    }
   }
 
   function handleDelete() {
@@ -292,21 +317,24 @@ export function StudentRoster() {
                     style={{ width: 200 }}
                     value={reassignTarget}
                     onChange={(e) => setReassignTarget(e.target.value)}
+                    disabled={reassigning || classOptions.length === 0}
                   >
-                    {classNames.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                    {classOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
                       </option>
                     ))}
                   </select>
-                  <button type="button" className={styles.primaryButton} onClick={handleReassign}>
-                    배정 변경
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    onClick={handleReassign}
+                    disabled={reassigning || classOptions.length === 0}
+                  >
+                    {reassigning ? '저장 중...' : '배정 변경'}
                   </button>
                 </div>
                 {reassignNotice && <p className={styles.inlineNotice}>{reassignNotice}</p>}
-                <p className={styles.pageSub}>
-                  * 지금은 화면에서만 반영되고 DB에는 저장되지 않습니다 (조회는 실제 DB 연동 완료, 저장 연동은 다음 단계).
-                </p>
               </ExpandableSection>
 
               <ExpandableSection title="학생 삭제">

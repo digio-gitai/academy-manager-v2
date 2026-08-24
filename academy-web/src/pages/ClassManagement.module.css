@@ -67,6 +67,13 @@
   padding: 12px 0;
 }
 
+.inlineNotice {
+  font-size: 12.5px;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

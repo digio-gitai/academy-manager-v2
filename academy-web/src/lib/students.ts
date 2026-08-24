@@ -1,6 +1,37 @@
 import { supabase } from './supabaseClient';
 import type { StudentProfile } from '../types/student';
 
+export interface ClassOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * 반 목록(id 포함) — 학생 반 재배정 드롭다운용. 2026-08-24: 기존에는 이 화면이
+ * "지금 명부에 있는 학생들의 반 이름"만 모아서 드롭다운을 만들었는데, 그러면
+ * 학생이 0명인 새 반(예: 새로 만든 "프리미엄반")이 안 뜨는 버그가 있었음
+ * (사용자가 실사용 중 발견). classes 테이블을 직접 조회해서 항상 전체 반
+ * 목록이 뜨도록 수정.
+ */
+export async function fetchClassOptions(): Promise<ClassOption[]> {
+  const { data, error } = await supabase.from('classes').select('id, name').order('name', { ascending: true });
+  if (error) {
+    throw error;
+  }
+  return ((data as { id: number; name: string }[]) ?? []).map((row) => ({ id: String(row.id), name: row.name }));
+}
+
+/** 학생의 반 배정 변경(class_id 갱신). 2026-08-24: 화면에서만 바뀌던 걸 실제 DB 저장으로 연결. */
+export async function reassignStudentClass(studentId: string, classId: string): Promise<void> {
+  const { error } = await supabase
+    .from('students')
+    .update({ class_id: Number(classId) })
+    .eq('id', Number(studentId));
+  if (error) {
+    throw error;
+  }
+}
+
 // dev Supabase의 실제 컬럼(2026-08-22, SQL Editor로 확인한 값):
 //   students: id, name, parent_phone, class_id, registered_at, school, grade,
 //             pre_visit_progress, contact_info, expectations, notes,
