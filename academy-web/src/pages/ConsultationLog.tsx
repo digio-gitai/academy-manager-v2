@@ -1,47 +1,91 @@
-import { useMemo, useState } from 'react';
-import { classes } from '../data/mockClasses';
-import { initialConsultationLogs } from '../data/mockConsultation';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchStudents } from '../lib/students';
+import { fetchConsultationLogs, addConsultationLog, deleteConsultationLog } from '../lib/consultation';
 import { CATEGORY_LABELS, CATEGORY_OPTIONS, type ConsultationCategory, type ConsultationLogEntry } from '../types/consultation';
+import type { StudentProfile } from '../types/student';
 import styles from './ConsultationLog.module.css';
-
-interface FlatStudent {
-  id: string;
-  name: string;
-  className: string;
-}
-
-function nowStr() {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 /**
  * 스트림릿 page_consultation() 재현: 학생 선택 → (좌) 새 상담 메모 작성
  * (분류/작성자/메모) → (우) 그 학생의 상담 이력(최신순), 항목별 삭제(확인 후).
+ *
+ * 2026-08-24부터: 학생 목록과 상담 이력 모두 실제 dev Supabase(kpimhidgkrqtegcumrul)
+ * 조회/저장/삭제로 연동됨 (consultation_logs 테이블).
  */
 export function ConsultationLog() {
-  const allStudents: FlatStudent[] = useMemo(
-    () => classes.flatMap((c) => c.students.map((s) => ({ id: s.id, name: s.name, className: c.name }))),
-    [],
-  );
+  const [allStudents, setAllStudents] = useState<StudentProfile[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [studentsError, setStudentsError] = useState('');
 
-  const [studentId, setStudentId] = useState(allStudents[0]?.id ?? '');
-  const [logs, setLogs] = useState<ConsultationLogEntry[]>(initialConsultationLogs);
+  const [studentId, setStudentId] = useState('');
+  const [logs, setLogs] = useState<ConsultationLogEntry[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState('');
+
   const [category, setCategory] = useState<ConsultationCategory>('general');
   const [author, setAuthor] = useState('');
   const [note, setNote] = useState('');
   const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStudentsLoading(true);
+    setStudentsError('');
+    fetchStudents()
+      .then((data) => {
+        if (cancelled) return;
+        setAllStudents(data);
+        setStudentId((prev) => prev || data[0]?.id || '');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setStudentsError(err instanceof Error ? err.message : 'DB에서 학생 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setStudentsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function loadLogs(sid: string) {
+    if (!sid) return;
+    let cancelled = false;
+    setLogsLoading(true);
+    setLogsError('');
+    fetchConsultationLogs(sid)
+      .then((data) => {
+        if (cancelled) return;
+        setLogs(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLogsError(err instanceof Error ? err.message : '상담 이력을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setLogsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }
+
+  useEffect(() => {
+    if (!studentId) return;
+    const cleanup = loadLogs(studentId);
+    return cleanup;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId]);
 
   const selectedStudent = allStudents.find((s) => s.id === studentId);
 
   const studentLogs = useMemo(
-    () =>
-      logs
-        .filter((l) => l.studentId === studentId)
-        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    [logs, studentId],
+    () => logs.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    [logs],
   );
 
   function handleStudentChange(id: string) {
@@ -50,29 +94,49 @@ export function ConsultationLog() {
     setConfirmDeleteId(null);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!note.trim()) {
       setFormError('메모 내용을 입력해 주세요.');
       return;
     }
-    const newLog: ConsultationLogEntry = {
-      id: `cl_${Date.now()}`,
-      studentId,
-      category,
-      note: note.trim(),
-      author: author.trim(),
-      createdAt: nowStr(),
-    };
-    setLogs((prev) => [...prev, newLog]);
-    setCategory('general');
-    setAuthor('');
-    setNote('');
+    setSaving(true);
     setFormError('');
+    try {
+      await addConsultationLog({ studentId, category, note, author });
+      setCategory('general');
+      setAuthor('');
+      setNote('');
+      loadLogs(studentId);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleDelete(id: string) {
-    setLogs((prev) => prev.filter((l) => l.id !== id));
-    setConfirmDeleteId(null);
+  async function handleDelete(id: string) {
+    setDeletingId(id);
+    try {
+      await deleteConsultationLog(id);
+      setLogs((prev) => prev.filter((l) => l.id !== id));
+      setConfirmDeleteId(null);
+    } catch (err) {
+      setLogsError(err instanceof Error ? err.message : '삭제 중 오류가 발생했습니다.');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  if (studentsLoading) {
+    return <p className={styles.inlineNotice}>DB에서 학생 목록을 불러오는 중입니다...</p>;
+  }
+
+  if (studentsError) {
+    return (
+      <p className={styles.inlineNotice}>
+        학생 목록을 불러오지 못했습니다: {studentsError} (dev DB 접속 설정을 확인해 주세요)
+      </p>
+    );
   }
 
   if (!selectedStudent) {
@@ -144,18 +208,24 @@ export function ConsultationLog() {
 
           {formError && <p className={styles.errorText}>{formError}</p>}
 
-          <button type="button" className={styles.saveButton} onClick={handleSubmit}>
-            메모 저장
+          <button type="button" className={styles.saveButton} onClick={handleSubmit} disabled={saving}>
+            {saving ? '저장 중...' : '메모 저장'}
           </button>
         </div>
 
         <div className={styles.card}>
           <h3 className={styles.cardTitle}>{selectedStudent.name} 학생 상담 이력</h3>
-          {studentLogs.length === 0 ? (
+          {logsLoading && <p className={styles.inlineNotice}>상담 이력을 불러오는 중입니다...</p>}
+          {logsError && !logsLoading && (
+            <p className={styles.inlineNotice}>이력을 불러오지 못했습니다: {logsError}</p>
+          )}
+          {!logsLoading && !logsError && studentLogs.length === 0 ? (
             <p className={styles.emptyText}>저장된 상담 메모가 없습니다. 왼쪽에서 첫 번째 메모를 작성해 보세요.</p>
           ) : (
             <>
-              <p className={styles.countCaption}>총 {studentLogs.length}건 — 최신순</p>
+              {!logsLoading && studentLogs.length > 0 && (
+                <p className={styles.countCaption}>총 {studentLogs.length}건 — 최신순</p>
+              )}
               {studentLogs.map((log) => (
                 <div key={log.id} className={styles.logItem}>
                   <div className={styles.logHeader}>
@@ -165,8 +235,13 @@ export function ConsultationLog() {
                     {confirmDeleteId === log.id ? (
                       <span className={styles.confirmGroup}>
                         <span className={styles.confirmText}>삭제할까요?</span>
-                        <button type="button" className={styles.confirmYes} onClick={() => handleDelete(log.id)}>
-                          예, 삭제합니다
+                        <button
+                          type="button"
+                          className={styles.confirmYes}
+                          onClick={() => handleDelete(log.id)}
+                          disabled={deletingId === log.id}
+                        >
+                          {deletingId === log.id ? '삭제 중...' : '예, 삭제합니다'}
                         </button>
                         <button type="button" className={styles.confirmNo} onClick={() => setConfirmDeleteId(null)}>
                           취소
