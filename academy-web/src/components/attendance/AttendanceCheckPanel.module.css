@@ -114,6 +114,13 @@
   border-color: #b23a3a;
 }
 
+.radioBtn:disabled,
+.noteInput:disabled,
+.saveButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .noteInput {
   flex: 1;
   min-width: 160px;
