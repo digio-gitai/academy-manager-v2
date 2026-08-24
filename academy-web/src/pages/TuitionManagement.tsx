@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
-import { classes } from '../data/mockClasses';
-import { initialTuitionRecords } from '../data/mockTuition';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchClassOptions, fetchStudentsForTuition, fetchTuitionRecordsForMonth, saveTuitionStatus } from '../lib/tuition';
+import type { TuitionClassOption, TuitionStudentRow } from '../lib/tuition';
 import {
   TUITION_STATUS_LABELS,
   TUITION_STATUS_OPTIONS,
@@ -20,31 +20,76 @@ function isValidMonth(value: string): boolean {
   return /^\d{4}-\d{2}$/.test(value);
 }
 
-interface FlatStudent {
-  id: string;
-  name: string;
-  classId: string;
-  className: string;
-}
-
 /**
  * 스트림릿 page_tuition() 재현: 반/월 조회 조건 → 납부/미납/연체 요약 카드 →
  * 학생별 상태(납부/미납/연체) · 금액 입력 후 저장(같은 학생+월 조합은 덮어쓰기).
  * 상태를 '납부'로 바꿔 저장하면 저장일이 오늘 날짜로 자동 기록됨(원본과 동일).
+ *
+ * 2026-08-24부터: 반 목록·학생 목록·월별 수강료 기록 전부 실제 dev DB(Supabase)
+ * 조회/저장으로 연동됨.
  */
 export function TuitionManagement() {
+  const [classes, setClasses] = useState<TuitionClassOption[]>([]);
+  const [allStudents, setAllStudents] = useState<TuitionStudentRow[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(true);
+  const [rosterError, setRosterError] = useState('');
+
   const [classFilter, setClassFilter] = useState(CLASS_FILTER_ALL);
   const [month, setMonth] = useState(todayMonth());
-  const [records, setRecords] = useState<TuitionRecord[]>(initialTuitionRecords);
+  const [records, setRecords] = useState<TuitionRecord[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState('');
   const [draftEdits, setDraftEdits] = useState<Record<string, { status: TuitionStatus; amount: string }>>({});
   const [savedMessage, setSavedMessage] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
 
-  const allStudents: FlatStudent[] = useMemo(
-    () => classes.flatMap((c) => c.students.map((s) => ({ id: s.id, name: s.name, classId: c.id, className: c.name }))),
-    [],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    setRosterLoading(true);
+    setRosterError('');
+    Promise.all([fetchClassOptions(), fetchStudentsForTuition()])
+      .then(([classData, studentData]) => {
+        if (cancelled) return;
+        setClasses(classData);
+        setAllStudents(studentData);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRosterError(err instanceof Error ? err.message : '반/학생 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setRosterLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const monthValid = isValidMonth(month);
+
+  useEffect(() => {
+    if (!monthValid) return;
+    let cancelled = false;
+    setRecordsLoading(true);
+    setRecordsError('');
+    setDraftEdits({});
+    setSavedMessage({});
+    fetchTuitionRecordsForMonth(month)
+      .then((data) => {
+        if (cancelled) return;
+        setRecords(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRecordsError(err instanceof Error ? err.message : '수강료 기록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setRecordsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [month, monthValid]);
 
   const filteredStudents = useMemo(
     () => (classFilter === CLASS_FILTER_ALL ? allStudents : allStudents.filter((s) => s.classId === classFilter)),
@@ -67,20 +112,32 @@ export function TuitionManagement() {
     setDraftEdits((prev) => ({ ...prev, [key]: { ...draftFor(studentId), ...patch } }));
   }
 
-  function handleSave(studentId: string, studentName: string) {
+  async function handleSave(studentId: string, studentName: string) {
     const draft = draftFor(studentId);
     const amount = Number(draft.amount) || 0;
     const paidDate = draft.status === 'paid' ? new Date().toISOString().slice(0, 10) : undefined;
 
-    setRecords((prev) => {
-      const exists = prev.some((r) => r.studentId === studentId && r.month === month);
-      const newRecord: TuitionRecord = { studentId, month, status: draft.status, amount, paidDate };
-      if (exists) {
-        return prev.map((r) => (r.studentId === studentId && r.month === month ? newRecord : r));
-      }
-      return [...prev, newRecord];
-    });
-    setSavedMessage((prev) => ({ ...prev, [studentId]: `${studentName} 수강료 상태가 저장되었습니다.` }));
+    setSavingId(studentId);
+    setSavedMessage((prev) => ({ ...prev, [studentId]: '' }));
+    try {
+      await saveTuitionStatus({ studentId, month, status: draft.status, amount, paidDate });
+      setRecords((prev) => {
+        const exists = prev.some((r) => r.studentId === studentId && r.month === month);
+        const newRecord: TuitionRecord = { studentId, month, status: draft.status, amount, paidDate };
+        if (exists) {
+          return prev.map((r) => (r.studentId === studentId && r.month === month ? newRecord : r));
+        }
+        return [...prev, newRecord];
+      });
+      setSavedMessage((prev) => ({ ...prev, [studentId]: `${studentName} 수강료 상태가 저장되었습니다.` }));
+    } catch (err) {
+      setSavedMessage((prev) => ({
+        ...prev,
+        [studentId]: err instanceof Error ? `저장 실패: ${err.message}` : '저장 중 오류가 발생했습니다.',
+      }));
+    } finally {
+      setSavingId(null);
+    }
   }
 
   const summary = useMemo(() => {
@@ -107,6 +164,11 @@ export function TuitionManagement() {
         <h1 className={styles.pageTitle}>수강료 관리</h1>
         <div className={styles.pageSub}>월별 수강료 납부 상태와 금액을 학생별로 기록합니다.</div>
       </div>
+
+      {rosterLoading && <p className={styles.inlineNotice}>DB에서 반/학생 목록을 불러오는 중입니다...</p>}
+      {rosterError && !rosterLoading && (
+        <p className={styles.inlineNotice}>반/학생 목록을 불러오지 못했습니다: {rosterError}</p>
+      )}
 
       <div className={styles.card}>
         <h3 className={styles.cardTitle}>조회 조건</h3>
@@ -162,9 +224,14 @@ export function TuitionManagement() {
 
           <div className={styles.card}>
             <h3 className={styles.cardTitle}>학생별 납부 상태</h3>
-            {filteredStudents.length === 0 ? (
+            {recordsLoading && <p className={styles.inlineNotice}>수강료 기록을 불러오는 중입니다...</p>}
+            {recordsError && !recordsLoading && (
+              <p className={styles.inlineNotice}>수강료 기록을 불러오지 못했습니다: {recordsError}</p>
+            )}
+            {!recordsLoading && filteredStudents.length === 0 ? (
               <p className={styles.emptyText}>선택한 조건에 해당하는 학생이 없습니다.</p>
             ) : (
+              !recordsLoading &&
               filteredStudents.map((s) => {
                 const draft = draftFor(s.id);
                 return (
@@ -190,8 +257,13 @@ export function TuitionManagement() {
                         value={draft.amount}
                         onChange={(e) => updateDraft(s.id, { amount: e.target.value })}
                       />
-                      <button type="button" className={styles.saveButton} onClick={() => handleSave(s.id, s.name)}>
-                        저장
+                      <button
+                        type="button"
+                        className={styles.saveButton}
+                        onClick={() => handleSave(s.id, s.name)}
+                        disabled={savingId === s.id}
+                      >
+                        {savingId === s.id ? '저장 중...' : '저장'}
                       </button>
                     </div>
                     {savedMessage[s.id] && <p className={styles.successText}>{savedMessage[s.id]}</p>}
