@@ -29,6 +29,11 @@ interface RecentAssignmentsPanelProps {
  * 일괄 문자 발송) + 과제 삭제. AI 1차 사진 판독(hw_photo_review.py)은 실제
  * GPT-4o Vision 연동이 핵심이라 보류하고, "선생님 최종 확인" 수동 게이트
  * 개념만 그대로 재현함.
+ *
+ * 2026-08-26 수정: "제출 사진 보기" 버튼이 원래 sub.hasPhoto가 true일 때만
+ * 보이게 되어있었는데, 실제 스트림릿 화면은 사진이 없어도(아직 학생이 안
+ * 올렸어도) 이 메뉴 자체는 항상 보이고 펼치면 "아직 제출된 사진이 없습니다"로
+ * 표시됨 — 그 동작과 맞추기 위해 버튼을 항상 노출하도록 변경.
  */
 export function RecentAssignmentsPanel({
   classInfo,
@@ -158,30 +163,34 @@ export function RecentAssignmentsPanel({
                         >
                           업로드 링크 문자 발송
                         </button>
-                        {sub.hasPhoto && (
-                          <button
-                            type="button"
-                            className={styles.smallButton}
-                            onClick={() => setPhotoOpenFor(showPhoto ? null : sub.id)}
-                          >
-                            제출 사진 보기
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className={styles.smallButton}
+                          onClick={() => setPhotoOpenFor(showPhoto ? null : sub.id)}
+                        >
+                          제출 사진 보기
+                        </button>
                       </div>
 
                       {linkMessage[sub.studentId] && <p className={styles.successText}>{linkMessage[sub.studentId]}</p>}
 
                       {showPhoto && (
                         <div className={styles.photoReviewBox}>
-                          <p className={styles.aiNote}>AI 1차 확인: 페이지 번호 인식 완료 (데모)</p>
-                          <button
-                            type="button"
-                            className={styles.verifyButton}
-                            data-verified={sub.teacherVerified}
-                            onClick={() => onToggleTeacherVerified(sub.id)}
-                          >
-                            {sub.teacherVerified ? '✅ 선생님 확인 완료' : '✅ 선생님 확인'}
-                          </button>
+                          {sub.hasPhoto ? (
+                            <>
+                              <p className={styles.aiNote}>AI 1차 확인: 페이지 번호 인식 완료 (데모)</p>
+                              <button
+                                type="button"
+                                className={styles.verifyButton}
+                                data-verified={sub.teacherVerified}
+                                onClick={() => onToggleTeacherVerified(sub.id)}
+                              >
+                                {sub.teacherVerified ? '✅ 선생님 확인 완료' : '✅ 선생님 확인'}
+                              </button>
+                            </>
+                          ) : (
+                            <p className={styles.aiNote}>아직 제출된 사진이 없습니다.</p>
+                          )}
                         </div>
                       )}
                     </div>

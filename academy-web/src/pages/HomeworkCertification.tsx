@@ -1,6 +1,15 @@
-import { useRef, useState } from 'react';
-import { classes } from '../data/mockClasses';
-import { initialAssignments, initialHwItems, initialSubmissions } from '../data/mockHomework';
+import { useCallback, useEffect, useState } from 'react';
+import { fetchClasses } from '../lib/classManagement';
+import {
+  fetchHomeworkForClass,
+  saveCommonAssignment,
+  saveIndividualItems,
+  ensureAssignment,
+  deleteHwItem as deleteHwItemDb,
+  deleteAssignment as deleteAssignmentDb,
+  toggleTeacherVerified as toggleTeacherVerifiedDb,
+} from '../lib/homework';
+import type { ClassInfo } from '../types/classManagement';
 import type { HwAssignment, HwItem, HwSubmission } from '../types/homework';
 import { AssignmentForm, type CommonSavePayload } from '../components/homework/AssignmentForm';
 import { ReferenceUploadSection } from '../components/homework/ReferenceUploadSection';
@@ -15,31 +24,96 @@ function todayStr() {
   return d.toISOString().slice(0, 10);
 }
 
+function draftToItemInput(d: ItemRowDraft) {
+  return {
+    itemType: d.itemType,
+    materialName: d.materialName.trim(),
+    pageStart: d.itemType === 'page_range' && d.pageStart !== '' ? Number(d.pageStart) : undefined,
+    pageEnd: d.itemType === 'page_range' && d.pageEnd !== '' ? Number(d.pageEnd) : undefined,
+    description: d.description.trim() || undefined,
+  };
+}
+
 /**
  * 스트림릿 hw_assign.py의 render_hw_assign_page() 재현 — 과제 인증(선생님용
- * 과제 부여 화면). 학생용 업로드 페이지(hw_upload.py)는 이미 AssignmentUpload.tsx
- * (경로 "/")로 완성되어 있어 이번엔 다루지 않음.
+ * 과제 부여 화면). 2026-08-26부터 dev DB(Supabase) 실제 연동(lib/homework.ts).
  *
- * 보류한 부분(추후 실제 백엔드 연동 단계에서 진행):
- * - 참조 PDF 업로드 + AI 페이지 자동 대조 (hw_reference.py) — 학원시험 AI분석과
- *   같은 이유로 실제 AI 연동이 핵심이라 mock으로 만드는 의미가 적음.
- * - 사진 AI 1차 판독(hw_photo_review.py의 run_ai_page_check) — "선생님 최종
- *   확인" 수동 게이트 개념만 그대로 재현하고, AI 판독 자체는 데모 문구로 대체.
+ * 여전히 mock으로 남겨둔 부분(이전 세션에 이미 결정된 범위 — 이번에 안 건드림):
+ * - 학생용 업로드 페이지("/upload" 경로의 AssignmentUpload.tsx, hw_upload.py 대응)
+ * - 참조 PDF 업로드 + AI 페이지 대조(ReferenceUploadSection, hw_reference.py 대응)
+ *   — 둘 다 실제 AI/OCR 연동이 핵심이라 mock으로 만드는 의미가 적어서 보류.
+ *
+ * SMS 발송(업로드 링크 개별 발송 / 완료·미완료 일괄 발송)도 여전히 데모임 —
+ * 브라우저에서 Solapi를 직접 호출하지 않는다는 프로젝트 방침(다른 화면들과
+ * 동일). 버튼을 눌러도 문자는 안 나가고 DB의 notified_at도 건드리지 않지만,
+ * "오늘 문자 발송됨" 표시 자체는 실제 notified_at 값을 읽어서 보여준다 —
+ * 다른 경로(예: 스트림릿 쪽 야간 자동발송)로 이미 발송됐을 수 있어서다.
+ *
+ * 선생님 사진 확인(✅ 선생님 확인 버튼)은 외부 API 호출이 없는 단순 DB
+ * 갱신이라 실제로 반영됨 — lib/homework.ts의 toggleTeacherVerified() 참고.
+ *
+ * 2026-08-26 수정: 공통 과제를 먼저 저장하지 않아도 개별 과제만 바로 부여할
+ * 수 있어야 한다는 요청에 따라, handleSaveIndividual이 currentAssignment가
+ * 없을 때 조용히 멈추던 것을 없애고 ensureAssignment()로 과제 행을 필요할
+ * 때만 새로 만들도록 바꿈(대상 학생은 아직 아무도 없는 상태로 시작 —
+ * saveIndividualItems가 그 학생만 target으로 추가함).
  */
 export function HomeworkCertification() {
-  const [classId, setClassId] = useState(classes[0]?.id ?? '');
+  const [classes, setClasses] = useState<ClassInfo[]>([]);
+  const [classesLoading, setClassesLoading] = useState(true);
+  const [classesError, setClassesError] = useState('');
+
+  const [classId, setClassId] = useState('');
   const [assignedDate, setAssignedDate] = useState(todayStr());
-  const [assignments, setAssignments] = useState<HwAssignment[]>(initialAssignments);
-  const [items, setItems] = useState<HwItem[]>(initialHwItems);
-  const [submissions, setSubmissions] = useState<HwSubmission[]>(initialSubmissions);
-  const idSeed = useRef(1);
+  const [assignments, setAssignments] = useState<HwAssignment[]>([]);
+  const [items, setItems] = useState<HwItem[]>([]);
+  const [submissions, setSubmissions] = useState<HwSubmission[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchClasses()
+      .then((data) => {
+        if (cancelled) return;
+        setClasses(data);
+        setClassId((prev) => prev || data[0]?.id || '');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setClassesError(err instanceof Error ? err.message : '수업 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setClassesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const reload = useCallback(() => {
+    if (!classId) return;
+    setDataLoading(true);
+    setDataError('');
+    fetchHomeworkForClass(classId)
+      .then((data) => {
+        setAssignments(data.assignments);
+        setItems(data.items);
+        setSubmissions(data.submissions);
+      })
+      .catch((err) => {
+        setDataError(err instanceof Error ? err.message : '과제 데이터를 불러오지 못했습니다.');
+      })
+      .finally(() => setDataLoading(false));
+  }, [classId]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const classInfo = classes.find((c) => c.id === classId);
-  const assignmentsForClass = assignments.filter((a) => a.classId === classId);
-  const itemsForClass = items.filter((it) => assignmentsForClass.some((a) => a.id === it.assignmentId));
-  const submissionsForClass = submissions.filter((s) => assignmentsForClass.some((a) => a.id === s.assignmentId));
 
-  const currentAssignment = assignmentsForClass.find((a) => a.assignedDate === assignedDate);
+  const currentAssignment = assignments.find((a) => a.assignedDate === assignedDate);
   const currentCommonItems = currentAssignment
     ? items.filter((it) => it.assignmentId === currentAssignment.id && !it.studentId)
     : [];
@@ -54,116 +128,68 @@ export function HomeworkCertification() {
       });
   }
 
-  function buildItemFromDraft(d: ItemRowDraft, assignmentId: string, idx: number, studentId?: string): HwItem {
-    return {
-      id: `${assignmentId}_${studentId ?? 'common'}_${idx}_${idSeed.current++}`,
-      assignmentId,
-      itemType: d.itemType,
-      materialName: d.materialName.trim(),
-      pageStart: d.itemType === 'page_range' && d.pageStart !== '' ? Number(d.pageStart) : undefined,
-      pageEnd: d.itemType === 'page_range' && d.pageEnd !== '' ? Number(d.pageEnd) : undefined,
-      description: d.description.trim() || undefined,
-      studentId,
-    };
-  }
-
-  function handleSaveCommon(payload: CommonSavePayload) {
+  async function handleSaveCommon(payload: CommonSavePayload) {
     if (!classInfo) return;
-    const existing = assignmentsForClass.find((a) => a.assignedDate === assignedDate);
-    const assignmentId = existing?.id ?? `hw${idSeed.current++}`;
-
-    const newAssignment: HwAssignment = {
-      id: assignmentId,
+    await saveCommonAssignment({
       classId,
-      title: existing?.title ?? `${assignedDate} 과제`,
       assignedDate,
-      dueDate: payload.dueDate || undefined,
+      dueDate: payload.dueDate,
       studentIds: payload.studentIds,
       noCertStudentIds: payload.noCertStudentIds,
-      includeCommonByStudent: existing?.includeCommonByStudent ?? {},
-    };
-
-    setAssignments((prev) => (existing ? prev.map((a) => (a.id === assignmentId ? newAssignment : a)) : [...prev, newAssignment]));
-
-    const validDrafts = payload.commonItems.filter((d) => d.materialName.trim() !== '');
-    const newCommonItems = validDrafts.map((d, i) => buildItemFromDraft(d, assignmentId, i));
-
-    setItems((prev) => [...prev.filter((it) => !(it.assignmentId === assignmentId && !it.studentId)), ...newCommonItems]);
-
-    setSubmissions((prev) => {
-      const existingStudentIds = new Set(prev.filter((s) => s.assignmentId === assignmentId).map((s) => s.studentId));
-      const additions: HwSubmission[] = payload.studentIds
-        .filter((sid) => !existingStudentIds.has(sid))
-        .map((sid) => ({
-          id: `${assignmentId}_${sid}_${idSeed.current++}`,
-          assignmentId,
-          studentId: sid,
-          status: 'not_viewed',
-          teacherVerified: false,
-          hasPhoto: false,
-          notifiedToday: false,
-          itemStates: [],
-        }));
-      return [...prev, ...additions];
+      commonItems: payload.commonItems.map(draftToItemInput),
     });
+    reload();
   }
 
-  function handleSaveIndividual(studentId: string, rows: ItemRowDraft[], includeCommon: boolean) {
-    if (!currentAssignment) return;
-    const assignmentId = currentAssignment.id;
-    const validDrafts = rows.filter((d) => d.materialName.trim() !== '');
-    const newItems = validDrafts.map((d, i) => buildItemFromDraft(d, assignmentId, i, studentId));
-
-    setItems((prev) => [
-      ...prev.filter((it) => !(it.assignmentId === assignmentId && it.studentId === studentId)),
-      ...newItems,
-    ]);
-
-    setAssignments((prev) =>
-      prev.map((a) =>
-        a.id === assignmentId ? { ...a, includeCommonByStudent: { ...a.includeCommonByStudent, [studentId]: includeCommon } } : a,
-      ),
-    );
+  async function handleSaveIndividual(studentId: string, rows: ItemRowDraft[], includeCommon: boolean) {
+    const assignmentId = currentAssignment ? currentAssignment.id : await ensureAssignment(classId, assignedDate);
+    await saveIndividualItems(assignmentId, studentId, rows.map(draftToItemInput), includeCommon);
+    reload();
   }
 
-  function handleDeleteItem(itemId: string) {
-    setItems((prev) => prev.filter((it) => it.id !== itemId));
+  async function handleDeleteItem(itemId: string) {
+    await deleteHwItemDb(itemId);
+    reload();
   }
 
-  function handleDeleteAssignment(assignmentId: string) {
-    setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
-    setItems((prev) => prev.filter((it) => it.assignmentId !== assignmentId));
-    setSubmissions((prev) => prev.filter((s) => s.assignmentId !== assignmentId));
+  async function handleDeleteAssignment(assignmentId: string) {
+    await deleteAssignmentDb(assignmentId);
+    reload();
   }
 
-  function handleSendUploadLink(studentId: string) {
-    setSubmissions((prev) => prev.map((s) => (s.studentId === studentId ? { ...s, notifiedToday: true } : s)));
+  function handleSendUploadLink(_studentId: string) {
+    // 실제 문자 발송(Solapi)은 브라우저에서 직접 호출하지 않음 — 데모로만 동작
+    // (RecentAssignmentsPanel이 자체적으로 "(데모)" 안내 문구를 보여줌).
   }
 
-  function handleToggleTeacherVerified(submissionId: string) {
-    setSubmissions((prev) => prev.map((s) => (s.id === submissionId ? { ...s, teacherVerified: !s.teacherVerified } : s)));
+  async function handleToggleTeacherVerified(submissionId: string) {
+    await toggleTeacherVerifiedDb(submissionId);
+    reload();
   }
 
   function handleBulkSms(assignmentId: string) {
     const relevant = submissions.filter((s) => s.assignmentId === assignmentId);
-    const sentIds: string[] = [];
-    const skippedNames: string[] = [];
     const sentNames: string[] = [];
-
+    const skippedNames: string[] = [];
     relevant.forEach((s) => {
       const name = classInfo?.students.find((st) => st.id === s.studentId)?.name ?? s.studentId;
       if (s.hasPhoto && !s.teacherVerified) {
         skippedNames.push(name);
       } else {
-        sentIds.push(s.id);
         sentNames.push(name);
       }
     });
-
-    setSubmissions((prev) => prev.map((s) => (sentIds.includes(s.id) ? { ...s, notifiedToday: true } : s)));
+    // 실제 문자 발송(Solapi)은 브라우저에서 직접 호출하지 않음 — 데모로만 동작
+    // (notified_at 갱신 없음, 실제 발송은 send_hw_nightly_sms.py 쪽 몫).
     return { sentNames, skippedNames };
   }
 
+  if (classesLoading) {
+    return <p className={styles.emptyText}>수업 목록을 불러오는 중입니다...</p>;
+  }
+  if (classesError) {
+    return <p className={styles.emptyText}>불러오지 못했습니다: {classesError}</p>;
+  }
   if (!classInfo) {
     return <p className={styles.emptyText}>등록된 수업이 없습니다.</p>;
   }
@@ -188,6 +214,9 @@ export function HomeworkCertification() {
         </select>
       </div>
 
+      {dataError && <p className={styles.emptyText}>불러오지 못했습니다: {dataError}</p>}
+      {dataLoading && <p className={styles.emptyText}>과제 데이터를 불러오는 중입니다...</p>}
+
       <ReferenceUploadSection classId={classId} />
 
       <AssignmentForm
@@ -201,6 +230,7 @@ export function HomeworkCertification() {
 
       <IndividualAssignmentSection
         classInfo={classInfo}
+        assignedDate={assignedDate}
         assignment={currentAssignment}
         itemsByStudent={currentItemsByStudent}
         onSave={handleSaveIndividual}
@@ -208,16 +238,16 @@ export function HomeworkCertification() {
 
       <IncompleteStudentsPanel
         classInfo={classInfo}
-        assignments={assignmentsForClass}
-        items={itemsForClass}
-        submissions={submissionsForClass}
+        assignments={assignments}
+        items={items}
+        submissions={submissions}
       />
 
       <RecentAssignmentsPanel
         classInfo={classInfo}
-        assignments={assignmentsForClass}
-        items={itemsForClass}
-        submissions={submissionsForClass}
+        assignments={assignments}
+        items={items}
+        submissions={submissions}
         onDeleteItem={handleDeleteItem}
         onDeleteAssignment={handleDeleteAssignment}
         onSendUploadLink={handleSendUploadLink}

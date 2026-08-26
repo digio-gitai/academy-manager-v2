@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ClassInfo } from '../../types/classManagement';
 import type { AttendanceRecord, AttendanceStatus } from '../../types/attendance';
 import { fetchAttendanceForSession, saveAttendanceSession } from '../../lib/attendance';
+import { fetchTodayHomeworkSummary } from '../../lib/homework';
 import styles from './AttendanceCheckPanel.module.css';
 
 const WEEKDAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
@@ -19,11 +20,13 @@ interface AttendanceCheckPanelProps {
  * 스트림릿 page_attendance()의 "출석 체크" 탭과 동일한 기능.
  * 하단의 "오늘 과제"는 원래 여기서 직접 입력했지만(homework.py), 2026-08-22
  * 사용자 결정에 따라 이제부터 모든 과제는 '과제 인증' 메뉴에서만 등록하고
- * 여기서는 참고용으로 읽기 전용 표시만 함. '과제 인증' 화면 자체가 아직 실제
- * DB 연동 전(mock) 단계라서, 그 화면이 연동될 때까지는 항상 "등록된 과제
- * 없음"으로만 표시됨(2026-08-24) — 거짓 데이터를 보여주는 것보다 안전한 선택.
+ * 여기서는 참고용으로 읽기 전용 표시만 함.
  *
  * 2026-08-24부터: 출석 조회/저장 전부 실제 dev DB(Supabase) 연동.
+ * 2026-08-26부터: "오늘 과제(참고)" 카드도 과제 인증(hw_ 테이블) 실제 연동 —
+ * homework.py get_hw_assignment_summary()와 동일하게, 이 반+날짜에 과제
+ * 인증에서 등록한 공통 항목이 있으면 제목과 항목 요약을 그대로 보여줌(수정은
+ * 여전히 '과제 인증' 메뉴에서만).
  */
 export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
   const [classId, setClassId] = useState(classes[0]?.id ?? '');
@@ -34,6 +37,10 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
   const [records, setRecords] = useState<Record<string, { status: AttendanceStatus; note: string }>>({});
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+
+  const [homework, setHomework] = useState<{ title: string; summary: string } | null>(null);
+  const [homeworkLoading, setHomeworkLoading] = useState(true);
+  const [homeworkError, setHomeworkError] = useState('');
 
   const selectedClass = classes.find((c) => c.id === classId);
   const alreadySaved = savedRecords.length > 0;
@@ -56,6 +63,28 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classId, sessionDate]);
+
+  useEffect(() => {
+    if (!classId || !sessionDate) return;
+    let cancelled = false;
+    setHomeworkLoading(true);
+    setHomeworkError('');
+    fetchTodayHomeworkSummary(classId, sessionDate)
+      .then((data) => {
+        if (cancelled) return;
+        setHomework(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setHomeworkError(err instanceof Error ? err.message : '과제 정보를 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setHomeworkLoading(false);
       });
     return () => {
       cancelled = true;
@@ -200,9 +229,23 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
 
       <div className={styles.card}>
         <h3 className={styles.cardTitle}>오늘 과제 (참고)</h3>
-        <p className={styles.emptyText}>
-          이 날짜에 등록된 과제가 없습니다. '과제 인증' 메뉴에서 등록해주세요.
-        </p>
+        {homeworkLoading ? (
+          <p className={styles.emptyText}>과제 정보를 불러오는 중입니다...</p>
+        ) : homeworkError ? (
+          <p className={styles.emptyText}>불러오지 못했습니다: {homeworkError}</p>
+        ) : homework ? (
+          <>
+            <div className={styles.refBox}>
+              <strong>{homework.title}</strong>
+              <div>{homework.summary || '등록된 공통 항목이 없습니다.'}</div>
+            </div>
+            <p className={styles.refCaption}>'과제 인증' 메뉴에서 등록·수정할 수 있습니다.</p>
+          </>
+        ) : (
+          <p className={styles.emptyText}>
+            이 날짜에 등록된 과제가 없습니다. '과제 인증' 메뉴에서 등록해주세요.
+          </p>
+        )}
       </div>
     </>
   );
