@@ -1,25 +1,85 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Tabs } from '../common/Tabs';
 import { GradeSummaryCards } from './GradeSummaryCards';
 import { UnifiedGradeTables } from './UnifiedGradeTables';
 import { GradeTrendChart } from './GradeTrendChart';
-import { students } from '../../data/mockStudents';
-import { getGradesForStudent } from '../../data/mockGrades';
+import { fetchStudents } from '../../lib/students';
+import { fetchUnifiedGrades } from '../../lib/grades';
+import type { StudentProfile } from '../../types/student';
+import type { UnifiedGradeRecord } from '../../types/grades';
 import styles from './GradeViewPanel.module.css';
 
 /**
  * 스트림릿 "성적 조회" 탭(_render_student_grade_view_page) 재현:
  * 히어로 배너 → 학생 선택 → 요약 카드 3개 → (통합 성적표 / 성적 추이 그래프) 내부 탭.
+ *
+ * 2026-08-26: mock 데이터 → 실제 dev DB(Supabase) 연동. 학생 목록은 lib/students.ts의
+ * fetchStudents(), 성적은 lib/grades.ts의 fetchUnifiedGrades()로 조회. '학원시험'
+ * 그룹은 AI분석 탭이 아직 없어 항상 빈 상태(lib/grades.ts 주석 참고).
  */
 export function GradeViewPanel() {
-  const [studentId, setStudentId] = useState(students[0]?.id ?? '');
+  const [students, setStudents] = useState<StudentProfile[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [studentsError, setStudentsError] = useState('');
+  const [studentId, setStudentId] = useState('');
+
+  const [records, setRecords] = useState<UnifiedGradeRecord[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchStudents()
+      .then((data) => {
+        if (cancelled) return;
+        setStudents(data);
+        setStudentId((prev) => prev || data[0]?.id || '');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setStudentsError(err instanceof Error ? err.message : '학생 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setStudentsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!studentId) return;
+    let cancelled = false;
+    setRecordsLoading(true);
+    setRecordsError('');
+    fetchUnifiedGrades(studentId)
+      .then((data) => {
+        if (cancelled) return;
+        setRecords(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRecordsError(err instanceof Error ? err.message : '성적 기록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setRecordsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId]);
+
   const selected = students.find((s) => s.id === studentId);
 
+  if (studentsLoading) {
+    return <p className={styles.emptyText}>학생 목록을 불러오는 중입니다...</p>;
+  }
+  if (studentsError) {
+    return <p className={styles.emptyText}>학생 목록을 불러오지 못했습니다: {studentsError}</p>;
+  }
   if (!selected) {
     return <p className={styles.emptyText}>등록된 학생이 없습니다.</p>;
   }
-
-  const records = getGradesForStudent(selected.id);
 
   return (
     <>
@@ -39,19 +99,28 @@ export function GradeViewPanel() {
         </select>
       </div>
 
-      <GradeSummaryCards
-        studentName={selected.name}
-        className={selected.className}
-        gradeLevel={selected.grade}
-        records={records}
-      />
+      {recordsLoading && <p className={styles.emptyText}>성적 기록을 불러오는 중입니다...</p>}
+      {recordsError && !recordsLoading && (
+        <p className={styles.emptyText}>성적 기록을 불러오지 못했습니다: {recordsError}</p>
+      )}
 
-      <Tabs
-        tabs={[
-          { key: 'table', label: '통합 성적표', content: <UnifiedGradeTables records={records} /> },
-          { key: 'chart', label: '성적 추이 그래프', content: <GradeTrendChart records={records} /> },
-        ]}
-      />
+      {!recordsLoading && !recordsError && (
+        <>
+          <GradeSummaryCards
+            studentName={selected.name}
+            className={selected.className}
+            gradeLevel={selected.grade}
+            records={records}
+          />
+
+          <Tabs
+            tabs={[
+              { key: 'table', label: '통합 성적표', content: <UnifiedGradeTables records={records} /> },
+              { key: 'chart', label: '성적 추이 그래프', content: <GradeTrendChart records={records} /> },
+            ]}
+          />
+        </>
+      )}
     </>
   );
 }

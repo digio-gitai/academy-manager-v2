@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
-import { students } from '../../data/mockStudents';
-import { getGradesForStudent } from '../../data/mockGrades';
+import { useEffect, useState } from 'react';
+import { fetchStudents } from '../../lib/students';
+import { fetchUnifiedGrades } from '../../lib/grades';
+import type { StudentProfile } from '../../types/student';
+import type { UnifiedGradeRecord } from '../../types/grades';
 import { ExamSelectionChecklist } from './ExamSelectionChecklist';
 import { ExamComparisonChart } from './ExamComparisonChart';
 import { ParentCommentPanel } from './ParentCommentPanel';
@@ -8,7 +10,9 @@ import { IntegratedReportSection } from './IntegratedReportSection';
 import styles from './ReportWritePanel.module.css';
 
 function generateParentCommentFallback(studentName: string, avg: number): string {
-  // 실제 앱의 _generate_parent_comment_ai() except 분기(AI 호출 실패 시 대체 문구)와 동일한 템플릿.
+  // 실제 앱의 _generate_parent_comment_ai() except 분기(AI 호출 실패 시 대체 문구)와
+  // 동일한 템플릿. Claude API 연동은 별도 단계(프로젝트 지침 "Claude API — 연결 예정")
+  // 라서 지금은 이 대체 문구만 사용.
   return (
     `${studentName} 학생은 이번 시험에서 평균 ${avg.toFixed(1)}점을 기록하였습니다. ` +
     '전반적인 개념 이해도는 양호하나 응용 문제에서 보완이 필요합니다. ' +
@@ -20,21 +24,71 @@ function generateParentCommentFallback(studentName: string, avg: number): string
  * 스트림릿 _render_student_report_write_panel() 재현: 학생 선택 → 시험
  * 선택 체크박스 → 시험별 비교 막대그래프 → 학부모님께 전하는 글(AI 초안) →
  * 통합보고서 생성(현재는 '학원시험 AI분석' 탭 의존이라 안내만 표시).
+ *
+ * 2026-08-26: mock 데이터 → 실제 dev DB(Supabase) 연동. 학생 목록/성적 모두
+ * lib/students.ts, lib/grades.ts를 통해 조회.
  */
 export function ReportWritePanel() {
-  const [studentId, setStudentId] = useState(students[0]?.id ?? '');
-  const allRecords = useMemo(() => getGradesForStudent(studentId), [studentId]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(allRecords.map((r) => r.id)));
+  const [students, setStudents] = useState<StudentProfile[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [studentsError, setStudentsError] = useState('');
+  const [studentId, setStudentId] = useState('');
+
+  const [allRecords, setAllRecords] = useState<UnifiedGradeRecord[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [comment, setComment] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchStudents()
+      .then((data) => {
+        if (cancelled) return;
+        setStudents(data);
+        setStudentId((prev) => prev || data[0]?.id || '');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setStudentsError(err instanceof Error ? err.message : '학생 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setStudentsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!studentId) return;
+    let cancelled = false;
+    setRecordsLoading(true);
+    setRecordsError('');
+    setComment('');
+    fetchUnifiedGrades(studentId)
+      .then((data) => {
+        if (cancelled) return;
+        setAllRecords(data);
+        setSelectedIds(new Set(data.map((r) => r.id)));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRecordsError(err instanceof Error ? err.message : '성적 기록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setRecordsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId]);
 
   const selected = students.find((s) => s.id === studentId);
   const selectedRecords = allRecords.filter((r) => selectedIds.has(r.id));
 
   function handleStudentChange(id: string) {
     setStudentId(id);
-    const records = getGradesForStudent(id);
-    setSelectedIds(new Set(records.map((r) => r.id)));
-    setComment('');
   }
 
   function toggleExam(id: string) {
@@ -52,30 +106,14 @@ export function ReportWritePanel() {
     setComment(generateParentCommentFallback(selected.name, avg));
   }
 
+  if (studentsLoading) {
+    return <p className={styles.emptyText}>학생 목록을 불러오는 중입니다...</p>;
+  }
+  if (studentsError) {
+    return <p className={styles.emptyText}>학생 목록을 불러오지 못했습니다: {studentsError}</p>;
+  }
   if (!selected) {
     return <p className={styles.emptyText}>등록된 학생이 없습니다.</p>;
-  }
-
-  if (allRecords.length === 0) {
-    return (
-      <>
-        <div className={styles.selectRow}>
-          <label className={styles.label}>학생 선택</label>
-          <select
-            className={styles.selectInput}
-            value={studentId}
-            onChange={(e) => handleStudentChange(e.target.value)}
-          >
-            {students.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} · {s.className}
-              </option>
-            ))}
-          </select>
-        </div>
-        <p className={styles.emptyText}>이 학생의 통합 성적 기록이 없습니다. 성적을 먼저 등록해 주세요.</p>
-      </>
-    );
   }
 
   return (
@@ -91,21 +129,34 @@ export function ReportWritePanel() {
         </select>
       </div>
 
-      <ExamSelectionChecklist records={allRecords} selectedIds={selectedIds} onToggle={toggleExam} />
+      {recordsLoading && <p className={styles.emptyText}>성적 기록을 불러오는 중입니다...</p>}
+      {recordsError && !recordsLoading && (
+        <p className={styles.emptyText}>성적 기록을 불러오지 못했습니다: {recordsError}</p>
+      )}
 
-      {selectedRecords.length === 0 ? (
-        <p className={styles.emptyText}>시험을 하나 이상 선택해 주세요.</p>
-      ) : (
+      {!recordsLoading && !recordsError && allRecords.length === 0 && (
+        <p className={styles.emptyText}>이 학생의 통합 성적 기록이 없습니다. 성적을 먼저 등록해 주세요.</p>
+      )}
+
+      {!recordsLoading && !recordsError && allRecords.length > 0 && (
         <>
-          <ExamComparisonChart studentName={selected.name} records={selectedRecords} />
-          <ParentCommentPanel
-            studentName={selected.name}
-            records={selectedRecords}
-            comment={comment}
-            onCommentChange={setComment}
-            onGenerate={handleGenerateComment}
-          />
-          <IntegratedReportSection />
+          <ExamSelectionChecklist records={allRecords} selectedIds={selectedIds} onToggle={toggleExam} />
+
+          {selectedRecords.length === 0 ? (
+            <p className={styles.emptyText}>시험을 하나 이상 선택해 주세요.</p>
+          ) : (
+            <>
+              <ExamComparisonChart studentName={selected.name} records={selectedRecords} />
+              <ParentCommentPanel
+                studentName={selected.name}
+                records={selectedRecords}
+                comment={comment}
+                onCommentChange={setComment}
+                onGenerate={handleGenerateComment}
+              />
+              <IntegratedReportSection />
+            </>
+          )}
         </>
       )}
     </>
