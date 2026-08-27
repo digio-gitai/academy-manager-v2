@@ -1,3 +1,5 @@
+import type { UnifiedGradeRecord } from './grades';
+
 export interface ConsultationEntry {
   date: string;
   content: string;
@@ -11,15 +13,14 @@ export interface HomeworkHistoryEntry {
   note?: string;
 }
 
-export interface GradeRecordSummary {
-  examDate: string;
-  examTitle: string;
-  score: number;
-  classAverage: number;
-}
-
 // 실제 운영 스트림릿 앱(app.py의 page_students())에 있는 필드/기능을 그대로 반영함.
 // (2026-08-22, 사용자가 스크린샷으로 실제 화면 보여주고 필드 누락을 지적해서 재작업)
+//
+// 2026-08-27: grades는 원래 자체 요약 타입(GradeRecordSummary, 반평균 포함)이었으나,
+// 실제 DB 연동 단계에서 학교/모의고사 성적은 lib/grades.ts의 fetchUnifiedGrades()가
+// 반환하는 UnifiedGradeRecord[]를 그대로 재사용하기로 함 — 이 데이터(외부 성적)는
+// "반 평균" 개념 자체가 없어서(학교시험/모의고사는 같은 반이라도 학생별로 따로
+// 관리됨) classAverage 필드는 제거함.
 export interface StudentProfile {
   id: string;
   name: string;
@@ -37,6 +38,6 @@ export interface StudentProfile {
   homeworkCompletionRate: number;
   recentHomeworkLevel: HomeworkLevel;
   homeworkHistory: HomeworkHistoryEntry[];
-  grades: GradeRecordSummary[];
+  grades: UnifiedGradeRecord[];
   consultations: ConsultationEntry[];
 }

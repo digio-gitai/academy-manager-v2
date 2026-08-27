@@ -4,9 +4,19 @@ import { ConsultationLog } from '../components/students/ConsultationLog';
 import { ExpandableSection } from '../components/students/ExpandableSection';
 import { HomeworkHistoryList } from '../components/students/HomeworkHistoryList';
 import { badgePalette } from '../components/dashboard/badgePalette';
-import { fetchStudents, fetchClassOptions, reassignStudentClass } from '../lib/students';
+import {
+  fetchStudents,
+  fetchClassOptions,
+  reassignStudentClass,
+  deleteStudent,
+  fetchHomeworkPerformance,
+} from '../lib/students';
 import type { ClassOption } from '../lib/students';
-import type { HomeworkLevel, StudentProfile } from '../types/student';
+import { fetchConsultationLogs } from '../lib/consultation';
+import { CATEGORY_LABELS } from '../types/consultation';
+import { fetchUnifiedGrades } from '../lib/grades';
+import { EXAM_GROUP_LABELS, type UnifiedGradeRecord } from '../types/grades';
+import type { ConsultationEntry, HomeworkHistoryEntry, HomeworkLevel, StudentProfile } from '../types/student';
 import styles from './StudentRoster.module.css';
 
 function toneForLevel(level: HomeworkLevel) {
@@ -23,6 +33,9 @@ export function StudentRoster() {
   // 연동함(그전엔 화면에서만 바뀌었음). 반 재배정 드롭다운은 "지금 명부에 있는
   // 학생들의 반 이름"이 아니라 classes 테이블 전체를 조회해서 채움 — 학생이
   // 0명인 새 반도 뜨도록(사용자가 실사용 중 이 버그를 발견해서 수정함).
+  // 2026-08-27: 상세 패널(상담 일지/성적/과제 수행 이력)과 "학생 삭제"도 실제
+  // DB 연동으로 교체. 상세 데이터는 목록을 부를 때 다 같이 가져오지 않고,
+  // 학생을 선택할 때마다 그 학생 것만 지연 조회함(다른 화면들과 같은 패턴).
   const [roster, setRoster] = useState<StudentProfile[]>([]);
   const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +47,17 @@ export function StudentRoster() {
   const [reassignNotice, setReassignNotice] = useState('');
   const [reassigning, setReassigning] = useState(false);
   const [deleteNotice, setDeleteNotice] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  // 선택된 학생의 상세 기록(상담/성적/과제 수행 이력) — 목록과 별개로 선택이
+  // 바뀔 때마다 새로 조회함.
+  const [consultations, setConsultations] = useState<ConsultationEntry[]>([]);
+  const [grades, setGrades] = useState<UnifiedGradeRecord[]>([]);
+  const [homeworkEntries, setHomeworkEntries] = useState<HomeworkHistoryEntry[]>([]);
+  const [homeworkRate, setHomeworkRate] = useState(0);
+  const [homeworkLevel, setHomeworkLevel] = useState<HomeworkLevel>('중');
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
 
   // 필터 드롭다운/요약 카드는 원래대로 "지금 명부에 있는 학생들의 반 이름"
   // 기준(빈 반을 골라 필터링해봐야 어차피 목록이 비어 보이므로).
@@ -77,6 +101,54 @@ export function StudentRoster() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, classOptions]);
 
+  // 선택된 학생이 바뀌면 상담 일지 / 성적 / 과제 수행 이력을 그 학생 것만 새로 조회.
+  useEffect(() => {
+    if (!selectedId) {
+      setConsultations([]);
+      setGrades([]);
+      setHomeworkEntries([]);
+      setHomeworkRate(0);
+      setHomeworkLevel('중');
+      setDetailError('');
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError('');
+    Promise.all([
+      fetchConsultationLogs(selectedId),
+      fetchUnifiedGrades(selectedId),
+      fetchHomeworkPerformance(selectedId),
+    ])
+      .then(([logs, gradeRows, hw]) => {
+        if (cancelled) return;
+        setConsultations(
+          logs.map((l) => ({
+            date: l.createdAt,
+            content: `[${CATEGORY_LABELS[l.category]}] ${l.note}`,
+          })),
+        );
+        setGrades(gradeRows);
+        setHomeworkEntries(hw.entries);
+        setHomeworkRate(hw.completionRate);
+        setHomeworkLevel(hw.recentLevel);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDetailError(
+          err instanceof Error
+            ? err.message
+            : '학생 상세 기록(상담/성적/과제 이력)을 불러오지 못했습니다.',
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
   const filtered = useMemo(() => {
     let list = roster;
     if (classFilter !== CLASS_FILTER_ALL) {
@@ -113,12 +185,26 @@ export function StudentRoster() {
     }
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!selected) return;
     const name = selected.name;
-    setRoster((prev) => prev.filter((s) => s.id !== selected.id));
-    setSelectedId(undefined);
-    setDeleteNotice(`${name} 학생이 삭제되었습니다.`);
+    if (!window.confirm(`${name} 학생을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+      return;
+    }
+    setDeleting(true);
+    setDeleteNotice('');
+    try {
+      await deleteStudent(selected.id);
+      setRoster((prev) => prev.filter((s) => s.id !== selected.id));
+      setSelectedId(undefined);
+      setDeleteNotice(`${name} 학생이 삭제되었습니다.`);
+    } catch (err) {
+      setDeleteNotice(
+        err instanceof Error ? `삭제 실패: ${err.message}` : '학생 삭제에 실패했습니다.',
+      );
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -260,45 +346,53 @@ export function StudentRoster() {
             </div>
 
             <div className={styles.homeworkSummaryRow}>
-              <span className={styles.homeworkSummaryLabel}>과제 수행 완료율</span>
-              <span>{selected.homeworkCompletionRate}%</span>
-              <span
-                className={styles.levelBadge}
-                style={{
-                  background: toneForLevel(selected.recentHomeworkLevel).badgeBg,
-                  color: toneForLevel(selected.recentHomeworkLevel).badgeColor,
-                }}
-              >
-                최근 {selected.recentHomeworkLevel}
-              </span>
+              <span className={styles.homeworkSummaryLabel}>과제 수행률 (상/중/하 체크 기준)</span>
+              <span>{homeworkEntries.length > 0 ? `${homeworkRate}%` : '—'}</span>
+              {homeworkEntries.length > 0 && (
+                <span
+                  className={styles.levelBadge}
+                  style={{
+                    background: toneForLevel(homeworkLevel).badgeBg,
+                    color: toneForLevel(homeworkLevel).badgeColor,
+                  }}
+                >
+                  최근 {homeworkLevel}
+                </span>
+              )}
             </div>
 
             <div className={styles.section}>
               <h3 className={styles.sectionTitle}>상담 일지</h3>
-              <ConsultationLog entries={selected.consultations} />
+              {detailLoading && <p className={styles.inlineNotice}>불러오는 중...</p>}
+              {detailError && !detailLoading && (
+                <p className={styles.inlineNotice}>{detailError}</p>
+              )}
+              {!detailLoading && !detailError && <ConsultationLog entries={consultations} />}
             </div>
 
             <div className={styles.expandGroup}>
               <ExpandableSection title="학생 성적 통합 조회">
-                {selected.grades.length === 0 ? (
+                {detailLoading ? (
+                  <p>불러오는 중...</p>
+                ) : grades.length === 0 ? (
                   <p>저장된 성적 기록이 없습니다.</p>
                 ) : (
                   <table className={styles.gradeTable}>
                     <thead>
                       <tr>
-                        <th>시험일</th>
+                        <th>구분</th>
                         <th>시험명</th>
-                        <th>학생 점수</th>
-                        <th>반 평균</th>
+                        <th>시험일</th>
+                        <th>점수</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {selected.grades.map((g, i) => (
-                        <tr key={i}>
+                      {grades.map((g) => (
+                        <tr key={g.id}>
+                          <td>{EXAM_GROUP_LABELS[g.examGroup]}</td>
+                          <td>{g.examLabel}</td>
                           <td>{g.examDate}</td>
-                          <td>{g.examTitle}</td>
                           <td>{g.score}점</td>
-                          <td>{g.classAverage}점</td>
                         </tr>
                       ))}
                     </tbody>
@@ -307,7 +401,11 @@ export function StudentRoster() {
               </ExpandableSection>
 
               <ExpandableSection title="과제 수행 이력">
-                <HomeworkHistoryList entries={selected.homeworkHistory} />
+                {detailLoading ? (
+                  <p>불러오는 중...</p>
+                ) : (
+                  <HomeworkHistoryList entries={homeworkEntries} />
+                )}
               </ExpandableSection>
 
               <ExpandableSection title="학생 반 재배정">
@@ -340,12 +438,18 @@ export function StudentRoster() {
               <ExpandableSection title="학생 삭제">
                 <div className={styles.inlineForm}>
                   <span>{selected.name} 학생을 명부에서 삭제합니다.</span>
-                  <button type="button" className={styles.dangerButton} onClick={handleDelete}>
-                    선택한 학생 삭제
+                  <button
+                    type="button"
+                    className={styles.dangerButton}
+                    onClick={handleDelete}
+                    disabled={deleting}
+                  >
+                    {deleting ? '삭제 중...' : '선택한 학생 삭제'}
                   </button>
                 </div>
                 <p className={styles.pageSub}>
-                  * 지금은 화면에서만 반영되고 DB에는 저장되지 않습니다 (조회는 실제 DB 연동 완료, 저장 연동은 다음 단계).
+                  * 상담일지 · 출결 · 성적 등 연결된 기록이 있으면 DB가 삭제를 막고 에러
+                  메시지를 보여줄 수 있습니다.
                 </p>
               </ExpandableSection>
             </div>
