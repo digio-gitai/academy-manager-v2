@@ -32,6 +32,46 @@ export async function reassignStudentClass(studentId: string, classId: string): 
   }
 }
 
+export interface NewStudentInput {
+  name: string;
+  registeredAt: string; // 'YYYY-MM-DD'
+  school: string;
+  grade: string;
+  preVisitProgress: string;
+  contactInfo: string; // 학부모 연락처
+  studentPhone: string;
+  expectations: string;
+  notes: string;
+  classId: string; // '' = 반 미배정
+}
+
+/**
+ * 신규 학생 등록 (app.py의 add_student_intake / 대시보드 "신규 학생 등록" 탭 대응).
+ * 2026-08-27: React 쪽은 대시보드가 아니라 학생 명부 화면(StudentRoster.tsx)에
+ * 폼을 두기로 사용자와 상의해서 정함(반 재배정/삭제 등 다른 학생 관리 기능도
+ * 전부 이 화면에 있어서). parent_phone은 app.py와 동일하게 contact_info와 같은
+ * 값을 넣고, 비어있으면 "—"로 채움.
+ */
+export async function addStudentIntake(input: NewStudentInput): Promise<void> {
+  const phone = input.contactInfo.trim() || '—';
+  const { error } = await supabase.from('students').insert({
+    name: input.name.trim(),
+    parent_phone: phone,
+    class_id: input.classId ? Number(input.classId) : null,
+    registered_at: `${input.registeredAt} 00:00`,
+    school: input.school.trim(),
+    grade: input.grade.trim(),
+    pre_visit_progress: input.preVisitProgress.trim(),
+    contact_info: input.contactInfo.trim(),
+    expectations: input.expectations.trim(),
+    notes: input.notes.trim(),
+    student_phone: input.studentPhone.trim(),
+  });
+  if (error) {
+    throw error;
+  }
+}
+
 // dev Supabase의 실제 컬럼(2026-08-22, SQL Editor로 확인한 값):
 //   students: id, name, parent_phone, class_id, registered_at, school, grade,
 //             pre_visit_progress, contact_info, expectations, notes,

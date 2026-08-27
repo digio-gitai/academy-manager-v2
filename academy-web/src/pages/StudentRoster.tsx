@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { StudentListItem } from '../components/students/StudentListItem';
 import { ConsultationLog } from '../components/students/ConsultationLog';
 import { ExpandableSection } from '../components/students/ExpandableSection';
 import { HomeworkHistoryList } from '../components/students/HomeworkHistoryList';
+import { NewStudentForm } from '../components/students/NewStudentForm';
 import { badgePalette } from '../components/dashboard/badgePalette';
 import {
   fetchStudents,
@@ -10,8 +12,9 @@ import {
   reassignStudentClass,
   deleteStudent,
   fetchHomeworkPerformance,
+  addStudentIntake,
 } from '../lib/students';
-import type { ClassOption } from '../lib/students';
+import type { ClassOption, NewStudentInput } from '../lib/students';
 import { fetchConsultationLogs } from '../lib/consultation';
 import { CATEGORY_LABELS } from '../types/consultation';
 import { fetchUnifiedGrades } from '../lib/grades';
@@ -48,6 +51,11 @@ export function StudentRoster() {
   const [reassigning, setReassigning] = useState(false);
   const [deleteNotice, setDeleteNotice] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  // 2026-08-27: 신규 학생 등록 폼. 대시보드의 "+ 신규 학생 등록" 버튼이
+  // `/students?new=1`로 이동시키면 이 폼을 자동으로 펼침(아래 useEffect).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [showNewForm, setShowNewForm] = useState(false);
 
   // 선택된 학생의 상세 기록(상담/성적/과제 수행 이력) — 목록과 별개로 선택이
   // 바뀔 때마다 새로 조회함.
@@ -89,6 +97,18 @@ export function StudentRoster() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // 대시보드에서 `/students?new=1`로 넘어온 경우 등록 폼을 자동으로 펼치고,
+  // 쿼리 파라미터는 지워서 새로고침해도 계속 펼쳐져 있지 않게 함.
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowNewForm(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 선택된 학생이 바뀌면, 재배정 드롭다운 기본값을 그 학생의 현재 반으로 맞춤.
@@ -185,6 +205,21 @@ export function StudentRoster() {
     }
   }
 
+  /**
+   * 신규 학생 등록 후 목록을 다시 조회해서 반영. 방금 등록한 학생을 이름으로
+   * 찾아 자동으로 선택해줌(같은 이름이 여러 명이면 id가 가장 큰, 즉 방금
+   * 만들어진 쪽을 선택 — fetchStudents()가 id 오름차순 정렬이라 배열의
+   * 마지막 일치 항목이 최신).
+   */
+  async function handleAddStudent(input: NewStudentInput) {
+    await addStudentIntake(input);
+    const refreshed = await fetchStudents();
+    setRoster(refreshed);
+    const matches = refreshed.filter((s) => s.name === input.name);
+    const created = matches[matches.length - 1];
+    if (created) setSelectedId(created.id);
+  }
+
   async function handleDelete() {
     if (!selected) return;
     const name = selected.name;
@@ -214,6 +249,9 @@ export function StudentRoster() {
           <h1 className={styles.pageTitle}>학생 명부</h1>
           <div className={styles.pageSub}>학생 명단을 조회하고 반 배정 · 삭제를 관리합니다.</div>
         </div>
+        <button type="button" className={styles.primaryButton} onClick={() => setShowNewForm((v) => !v)}>
+          {showNewForm ? '등록 폼 닫기' : '+ 신규 학생 등록'}
+        </button>
       </div>
 
       {loading && <p className={styles.inlineNotice}>DB에서 학생 목록을 불러오는 중입니다...</p>}
@@ -223,6 +261,14 @@ export function StudentRoster() {
         </p>
       )}
       {deleteNotice && <p className={styles.inlineNotice}>{deleteNotice}</p>}
+
+      {showNewForm && (
+        <NewStudentForm
+          classOptions={classOptions}
+          onSubmit={handleAddStudent}
+          onClose={() => setShowNewForm(false)}
+        />
+      )}
 
       <div className={styles.summaryCard}>
         <div className={styles.summaryItem}>
