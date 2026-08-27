@@ -20,8 +20,8 @@ export function toneForHomeworkStatus(status: '완료' | '진행중' | '미완�
   return badgePalette.gray;
 }
 
-export function toneForReportStatus(status: '발송완료' | '열람함' | '미열람' | '작성중'): BadgeTone {
-  if (status === '발송완료' || status === '열람함') return badgePalette.green;
-  if (status === '작성중') return badgePalette.gold;
+export function toneForReportStatus(status: '열람함' | '미열람' | '발송 전'): BadgeTone {
+  if (status === '열람함') return badgePalette.green;
+  if (status === '미열람') return badgePalette.gold;
   return badgePalette.gray;
 }
