@@ -99,6 +99,13 @@
   margin: -4px 0 12px;
 }
 
+.successText {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1f7a3d;
+  margin: -4px 0 12px;
+}
+
 .pageBlock {
   margin-top: 14px;
   padding-top: 14px;
@@ -143,7 +150,7 @@
 
 .questionTable th,
 .questionTable td {
-  padding: 8px 10px;
+  padding: 6px 8px;
   text-align: left;
   border-bottom: 1px solid rgba(31, 61, 43, 0.08);
   white-space: nowrap;
@@ -157,4 +164,98 @@
 
 .questionTable td {
   color: var(--color-text);
+}
+
+.cellInput,
+.cellSelect {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-white);
+  font-size: 12.5px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.rowDeleteButton {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(220, 38, 38, 0.3);
+  background: transparent;
+  color: #dc2626;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rowDeleteButton:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.addRowButton {
+  margin-top: 10px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1.5px dashed rgba(31, 61, 43, 0.25);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addRowButton:hover {
+  border-color: var(--color-accent);
+  background: rgba(201, 169, 97, 0.08);
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: 6px;
+}
+
+.testTypeRow {
+  margin-top: 18px;
+}
+
+.testTypeButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.testTypeButton {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.16);
+  background: var(--color-white);
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.testTypeButton:hover {
+  border-color: var(--color-accent);
+}
+
+.testTypeButtonActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-primary);
+}
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 0 16px;
+  margin-top: 16px;
+  margin-bottom: 14px;
 }

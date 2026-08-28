@@ -11,6 +11,13 @@ export interface AnalyzedQuestion {
 export interface RefineAnalyzeResult {
   questions: AnalyzedQuestion[];
   refinedText: string;
+  /**
+   * true면 GPT 응답 전체를 JSON으로 해석하지 못해서(문항이 많은 시험지에서
+   * 수식(LaTeX) 정제 텍스트 부분이 깨진 경우가 대표적 원인), 문항 분석
+   * (단원·풀이유형·난이도 등)만 개별적으로 복구해서 돌려준 상태라는 뜻.
+   * 이 경우 refinedText는 항상 빈 문자열 — 문항 표는 정상, 수식 정제 텍스트만 없음.
+   */
+  partial?: boolean;
 }
 
 /**
@@ -28,6 +35,7 @@ export async function refineAndAnalyzeTest(rawText: string): Promise<RefineAnaly
   const { data, error } = await supabase.functions.invoke<{
     questions?: AnalyzedQuestion[];
     refinedText?: string;
+    partial?: boolean;
     error?: string;
   }>('refine-analyze-test', {
     body: { rawText },
@@ -43,5 +51,6 @@ export async function refineAndAnalyzeTest(rawText: string): Promise<RefineAnaly
   return {
     questions: data.questions || [],
     refinedText: data.refinedText || '',
+    partial: data.partial,
   };
 }
