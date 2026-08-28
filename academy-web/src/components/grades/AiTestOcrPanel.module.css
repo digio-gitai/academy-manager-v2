@@ -123,3 +123,38 @@
   margin: 0;
   font-family: inherit;
 }
+
+.analyzeSection {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(31, 61, 43, 0.08);
+}
+
+.questionTableWrap {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+
+.questionTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.questionTable th,
+.questionTable td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(31, 61, 43, 0.08);
+  white-space: nowrap;
+}
+
+.questionTable th {
+  color: var(--color-primary);
+  font-weight: 700;
+  background: var(--color-surface);
+}
+
+.questionTable td {
+  color: var(--color-text);
+}
