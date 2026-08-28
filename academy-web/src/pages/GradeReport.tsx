@@ -3,7 +3,7 @@ import { GradeViewPanel } from '../components/grades/GradeViewPanel';
 import { SchoolGradeTab } from '../components/grades/SchoolGradeTab';
 import { MockGradeTab } from '../components/grades/MockGradeTab';
 import { ReportWritePanel } from '../components/grades/ReportWritePanel';
-import { ComingSoon } from './ComingSoon';
+import { AiTestOcrPanel } from '../components/grades/AiTestOcrPanel';
 import styles from './GradeReport.module.css';
 
 /**
@@ -27,7 +27,7 @@ export function GradeReport() {
           { key: 'view', label: '성적 조회', content: <GradeViewPanel /> },
           { key: 'school', label: '학교시험 성적관리', content: <SchoolGradeTab /> },
           { key: 'mock', label: '모의고사 성적관리', content: <MockGradeTab /> },
-          { key: 'aitest', label: '학원시험 AI분석', content: <ComingSoon title="학원시험 AI분석" /> },
+          { key: 'aitest', label: '학원시험 AI분석', content: <AiTestOcrPanel /> },
           { key: 'report', label: '통합보고서 작성', content: <ReportWritePanel /> },
         ]}
       />
