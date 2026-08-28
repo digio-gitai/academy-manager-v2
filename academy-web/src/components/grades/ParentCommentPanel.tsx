@@ -7,14 +7,16 @@ interface ParentCommentPanelProps {
   comment: string;
   onCommentChange: (value: string) => void;
   onGenerate: () => void;
+  isGenerating: boolean;
+  generateError: string;
 }
 
 /**
- * 스트림릿 "학부모님께 전하는 글" 섹션 재현. 실제 앱은 OpenAI로 AI 초안을
- * 생성하고, API 실패 시엔 평균/최고/최저 점수 기반 고정 문구로 대체하는데
- * (_generate_parent_comment_ai의 except 분기), 아직 백엔드 연동 전이라
- * 여기서는 그 대체 문구 로직을 그대로 재현함 — 나중에 실제 AI 연동 시
- * onGenerate 내부만 실제 API 호출로 바꾸면 됨.
+ * 스트림릿 "학부모님께 전하는 글" 섹션 재현.
+ * 2026-08-28: 실제 AI 연동 완료 — "AI 초안 생성" 버튼이 Supabase Edge Function
+ * (generate-parent-comment)을 통해 실제 OpenAI GPT-4o를 호출함(lib/parentComment.ts,
+ * ReportWritePanel.tsx). 호출이 실패하면(Edge Function 미배포/키 없음/네트워크 오류 등)
+ * 스트림릿의 _generate_parent_comment_ai() except 분기와 동일한 대체 문구로 자동 전환.
  */
 export function ParentCommentPanel({
   studentName,
@@ -22,6 +24,8 @@ export function ParentCommentPanel({
   comment,
   onCommentChange,
   onGenerate,
+  isGenerating,
+  generateError,
 }: ParentCommentPanelProps) {
   const charCount = comment.length;
   const over = charCount > 300;
@@ -31,9 +35,16 @@ export function ParentCommentPanel({
       <h3 className={styles.cardTitle}>📝 학부모님께 전하는 글</h3>
       <p className={styles.caption}>AI 초안을 확인하고 수정한 뒤 보고서 생성을 진행하세요. (300자 이내 권장)</p>
 
-      <button type="button" className={styles.genButton} onClick={onGenerate} disabled={records.length === 0}>
-        AI 초안 생성
+      <button
+        type="button"
+        className={styles.genButton}
+        onClick={onGenerate}
+        disabled={records.length === 0 || isGenerating}
+      >
+        {isGenerating ? 'AI 초안 작성 중...' : 'AI 초안 생성'}
       </button>
+
+      {generateError && <p className={styles.errorText}>{generateError}</p>}
 
       <div className={`${styles.charCount} ${over ? styles.charCountOver : styles.charCountNormal}`}>
         {charCount}/300자
