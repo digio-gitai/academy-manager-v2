@@ -1175,6 +1175,14 @@ def ensure_report_links_table(conn: sqlite3.Connection | None = None) -> None:
             conn.execute("ALTER TABLE report_links ADD COLUMN test_date TEXT DEFAULT ''")
         if "test_name" not in rl_cols:
             conn.execute("ALTER TABLE report_links ADD COLUMN test_name TEXT DEFAULT ''")
+        # [2026-08-29 Phase B] 문자 발송 시각 / 학부모 열람 시각 기록용 컬럼.
+        # academy-web(React) 대시보드의 "오늘 발송 SMS"/리포트 열람 상태 KPI가
+        # 이 두 컬럼을 읽어서 표시한다(예전엔 컬럼만 있고 값을 채우는 코드가
+        # 없었음 — 이번에 처음 실제로 기록되도록 연결함).
+        if "sent_at" not in rl_cols:
+            conn.execute("ALTER TABLE report_links ADD COLUMN sent_at TEXT")
+        if "viewed_at" not in rl_cols:
+            conn.execute("ALTER TABLE report_links ADD COLUMN viewed_at TEXT")
         if own_conn:
             conn.commit()
         _ENSURED_ONCE.add("report_links")
@@ -1321,6 +1329,93 @@ def get_student_report_links(student_id: int) -> list[dict[str, Any]]:
         }
         for r in rows
     ]
+
+
+def ensure_sms_log_table(conn: sqlite3.Connection | None = None) -> None:
+    """SMS 발송 기록 테이블 (2026-08-27 설계, 2026-08-29 Phase B에서 실제 기록 연결).
+
+    academy-web(React) 대시보드의 '오늘 발송 SMS' KPI가 이 테이블을 읽는다.
+    report_links.sent_at/viewed_at과 역할이 다름: report_links는 '성적표 링크
+    문자'만 다루지만, sms_log는 성적표(report)/과제 알림(hw_notify) 문자를
+    한 곳에서 같이 집계하기 위한 용도.
+    """
+    if "sms_log" in _ENSURED_ONCE:
+        return
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sms_log (
+                id SERIAL PRIMARY KEY,
+                kind TEXT NOT NULL CHECK (kind IN ('report', 'hw_notify')),
+                student_id INTEGER REFERENCES students(id) ON DELETE SET NULL,
+                sent_at TEXT NOT NULL
+            )
+            """
+        )
+        if own_conn:
+            conn.commit()
+        _ENSURED_ONCE.add("sms_log")
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def log_sms_sent(kind: str, student_id: int | None = None) -> None:
+    """SMS를 실제로 보낸 직후 sms_log에 한 줄 기록한다. (2026-08-29 Phase B)
+
+    호출하는 쪽(app.py/hw_assign.py/send_hw_nightly_sms.py)에서는 항상
+    try/except로 감싸서 쓴다 — 이 기록이 실패해도 문자는 이미 보내진 뒤이므로
+    화면에 에러를 보여주거나 발송 자체를 실패로 취급하면 안 되기 때문.
+    """
+    conn = get_conn()
+    try:
+        ensure_sms_log_table(conn)
+        conn.execute(
+            "INSERT INTO sms_log (kind, student_id, sent_at) VALUES (?, ?, ?)",
+            (
+                kind,
+                int(student_id) if student_id is not None else None,
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_report_link_sent(token: str) -> None:
+    """report_links.sent_at을 문자 발송 시각으로 기록한다. (2026-08-29 Phase B)"""
+    conn = get_conn()
+    try:
+        ensure_report_links_table(conn)
+        conn.execute(
+            "UPDATE report_links SET sent_at = ? WHERE token = ?",
+            (datetime.now().strftime("%Y-%m-%d %H:%M"), token),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_report_link_viewed(token: str) -> None:
+    """report_links.viewed_at을 '처음 열람한 시각'으로 한 번만 기록한다.
+    (2026-08-29 Phase B) 이미 값이 있으면 덮어쓰지 않는다 — 여러 번 다시
+    열어봐도 '학부모가 확인은 했다'는 사실만 중요하고, 최신 열람 시각까지
+    추적할 필요는 지금 화면(열람함/미열람)엔 없기 때문.
+    """
+    conn = get_conn()
+    try:
+        ensure_report_links_table(conn)
+        conn.execute(
+            "UPDATE report_links SET viewed_at = ? WHERE token = ? AND viewed_at IS NULL",
+            (datetime.now().strftime("%Y-%m-%d %H:%M"), token),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_student_month_topic_stats(student_id: int, year_month: str) -> list[dict[str, Any]]:

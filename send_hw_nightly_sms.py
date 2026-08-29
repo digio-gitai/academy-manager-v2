@@ -261,6 +261,12 @@ def main() -> None:
         result = send_text_sms(parent_phone, text)
         if result["success"]:
             mark_notified(submission_id)
+            # [2026-08-29 Phase B] 대시보드 KPI용 발송 기록.
+            try:
+                from database import log_sms_sent
+                log_sms_sent("hw_notify", sid)
+            except Exception:
+                pass
             sent += 1
             print(f"✅ {class_name} · {name} — 발송 완료 ({'완료' if all_done else '미완료'})")
         else:

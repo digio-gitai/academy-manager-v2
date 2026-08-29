@@ -1,13 +1,9 @@
-# ⚠️ 이 파일은 academy_dev 폴더에 임시로 만들어둔 것입니다.
-# 실제로 동작하게 하려면 git 저장소의 맨 위(루트) 폴더 —
-#   G:/app 개발/Academy-Manager/Academy-Manager/streamlit-app  (확인 완료, 2026-08-11)
-# 기준으로 아래 경로에 이 내용을 옮겨 넣어야 합니다:
-#   .github/workflows/hw_nightly_sms.yml
-# (GitHub Actions는 이 정확한 위치의 파일만 인식합니다.)
-#
-# 저장소 루트가 streamlit-app 폴더 자체이고 academy_dev가 그 바로 아래
-# 있는 걸 확인했으므로, working-directory는 "academy_dev"로 이미
-# 맞춰뒀습니다(더 안 고치셔도 됩니다).
+# [2026-08-29 수정] 예전엔 이 워크플로가 academy_dev(개발용) 폴더의 옛
+# 스크립트를 실행하도록 되어 있었습니다 — abc 과제 인증 기능이
+# 2026-08-15에 운영(저장소 루트)에 이미 반영됐는데 이 파일만 안 바뀌어서
+# 생긴 문제였습니다. 이제는 저장소 루트(운영 폴더)의 최신 스크립트를
+# 그대로 실행합니다 — working-directory를 따로 지정하지 않으면
+# actions/checkout이 체크아웃한 저장소 맨 위 폴더 기준으로 실행됩니다.
 
 name: 과제 인증 야간 자동 SMS 발송
 
@@ -38,11 +34,9 @@ jobs:
           python-version: "3.11"
 
       - name: 필요한 패키지 설치
-        working-directory: academy_dev
         run: pip install -r requirements-sms.txt
 
       - name: 야간 발송 스크립트 실행
-        working-directory: academy_dev
         env:
           DATABASE_URL: ${{ secrets.HW_SMS_DATABASE_URL }}
           SOLAPI_API_KEY: ${{ secrets.HW_SMS_SOLAPI_API_KEY }}

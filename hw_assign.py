@@ -1375,6 +1375,12 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
                                 # 오늘 문자를 보냈다고 기록 — 밤 자동발송이 오늘
                                 # 이미 보낸 학생에게 또 안 보내도록 참고하는 값.
                                 mark_notified(int(srow["submission_id"]))
+                                # [2026-08-29 Phase B] 대시보드 KPI용 발송 기록.
+                                try:
+                                    from database import log_sms_sent
+                                    log_sms_sent("hw_notify", int(srow["student_id"]))
+                                except Exception:
+                                    pass
                             else:
                                 fail_msgs.append(f"{srow['student_name']}: {result['message']}")
                         except Exception as e:  # noqa: BLE001

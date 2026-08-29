@@ -4428,6 +4428,15 @@ def _render_ocr_class_student_picker(
                             )
                             if result["success"]:
                                 ok_count += 1
+                                # [2026-08-29 Phase B] 문자를 실제로 보낸 시각을
+                                # report_links/sms_log에 기록 — 실패해도 문자
+                                # 발송 자체는 이미 끝난 뒤이므로 조용히 무시한다.
+                                try:
+                                    from database import mark_report_link_sent, log_sms_sent
+                                    mark_report_link_sent(token)
+                                    log_sms_sent("report", int(rep["student_id"]))
+                                except Exception:
+                                    pass
                             else:
                                 fail_msgs.append(f"{rep['name']}: {result['message']}")
                         except Exception as e:
@@ -4682,6 +4691,7 @@ def _parent_report_preview_dialog(
                 st.session_state["claude_report_html"] = html_content
                 st.session_state["claude_report_fname"] = fname
                 st.session_state["claude_report_url"] = report_url
+                st.session_state["claude_report_token"] = report_token
                 st.session_state["claude_report_student_id"] = student_id
                 st.session_state["claude_report_student_name"] = student_name
                 st.success("보고서 생성 완료! 아래에서 다운로드하거나 문자로 보내세요.")
@@ -4748,6 +4758,15 @@ def _parent_report_preview_dialog(
                     )
                 if result["success"]:
                     st.success(result["message"])
+                    # [2026-08-29 Phase B] 문자를 실제로 보낸 시각 기록.
+                    try:
+                        from database import mark_report_link_sent, log_sms_sent
+                        _token = st.session_state.get("claude_report_token")
+                        if _token:
+                            mark_report_link_sent(_token)
+                        log_sms_sent("report", int(st.session_state["claude_report_student_id"]))
+                    except Exception:
+                        pass
                 else:
                     st.error(result["message"])
 
@@ -9861,6 +9880,13 @@ def _render_parent_report_view(token: str) -> None:
     if not meta:
         st.error("보고서를 찾을 수 없거나 만료되었습니다. 학원으로 문의해 주세요.")
         return
+    # [2026-08-29 Phase B] 학부모가 이 링크를 처음 여는 순간을 기록한다.
+    # 화면 표시와는 무관하므로 실패해도 조용히 무시한다.
+    try:
+        from database import mark_report_link_viewed
+        mark_report_link_viewed(token)
+    except Exception:
+        pass
     html_content = meta["html_content"]
 
     # 시험유형 탭 실시간 치환 (student_id가 저장된 보고서만)
