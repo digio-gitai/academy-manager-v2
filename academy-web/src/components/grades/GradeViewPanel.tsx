@@ -15,7 +15,7 @@ import styles from './GradeViewPanel.module.css';
  *
  * 2026-08-26: mock 데이터 → 실제 dev DB(Supabase) 연동. 학생 목록은 lib/students.ts의
  * fetchStudents(), 성적은 lib/grades.ts의 fetchUnifiedGrades()로 조회. '학원시험'
- * 그룹은 AI분석 탭이 아직 없어 항상 빈 상태(lib/grades.ts 주석 참고).
+ * 그룹도 2026-08-29부터 AI 테스트 결과(student_results/tests)를 반영함(lib/grades.ts 참고).
  */
 export function GradeViewPanel() {
   const [students, setStudents] = useState<StudentProfile[]>([]);

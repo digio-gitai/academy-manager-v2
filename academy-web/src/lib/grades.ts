@@ -22,6 +22,11 @@ import type { MockExamGradeRecord } from '../types/mockExamGrades';
 // 이 파일의 getOrCreateSession()은 (조회 → 없으면 INSERT) 방식이라 이 스키마 수정에
 // 의존하지 않고도 정상 동작하지만, 수정 전에는 동시에 두 사람이 같은 조합을 처음
 // 저장할 때 레이스 컨디션으로 실패할 수 있었음(수정 후에는 DB가 안전망 역할).
+//
+// '학원시험'(academy) 그룹: 2026-08-29부터 tests/student_results(AI 테스트 결과,
+// '학원시험 AI분석' 탭 3단계에서 저장됨)를 반영. 원본 스트림릿은 여기에 수기 입력
+// (exams/student_scores)도 합치지만, 그 경로는 React에 아직 없는 별도 레거시
+// 기능이라 이번엔 포함하지 않음(필요해지면 나중에 추가).
 
 const EXAM_SOURCE_SCHOOL = 'school_exam';
 const EXAM_SOURCE_MOCK = 'mock_exam';
@@ -42,6 +47,13 @@ interface RecordRow {
   score: number;
   updated_at: string;
   external_grade_sessions: SessionRow;
+}
+
+interface AcademyTestRow {
+  id: number;
+  score: number;
+  recorded_at: string;
+  tests: { test_name: string; date: string } | null;
 }
 
 function nowStr(): string {
@@ -68,33 +80,59 @@ function mockDate(s: SessionRow): string {
 }
 
 /**
+ * dev DB student_results + tests 조인 — 학생의 '학원시험'(AI 테스트) 결과 조회.
+ * 스트림릿의 라벨 규칙과 동일하게 `{시험명} · AI 테스트` 형식으로 표시.
+ */
+async function fetchAcademyTestRecords(studentId: string): Promise<UnifiedGradeRecord[]> {
+  const { data, error } = await supabase
+    .from('student_results')
+    .select('id, score, recorded_at, tests ( test_name, date )')
+    .eq('student_id', Number(studentId));
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data as unknown as AcademyTestRow[]) ?? [];
+  return rows.map((r) => {
+    const testName = r.tests?.test_name || '학원시험';
+    const examDate = (r.tests?.date || r.recorded_at || '').slice(0, 10);
+    return {
+      id: `ai-${r.id}`,
+      studentId,
+      examGroup: 'academy' as ExamGroup,
+      examLabel: `${testName} · AI 테스트`,
+      score: Number(r.score),
+      examDate,
+      updatedAt: r.recorded_at,
+    };
+  });
+}
+
+/**
  * 학생 한 명의 통합 성적(성적 조회 / 통합보고서 작성 탭용).
- * 스트림릿 get_student_unified_grades()를 재현하되, 현재는 학교시험/모의고사
- * 소스(external_grade_records+sessions)만 반영함.
- *
- * '학원시험' 그룹(AI 테스트/수기 입력)은 원본이 tests/student_results,
- * exams/student_scores 테이블을 추가로 조인하는데, 이 두 테이블은 '학원시험
- * AI분석' 탭(아직 React로 안 만듦 — OCR/GPT 파이프라인 자체라 보류 중, 2026-08-22
- * 사용자와 확정)에서만 채워지는 데이터라 지금은 항상 빈 배열로 둠. 출석 관리의
- * "오늘 과제(참고)" 카드를 hw 연동 전까지 항상 비워둔 것과 같은 방침
- * (academy-web_현황.md 2026-08-24 섹션 참고). AI분석 탭을 만들 때 여기도 같이
- * 채울 것 — 거짓/불일치 데이터보다 "없음"이 더 정직한 상태라는 원칙 유지.
+ * 스트림릿 get_student_unified_grades()를 재현: 학교시험/모의고사
+ * (external_grade_records+sessions) + 학원시험 AI 테스트(student_results+tests)를
+ * 합쳐서 exam_date 내림차순(동률이면 updated_at 내림차순)으로 정렬해 반환.
  */
 export async function fetchUnifiedGrades(studentId: string): Promise<UnifiedGradeRecord[]> {
-  const { data, error } = await supabase
-    .from('external_grade_records')
-    .select(
-      'id, student_id, score, updated_at, external_grade_sessions ( id, exam_source, school_year, grade_level, semester, exam_kind, exam_month )',
-    )
-    .eq('student_id', Number(studentId))
-    .eq('subject_name', MATH_SUBJECT);
+  const [{ data, error }, academyRecords] = await Promise.all([
+    supabase
+      .from('external_grade_records')
+      .select(
+        'id, student_id, score, updated_at, external_grade_sessions ( id, exam_source, school_year, grade_level, semester, exam_kind, exam_month )',
+      )
+      .eq('student_id', Number(studentId))
+      .eq('subject_name', MATH_SUBJECT),
+    fetchAcademyTestRecords(studentId),
+  ]);
 
   if (error) {
     throw error;
   }
 
   const rows = (data as unknown as RecordRow[]) ?? [];
-  return rows
+  const externalRecords: UnifiedGradeRecord[] = rows
     .filter((r) => r.external_grade_sessions)
     .map((r) => {
       const s = r.external_grade_sessions;
@@ -109,6 +147,11 @@ export async function fetchUnifiedGrades(studentId: string): Promise<UnifiedGrad
         updatedAt: r.updated_at,
       };
     });
+
+  return [...externalRecords, ...academyRecords].sort((a, b) => {
+    if (a.examDate !== b.examDate) return a.examDate < b.examDate ? 1 : -1;
+    return a.updatedAt < b.updatedAt ? 1 : -1;
+  });
 }
 
 async function getOrCreateSession(params: {
