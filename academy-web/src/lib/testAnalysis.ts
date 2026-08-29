@@ -113,3 +113,85 @@ export function suggestTestTitle(
   const stemPart = sanitizeTitlePart(stem, 32);
   return `${testDate}_${topicPart}_${stemPart}`;
 }
+
+
+export interface TestListItem {
+  id: number;
+  name: string;
+  date: string;
+  totalQuestions: number;
+}
+
+/**
+ * 저장된 시험지(TEST) 목록 — "기존 시험지 불러오기" 드롭다운용.
+ * 스트림릿의 list_tests()/format_test_option_label()과 동일한 목적: 시간차를
+ * 두고 학생들이 같은 시험을 볼 때, 매번 새로 업로드하지 않고 이미 확정해둔
+ * 시험지를 다시 골라서 학생 오답을 이어서 입력할 수 있게 함.
+ */
+export async function fetchRecentTests(limit = 100): Promise<TestListItem[]> {
+  const { data, error } = await supabase
+    .from('tests')
+    .select('test_id, test_name, date, total_questions, created_at')
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return ((data as { test_id: number; test_name: string; date: string; total_questions: number }[]) ?? []).map(
+    (row) => ({
+      id: row.test_id,
+      name: row.test_name,
+      date: row.date,
+      totalQuestions: row.total_questions,
+    }),
+  );
+}
+
+/** 이미 저장된 시험지의 문항 목록 조회(읽기 전용 표시 + 오답 체크용 문항번호 추출). */
+export async function fetchTestQuestions(testId: number): Promise<TestQuestionDraft[]> {
+  const { data, error } = await supabase
+    .from('test_questions')
+    .select('question_number, topic, question_type, difficulty, question_method')
+    .eq('test_id', testId);
+  if (error) throw error;
+  const rows = (
+    (data as {
+      question_number: string;
+      topic: string;
+      question_type: string;
+      difficulty: string;
+      question_method: string;
+    }[]) ?? []
+  ).map((row) => ({
+    questionNumber: row.question_number,
+    topic: row.topic,
+    method: row.question_method || '',
+    questionType: (row.question_type === '서술형' ? '서술형' : '객관식') as QuestionType,
+    difficulty: (['A', 'B', 'C', 'D', 'E'].includes(row.difficulty) ? row.difficulty : 'C') as DifficultyLevel,
+  }));
+  rows.sort((a, b) => {
+    const na = Number(a.questionNumber);
+    const nb = Number(b.questionNumber);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+    return a.questionNumber.localeCompare(b.questionNumber);
+  });
+  return rows;
+}
+
+/**
+ * 시험지 삭제. tests 행을 지우면 test_questions/student_results가 ON DELETE
+ * CASCADE로 함께 지워짐(스트림릿의 delete_test()와 동일한 효과).
+ */
+export async function deleteTestCascade(testId: number): Promise<void> {
+  const { error } = await supabase.from('tests').delete().eq('test_id', testId);
+  if (error) throw error;
+}
+
+/** 문항번호 중 숫자로 된 것만 뽑아 중복 제거 후 오름차순 — 오답 체크박스용. */
+export function numericQuestionNumbers(questions: TestQuestionDraft[]): number[] {
+  const set = new Set<number>();
+  for (const q of questions) {
+    const n = Number(q.questionNumber);
+    if (Number.isFinite(n)) set.add(n);
+  }
+  return Array.from(set).sort((a, b) => a - b);
+}

@@ -1,13 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { extractTextFromFiles } from '../../lib/visionOcr';
-import type { OcrPage } from '../../lib/visionOcr';
 import { refineAndAnalyzeTest } from '../../lib/examAnalysis';
 import {
   saveTestWithQuestions,
   inferDominantTopic,
   suggestTestTitle,
+  fetchRecentTests,
+  fetchTestQuestions,
+  deleteTestCascade,
+  numericQuestionNumbers,
 } from '../../lib/testAnalysis';
-import type { TestQuestionDraft, QuestionType, DifficultyLevel } from '../../lib/testAnalysis';
+import type {
+  TestQuestionDraft,
+  QuestionType,
+  DifficultyLevel,
+  TestListItem,
+} from '../../lib/testAnalysis';
+import { TestResultAssignPanel } from './TestResultAssignPanel';
 import styles from './AiTestOcrPanel.module.css';
 
 const TEST_TYPE_OPTIONS = ['일일테스트', '주간테스트', '월간테스트', '단원테스트', '기타'];
@@ -42,33 +51,43 @@ function describeError(err: unknown): string {
 }
 
 /**
- * "학원시험 AI분석" 탭 — 1a(OCR 텍스트 추출) + 1b(GPT 문항 분석) + 2단계(검토·
- * 편집 후 TEST로 확정 저장)까지 담당하는 화면.
+ * "학원시험 AI분석" 탭 — 시험지 업로드/OCR/GPT분석/문항편집/반·학생배정까지
+ * 담당하는 화면. 스트림릿 page_ai_test_analysis()와 동일한 구조로 재정리함
+ * (2026-08-29, 실사용 피드백 반영):
  *
- * 스트림릿 page_ai_test_analysis()의 흐름(시험지 업로드 → OCR → GPT 분석 →
- * 문항 편집 → 반/학생 배정 → DB 저장)을 4단계로 나눠 진행 중(사용자 확정,
- * 2026-08-28). 1a·1b는 이미 확인 완료. 이 화면에서 새로 추가된 부분(2단계):
- * GPT가 분석한 문항을 표로 보여주고 직접 고칠 수 있게 한 뒤(번호/단원/
- * 풀이유형/유형/난이도), 테스트 종류·시험일·제목을 정해서 "확정" 누르면
- * `tests`+`test_questions` 테이블에 저장됨 — 스트림릿의 save_test_with_questions()와
- * 동일한 저장 방식. 아직 반/학생 배정(3단계)과 기존 화면 연동(4단계)은 없음.
- *
- * 원본과 다른 점 1가지: 업로드한 시험지 파일 자체를 서버에 저장하는 기능은
- * 아직 없음(DB에는 문항 데이터만 저장) — 나중에 필요해지면 별도로 추가 예정.
+ *  ① 기존 시험지 불러오기 — 이미 확정해둔 시험지를 다시 골라서, 시간차를
+ *     두고 시험 본 학생들의 오답을 이어서 입력할 수 있음(스트림릿의
+ *     _render_existing_test_selector()와 동일). 이게 없으면 매번 새로
+ *     업로드해야 하고, 새로고침하면 방금 확정한 시험지를 다시 선택할 방법이
+ *     없어서 저장이 잘 됐는지도 확인 못 하는 문제가 있었음 — 이번에 추가.
+ *  ② 새 시험지 업로드 — OCR(Vision)과 GPT 분석을 버튼 하나로 한 번에 실행
+ *     (원래는 확인 목적으로 "텍스트 추출"과 "GPT 분석"을 2단계로 나눠서
+ *     따로 보여줬는데, 이제 둘 다 정상 동작 확인이 끝나서 스트림릿처럼
+ *     하나로 합침 — 추출된 원문 텍스트도 더 이상 화면에 보여주지 않음).
+ *  ③ 문항 확인·수정 — GPT 분석 결과를 표로 검토·수정 후 "확정"하면 TEST로 저장.
+ *  ④ 학생별 오답 체크 — ①에서 고른 기존 시험지, 또는 방금 ③에서 확정한
+ *     시험지 중 "현재 활성 시험지"를 대상으로 반/학생 오답 체크 → 저장.
  */
 export function AiTestOcrPanel() {
-  const [files, setFiles] = useState<File[]>([]);
-  const [pages, setPages] = useState<OcrPage[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
+  // ① 기존 시험지 불러오기
+  const [existingTests, setExistingTests] = useState<TestListItem[]>([]);
+  const [existingTestsLoading, setExistingTestsLoading] = useState(true);
+  const [existingTestsError, setExistingTestsError] = useState('');
+  const [selectedExistingId, setSelectedExistingId] = useState<number | null>(null);
+  const [selectedExistingQuestions, setSelectedExistingQuestions] = useState<TestQuestionDraft[]>([]);
+  const [selectedExistingLoading, setSelectedExistingLoading] = useState(false);
+  const [selectedExistingError, setSelectedExistingError] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeError, setAnalyzeError] = useState('');
+  // ② 새 시험지 업로드
+  const [files, setFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [stage, setStage] = useState<'idle' | 'ocr' | 'analyzing'>('idle');
+  const [uploadError, setUploadError] = useState('');
   const [refinedText, setRefinedText] = useState('');
   const [analysisPartial, setAnalysisPartial] = useState(false);
 
-  // 2단계: 검토/편집 상태
+  // ③ 문항 확인·수정 + 확정 저장
   const [editQuestions, setEditQuestions] = useState<TestQuestionDraft[]>([]);
   const [testType, setTestType] = useState(TEST_TYPE_OPTIONS[0]);
   const [testTypeCustom, setTestTypeCustom] = useState('');
@@ -78,18 +97,70 @@ export function AiTestOcrPanel() {
   const [saveError, setSaveError] = useState('');
   const [savedTestId, setSavedTestId] = useState<number | null>(null);
 
-  function applyFiles(list: File[]) {
-    setFiles(list);
-    setPages([]);
-    setError('');
-    resetAnalysis();
+  useEffect(() => {
+    loadExistingTests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function loadExistingTests() {
+    setExistingTestsLoading(true);
+    setExistingTestsError('');
+    fetchRecentTests()
+      .then(setExistingTests)
+      .catch((err) => setExistingTestsError(describeError(err)))
+      .finally(() => setExistingTestsLoading(false));
   }
 
-  function resetAnalysis() {
+  function handleSelectExisting(idStr: string) {
+    if (!idStr) {
+      setSelectedExistingId(null);
+      setSelectedExistingQuestions([]);
+      setSelectedExistingError('');
+      return;
+    }
+    const id = Number(idStr);
+    setSelectedExistingId(id);
+    setSelectedExistingLoading(true);
+    setSelectedExistingError('');
+    // 기존 시험지를 고르면, 방금 하던 새 업로드 확정 결과는 활성 상태에서 내려감(혼동 방지).
+    setSavedTestId(null);
+    fetchTestQuestions(id)
+      .then(setSelectedExistingQuestions)
+      .catch((err) => setSelectedExistingError(describeError(err)))
+      .finally(() => setSelectedExistingLoading(false));
+  }
+
+  async function handleDeleteExisting() {
+    if (selectedExistingId == null) return;
+    const meta = existingTests.find((t) => t.id === selectedExistingId);
+    const ok = window.confirm(
+      `"${meta?.name ?? ''}" (${meta?.date ?? ''}) 시험지를 삭제할까요?\n\n` +
+        '문항 정보와 저장된 학생 오답·점수 기록이 모두 삭제되며 되돌릴 수 없습니다.',
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteTestCascade(selectedExistingId);
+      setSelectedExistingId(null);
+      setSelectedExistingQuestions([]);
+      loadExistingTests();
+    } catch (err) {
+      setSelectedExistingError(describeError(err));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function applyFiles(list: File[]) {
+    setFiles(list);
+    resetUploadAnalysis();
+  }
+
+  function resetUploadAnalysis() {
     setEditQuestions([]);
     setRefinedText('');
     setAnalysisPartial(false);
-    setAnalyzeError('');
+    setUploadError('');
     setTestTitle('');
     setSavedTestId(null);
     setSaveError('');
@@ -119,29 +190,14 @@ export function AiTestOcrPanel() {
     }
   }
 
-  async function handleExtract() {
+  async function handleUploadAnalyze() {
     if (files.length === 0) return;
-    setLoading(true);
-    setError('');
-    setPages([]);
-    resetAnalysis();
+    resetUploadAnalysis();
+    setStage('ocr');
     try {
-      const result = await extractTextFromFiles(files);
-      setPages(result);
-    } catch (err) {
-      setError(describeError(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleAnalyze() {
-    if (pages.length === 0) return;
-    setAnalyzing(true);
-    setAnalyzeError('');
-    resetAnalysis();
-    try {
+      const pages = await extractTextFromFiles(files);
       const rawText = pages.map((p) => p.text || '').join('\n\n').trim();
+      setStage('analyzing');
       const result = await refineAndAnalyzeTest(rawText);
       const drafts: TestQuestionDraft[] = result.questions
         .slice()
@@ -160,10 +216,13 @@ export function AiTestOcrPanel() {
       setAnalysisPartial(Boolean(result.partial));
       const dominant = inferDominantTopic(drafts);
       setTestTitle(suggestTestTitle(dominant, files[0]?.name, testDate));
+      // 새로 분석한 시험지가 이제부터 "현재 활성 시험지" — 기존 선택은 해제.
+      setSelectedExistingId(null);
+      setSelectedExistingQuestions([]);
     } catch (err) {
-      setAnalyzeError(describeError(err));
+      setUploadError(describeError(err));
     } finally {
-      setAnalyzing(false);
+      setStage('idle');
     }
   }
 
@@ -213,6 +272,7 @@ export function AiTestOcrPanel() {
         },
       });
       setSavedTestId(testId);
+      loadExistingTests(); // 방금 만든 시험지가 "기존 시험지" 목록에도 바로 보이도록 갱신
     } catch (err) {
       setSaveError(describeError(err));
     } finally {
@@ -220,80 +280,148 @@ export function AiTestOcrPanel() {
     }
   }
 
-  return (
-    <div className={styles.card}>
-      <span className={styles.badge}>1a단계 · OCR 텍스트 추출</span>
-      <h3 className={styles.cardTitle}>📷 시험지 이미지/PDF → 텍스트 추출</h3>
-      <p className={styles.caption}>
-        시험지 사진(1장 이상) 또는 PDF를 올리고 "텍스트 추출" 버튼을 눌러보세요. Google Vision이 인식한 원문
-        텍스트가 그대로 표시됩니다. PDF는 페이지마다 자동으로 나눠서 처리해요.
-      </p>
+  const selectedExistingMeta = existingTests.find((t) => t.id === selectedExistingId) ?? null;
 
-      <div
-        className={`${styles.dropzone} ${isDragging ? styles.dropzoneActive : ''}`}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        {files.length === 0 ? (
-          <p className={styles.dropzoneText}>여기로 파일을 끌어다 놓거나, 클릭해서 선택하세요</p>
+  const activeTest = selectedExistingId != null
+    ? {
+        id: selectedExistingId,
+        name: selectedExistingMeta?.name ?? '',
+        total: selectedExistingMeta?.totalQuestions ?? selectedExistingQuestions.length,
+        questionNumbers: numericQuestionNumbers(selectedExistingQuestions),
+      }
+    : savedTestId != null
+    ? {
+        id: savedTestId,
+        name: testTitle,
+        total: editQuestions.length,
+        questionNumbers: numericQuestionNumbers(editQuestions),
+      }
+    : null;
+
+  return (
+    <div>
+      <div className={styles.card}>
+        <h3 className={styles.cardTitle}>📋 기존 시험지 불러오기</h3>
+        <p className={styles.caption}>
+          이미 확정해둔 시험지를 골라서, 시간차를 두고 시험 본 학생들의 오답을 이어서 입력할 수 있어요.
+          예를 들어 오늘 3명, 내일 2명이 같은 시험을 봐도 같은 시험지로 기록됩니다.
+        </p>
+
+        {existingTestsLoading ? (
+          <p className={styles.caption}>불러오는 중...</p>
+        ) : existingTestsError ? (
+          <p className={styles.errorText}>{existingTestsError}</p>
+        ) : existingTests.length === 0 ? (
+          <p className={styles.caption}>아직 저장된 시험지가 없습니다. 아래에서 새 시험지를 업로드해 주세요.</p>
         ) : (
-          <p className={styles.dropzoneText}>
-            {files.length}개 파일 선택됨 — {files.map((f) => f.name).join(', ')}
-            <br />
-            (다시 클릭하거나 새로 끌어다 놓으면 선택이 바뀝니다)
-          </p>
+          <select
+            className={styles.existingSelect}
+            value={selectedExistingId != null ? String(selectedExistingId) : ''}
+            onChange={(e) => handleSelectExisting(e.target.value)}
+          >
+            <option value="">— 새 시험지 업로드 —</option>
+            {existingTests.map((t) => (
+              <option key={t.id} value={String(t.id)}>
+                {t.name} · {t.date} · {t.totalQuestions}문항
+              </option>
+            ))}
+          </select>
         )}
-        <input
-          type="file"
-          accept="image/*,application/pdf"
-          multiple
-          onChange={handleFileChange}
-          className={styles.hiddenFileInput}
-        />
+
+        {selectedExistingId != null && (
+          <>
+            {selectedExistingLoading ? (
+              <p className={styles.caption}>문항 불러오는 중...</p>
+            ) : selectedExistingError ? (
+              <p className={styles.errorText}>{selectedExistingError}</p>
+            ) : (
+              <div className={styles.questionTableWrap}>
+                <table className={styles.questionTable}>
+                  <thead>
+                    <tr>
+                      <th>번호</th>
+                      <th>유형</th>
+                      <th>단원</th>
+                      <th>풀이유형</th>
+                      <th>난이도</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedExistingQuestions.map((q, i) => (
+                      <tr key={i}>
+                        <td>{q.questionNumber}</td>
+                        <td>{q.questionType}</td>
+                        <td>{q.topic}</td>
+                        <td>{q.method}</td>
+                        <td>{q.difficulty}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <button
+              type="button"
+              className={styles.deleteButton}
+              onClick={handleDeleteExisting}
+              disabled={deleting}
+            >
+              {deleting ? '삭제 중...' : '🗑️ 이 시험지 삭제'}
+            </button>
+          </>
+        )}
       </div>
 
-      <button
-        type="button"
-        className={styles.extractButton}
-        onClick={handleExtract}
-        disabled={files.length === 0 || loading}
-      >
-        {loading ? '텍스트 추출 중...' : `텍스트 추출 (${files.length}개 파일)`}
-      </button>
+      <div className={styles.card}>
+        <h3 className={styles.cardTitle}>📷 새 시험지 업로드</h3>
+        <p className={styles.caption}>
+          시험지 사진(1장 이상) 또는 PDF를 올리고 버튼을 누르면, OCR 텍스트 인식과 GPT 문항 분석(단원·풀이유형·
+          난이도·유형, 수식 정리)이 한 번에 진행돼요. PDF는 페이지마다 자동으로 나눠서 처리합니다.
+        </p>
 
-      {error && <p className={styles.errorText}>{error}</p>}
-
-      {pages.map((p) => (
-        <div key={p.page} className={styles.pageBlock}>
-          <div className={styles.pageLabel}>{p.page}페이지</div>
-          <pre className={styles.pageText}>{p.text || '(인식된 텍스트가 없습니다)'}</pre>
+        <div
+          className={`${styles.dropzone} ${isDragging ? styles.dropzoneActive : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {files.length === 0 ? (
+            <p className={styles.dropzoneText}>여기로 파일을 끌어다 놓거나, 클릭해서 선택하세요</p>
+          ) : (
+            <p className={styles.dropzoneText}>
+              {files.length}개 파일 선택됨 — {files.map((f) => f.name).join(', ')}
+              <br />
+              (다시 클릭하거나 새로 끌어다 놓으면 선택이 바뀝니다)
+            </p>
+          )}
+          <input
+            type="file"
+            accept="image/*,application/pdf"
+            multiple
+            onChange={handleFileChange}
+            className={styles.hiddenFileInput}
+          />
         </div>
-      ))}
 
-      {pages.length > 0 && (
-        <div className={styles.analyzeSection}>
-          <span className={styles.badge}>1b단계 · GPT 문항 분석</span>
-          <p className={styles.caption}>
-            위에서 추출한 원문을 GPT-4o에게 보내서, 문항마다 단원·풀이유형·난이도·유형(객관식/서술형)을
-            분석하고 수식을 LaTeX로 정리합니다. 시험지 내용에 따라 몇 초~수십 초 걸릴 수 있어요.
-          </p>
-          <button
-            type="button"
-            className={styles.extractButton}
-            onClick={handleAnalyze}
-            disabled={analyzing}
-          >
-            {analyzing ? 'GPT 분석 중...' : 'GPT로 문항 분석하기'}
-          </button>
+        <button
+          type="button"
+          className={styles.extractButton}
+          onClick={handleUploadAnalyze}
+          disabled={files.length === 0 || stage !== 'idle'}
+        >
+          {stage === 'ocr'
+            ? 'OCR 텍스트 인식 중...'
+            : stage === 'analyzing'
+            ? 'GPT 분석 중... (10~20초)'
+            : `OCR 실행 (Vision + GPT 분석) — ${files.length}개 파일`}
+        </button>
 
-          {analyzeError && <p className={styles.errorText}>{analyzeError}</p>}
-        </div>
-      )}
+        {uploadError && <p className={styles.errorText}>{uploadError}</p>}
+      </div>
 
       {editQuestions.length > 0 && (
-        <div className={styles.analyzeSection}>
-          <span className={styles.badge}>2단계 · 문항 정보 확인·수정</span>
+        <div className={styles.card}>
+          <h3 className={styles.cardTitle}>✏️ 문항 확인·수정</h3>
           <p className={styles.caption}>
             GPT가 분석한 결과예요. 틀린 부분이 있으면 아래 표에서 직접 고치세요. 문항을 빼려면 그 줄의
             "삭제"를, 빠진 문항이 있으면 아래 "+ 문항 추가"를 눌러 채우면 됩니다.
@@ -453,6 +581,21 @@ export function AiTestOcrPanel() {
               <pre className={styles.pageText}>{refinedText}</pre>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTest && (
+        <div className={styles.card}>
+          <div className={styles.activeTestBanner}>
+            현재 선택된 시험지: <strong>{activeTest.name}</strong> · {activeTest.total}문항
+          </div>
+          <TestResultAssignPanel
+            key={activeTest.id}
+            testId={activeTest.id}
+            testName={activeTest.name}
+            totalQuestions={activeTest.total}
+            questionNumbers={activeTest.questionNumbers}
+          />
         </div>
       )}
     </div>
