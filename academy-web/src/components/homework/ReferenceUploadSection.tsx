@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import type { ReferenceMaterial } from '../../types/hwReference';
-import { initialReferenceMaterials } from '../../data/mockHwReference';
+import { useEffect, useState } from 'react';
+import type { ReferenceMaterial } from '../../lib/hwReference';
+import {
+  deleteReferenceMaterial,
+  fetchReferenceMaterials,
+  saveReferenceMaterial,
+  updateReferenceMaterialOffset,
+} from '../../lib/hwReference';
 import styles from './ReferenceUploadSection.module.css';
-
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 interface ReferenceUploadSectionProps {
   classId: string;
@@ -18,37 +19,98 @@ interface ReferenceUploadSectionProps {
  * 등록 안 해도 기존 방식대로 동작). 표지·목차 때문에 "인쇄 페이지"와 "PDF
  * 파일 내 장 번호"가 어긋나는 경우를 위한 page_offset 보정도 포함.
  *
- * 실제 PDF 페이지 이미지 비교/AI 자동 오프셋 감지(auto_detect_page_offset)는
- * 서버에서 PDF를 실제로 열어 읽는 게 핵심이라, 이번 mock 단계에서는 업로드 ·
- * 목록 · 삭제 · 수동 보정까지만 그대로 만들고 "자동 감지" 버튼은 데모 문구로
- * 대체함(다른 화면과 동일한 보류 방식).
+ * [2026-08-30] dev DB(hw_reference_materials) + Supabase Storage(hw-reference-pdfs
+ * 버킷)에 실제로 연결함(lib/hwReference.ts). "🤖 자동 감지" 버튼은 화면에 그대로
+ * 남겨두되(사용자 요청 — 아예 안 보이면 기능이 없어진 것처럼 보임) disabled 처리 +
+ * title 툴팁으로 "다음 단계에서 연결 예정"임을 밝혀둠. 가짜 성공 메시지는 보여주지
+ * 않음. 수동 보정 입력/저장은 실제로 동작함.
+ *
+ * [2026-08-30] PDF 파일 선택 칸에 드래그 앤 드롭 추가 — AiTestOcrPanel.tsx의
+ * 기존 드롭존 패턴(isDragging state + onDragOver/onDragLeave/onDrop)을 그대로
+ * 재사용. 클릭해서 선택하는 방식도 그대로 유지됨(투명 input이 영역 전체를 덮음).
  */
 export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps) {
-  const [materials, setMaterials] = useState<ReferenceMaterial[]>(initialReferenceMaterials);
+  const [materials, setMaterials] = useState<ReferenceMaterial[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const [newName, setNewName] = useState('');
   const [newFile, setNewFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
   const [newOffsetInput, setNewOffsetInput] = useState('1');
-  const [newAutoMessage, setNewAutoMessage] = useState('');
   const [newError, setNewError] = useState('');
   const [uploadMessage, setUploadMessage] = useState('');
+  const [uploading, setUploading] = useState(false);
 
-  const [offsetOpenFor, setOffsetOpenFor] = useState<string | null>(null);
-  const [offsetInputs, setOffsetInputs] = useState<Record<string, string>>({});
-  const [offsetAutoMessages, setOffsetAutoMessages] = useState<Record<string, string>>({});
-  const [offsetSavedMessages, setOffsetSavedMessages] = useState<Record<string, string>>({});
+  const [offsetOpenFor, setOffsetOpenFor] = useState<number | null>(null);
+  const [offsetInputs, setOffsetInputs] = useState<Record<number, string>>({});
+  const [offsetSavedMessages, setOffsetSavedMessages] = useState<Record<number, string>>({});
+  const [offsetSavingId, setOffsetSavingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [rowError, setRowError] = useState<Record<number, string>>({});
 
-  const classMaterials = materials.filter((m) => m.classId === classId);
+  useEffect(() => {
+    if (!classId || !isOpen) return;
+    let cancelled = false;
+    setLoading(true);
+    setLoadError('');
+    fetchReferenceMaterials(classId)
+      .then((rows) => {
+        if (!cancelled) setMaterials(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classId, isOpen]);
 
-  function handleAutoDetectNew() {
-    // 실제로는 업로드한 PDF 앞부분을 AI가 읽어 오프셋을 추정함(auto_detect_page_offset).
-    // 여기서는 서버 연동 전이라 데모 값으로 대체.
-    setNewOffsetInput('2');
-    setNewAutoMessage('✅ 자동 감지 완료 (데모) — 표지 1장 감지, 인쇄 1페이지 = PDF 2번째 장');
+  async function refresh() {
+    const rows = await fetchReferenceMaterials(classId);
+    setMaterials(rows);
   }
 
-  function handleUpload() {
+  function applyPickedFile(file: File | undefined | null) {
+    if (!file) return;
+    setNewError('');
+    if (file.type && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setNewError('PDF 파일만 올릴 수 있습니다.');
+      return;
+    }
+    setNewFile(file);
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    applyPickedFile(e.target.files?.[0]);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      applyPickedFile(file);
+      setFileInputKey((k) => k + 1);
+    }
+  }
+
+  async function handleUpload() {
     setNewError('');
     setUploadMessage('');
     if (!newName.trim()) {
@@ -59,38 +121,50 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
       setNewError('PDF 파일을 선택해주세요.');
       return;
     }
-    const newMaterial: ReferenceMaterial = {
-      id: `ref_${Date.now()}`,
-      classId,
-      materialName: newName.trim(),
-      fileName: newFile.name,
-      pageOffset: Math.max(0, Number(newOffsetInput) - 1 || 0),
-      uploadedAt: todayStr(),
-    };
-    setMaterials((prev) => [...prev, newMaterial]);
-    setUploadMessage(`✅ '${newMaterial.materialName}' 등록 완료`);
-    setNewName('');
-    setNewFile(null);
-    setNewOffsetInput('1');
-    setNewAutoMessage('');
+    const offset = Math.max(0, Number(newOffsetInput) - 1 || 0);
+    setUploading(true);
+    try {
+      const saved = await saveReferenceMaterial(classId, newName, newFile, offset);
+      await refresh();
+      setUploadMessage(`✅ '${saved.materialName}' 등록 완료 (전체 ${saved.pageCount}페이지)`);
+      setNewName('');
+      setNewFile(null);
+      setFileInputKey((k) => k + 1);
+      setNewOffsetInput('1');
+    } catch (err) {
+      setNewError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
   }
 
-  function handleDelete(id: string) {
-    setMaterials((prev) => prev.filter((m) => m.id !== id));
+  async function handleDelete(material: ReferenceMaterial) {
+    if (!window.confirm(`'${material.materialName}'을(를) 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    setDeletingId(material.id);
+    try {
+      await deleteReferenceMaterial(material);
+      await refresh();
+    } catch (err) {
+      setRowError((prev) => ({ ...prev, [material.id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
-  function handleAutoDetectExisting(id: string) {
-    setOffsetInputs((prev) => ({ ...prev, [id]: '2' }));
-    setOffsetAutoMessages((prev) => ({ ...prev, [id]: '✅ 자동 재감지 완료 (데모) — 표지 1장 감지' }));
-  }
-
-  function handleSaveOffset(id: string) {
-    const value = offsetInputs[id];
-    const material = materials.find((m) => m.id === id);
-    if (value === undefined || !material) return;
+  async function handleSaveOffset(material: ReferenceMaterial) {
+    const value = offsetInputs[material.id];
+    if (value === undefined) return;
     const nextOffset = Math.max(0, Number(value) - 1 || 0);
-    setMaterials((prev) => prev.map((m) => (m.id === id ? { ...m, pageOffset: nextOffset } : m)));
-    setOffsetSavedMessages((prev) => ({ ...prev, [id]: '저장했습니다. 다음 페이지 확인부터 적용됩니다.' }));
+    setOffsetSavingId(material.id);
+    try {
+      await updateReferenceMaterialOffset(material.id, nextOffset);
+      await refresh();
+      setOffsetSavedMessages((prev) => ({ ...prev, [material.id]: '저장했습니다. 다음 페이지 확인부터 적용됩니다.' }));
+    } catch (err) {
+      setRowError((prev) => ({ ...prev, [material.id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setOffsetSavingId(null);
+    }
   }
 
   return (
@@ -104,25 +178,33 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
           <p className={styles.caption}>
             문제집/프린트 PDF를 미리 올려두면, 학생이 인증샷을 올렸을 때 AI가 손글씨/인쇄 숫자를 읽는 대신 사진을 실제
             페이지 이미지와 직접 비교해서 몇 쪽인지 찾아줍니다 — 훨씬 정확합니다. 아래에서 등록하는 '문제집/프린트
-            이름'이 과제 항목의 이름과 정확히 같아야 자동으로 연결됩니다. 문제집이 끝나면 삭제 후 다음 문제집으로
-            교체하세요.
+            이름'이 과제 항목의 이름과 정확히 같아야 자동으로 연결됩니다. 문제집이 끝나면 같은 이름으로 다시
+            업로드하면 교체됩니다.
           </p>
 
-          {classMaterials.length > 0 ? (
+          {loading && <p className={styles.caption}>불러오는 중...</p>}
+          {loadError && <p className={styles.errorText}>목록을 불러오지 못했습니다: {loadError}</p>}
+
+          {!loading && materials.length > 0 ? (
             <>
               <h4 className={styles.subTitle}>등록된 자료</h4>
-              {classMaterials.map((m) => (
+              {materials.map((m) => (
                 <div key={m.id} className={styles.materialRow}>
                   <div className={styles.materialInfo}>
                     <span className={styles.materialIcon}>📄</span>
                     <span>
-                      {m.materialName}
+                      {m.materialName} · 전체 {m.pageCount}페이지
                       {m.pageOffset > 0 && ` · 인쇄 1페이지 = PDF ${m.pageOffset + 1}번째 장`}
                       {' '}(업로드 {m.uploadedAt})
                     </span>
                   </div>
-                  <button type="button" className={styles.deleteButton} onClick={() => handleDelete(m.id)}>
-                    삭제
+                  <button
+                    type="button"
+                    className={styles.deleteButton}
+                    onClick={() => handleDelete(m)}
+                    disabled={deletingId === m.id}
+                  >
+                    {deletingId === m.id ? '삭제 중...' : '삭제'}
                   </button>
 
                   <button
@@ -137,14 +219,8 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
                     <div className={styles.offsetBody}>
                       <p className={styles.caption}>
                         표지·목차 등이 앞에 있어서 '인쇄된 1페이지'가 PDF 파일 자체의 첫 장이 아니라면 여기서
-                        고치세요. '자동 재감지'를 누르면 AI가 다시 읽어서 값을 채워줍니다 — 안 밀려 있으면 그대로
-                        두면 됩니다.
+                        고치세요. 안 밀려 있으면 그대로 두면 됩니다.
                       </p>
-                      <button type="button" className={styles.smallButton} onClick={() => handleAutoDetectExisting(m.id)}>
-                        🤖 자동 재감지
-                      </button>
-                      {offsetAutoMessages[m.id] && <p className={styles.successText}>{offsetAutoMessages[m.id]}</p>}
-
                       <div className={styles.field}>
                         <label className={styles.label}>PDF 파일에서 '인쇄 1페이지'가 실제로 몇 번째 장인가요?</label>
                         <input
@@ -155,17 +231,34 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
                           onChange={(e) => setOffsetInputs((prev) => ({ ...prev, [m.id]: e.target.value }))}
                         />
                       </div>
-                      <button type="button" className={styles.smallButton} onClick={() => handleSaveOffset(m.id)}>
-                        보정값 저장
+                      <button
+                        type="button"
+                        className={styles.smallButton}
+                        onClick={() => handleSaveOffset(m)}
+                        disabled={offsetSavingId === m.id}
+                      >
+                        {offsetSavingId === m.id ? '저장 중...' : '보정값 저장'}
+                      </button>{' '}
+                      <button
+                        type="button"
+                        className={styles.smallButton}
+                        disabled
+                        title="AI 자동 감지는 다음 단계(서버 연동)에서 연결됩니다. 지금은 위에 직접 입력해주세요."
+                      >
+                        🤖 자동 재감지 (다음 단계 예정)
                       </button>
                       {offsetSavedMessages[m.id] && <p className={styles.successText}>{offsetSavedMessages[m.id]}</p>}
                     </div>
                   )}
+                  {rowError[m.id] && <p className={styles.errorText}>{rowError[m.id]}</p>}
                 </div>
               ))}
             </>
           ) : (
-            <p className={styles.caption}>아직 등록된 자료가 없습니다. 등록 안 해도 기존 방식(사진 속 숫자 읽기)으로 그대로 동작합니다.</p>
+            !loading &&
+            !loadError && (
+              <p className={styles.caption}>아직 등록된 자료가 없습니다. 등록 안 해도 기존 방식(사진 속 숫자 읽기)으로 그대로 동작합니다.</p>
+            )
           )}
 
           <h4 className={styles.subTitle}>새 자료 등록</h4>
@@ -183,23 +276,33 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
 
           <div className={styles.field}>
             <label className={styles.label}>PDF 파일</label>
-            <input
-              type="file"
-              accept="application/pdf"
-              className={styles.fileInput}
-              onChange={(e) => setNewFile(e.target.files?.[0] ?? null)}
-            />
+            <div
+              className={`${styles.dropzone} ${isDragging ? styles.dropzoneActive : ''}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              {newFile ? (
+                <p className={styles.dropzoneText}>
+                  📄 {newFile.name}
+                  <br />
+                  (다시 클릭하거나 새 파일을 끌어다 놓으면 선택이 바뀝니다)
+                </p>
+              ) : (
+                <p className={styles.dropzoneText}>여기로 PDF 파일을 끌어다 놓거나, 클릭해서 선택하세요</p>
+              )}
+              <input
+                key={fileInputKey}
+                type="file"
+                accept="application/pdf"
+                className={styles.hiddenFileInput}
+                onChange={handleFileInputChange}
+              />
+            </div>
           </div>
 
-          {newFile && (
-            <button type="button" className={styles.smallButton} onClick={handleAutoDetectNew}>
-              🤖 페이지 번호 자동 감지 (추천)
-            </button>
-          )}
-          {newAutoMessage && <p className={styles.successText}>{newAutoMessage}</p>}
-
           <div className={styles.field}>
-            <label className={styles.label}>PDF 파일에서 '인쇄된 1페이지'가 실제로 몇 번째 장인가요?</label>
+            <label className={styles.label}>PDF 파일에서 '인쇄된 1페이지'가 실제로 몇 번째 장인가요? (모르면 1로 두세요)</label>
             <input
               type="number"
               className={styles.numberInput}
@@ -209,10 +312,19 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
             />
           </div>
 
+          <button
+            type="button"
+            className={styles.smallButton}
+            disabled
+            title="AI 자동 감지는 다음 단계(서버 연동)에서 연결됩니다. 지금은 위에 직접 입력해주세요."
+          >
+            🤖 페이지 번호 자동 감지 (다음 단계 예정)
+          </button>
+
           {newError && <p className={styles.errorText}>{newError}</p>}
 
-          <button type="button" className={styles.uploadButton} onClick={handleUpload}>
-            업로드
+          <button type="button" className={styles.uploadButton} onClick={handleUpload} disabled={uploading}>
+            {uploading ? '업로드 중...' : '업로드'}
           </button>
           {uploadMessage && <p className={styles.successText}>{uploadMessage}</p>}
         </div>
