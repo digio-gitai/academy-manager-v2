@@ -116,3 +116,63 @@
   color: var(--color-primary);
   font-weight: 700;
 }
+
+/* [2026-08-31] 3단계(실제 DB 연동) 추가분 — 항목 나열형 폼 + 제출 버튼 */
+.errorText {
+  font-size: 14px;
+  color: #b3261e;
+  line-height: 1.6;
+}
+
+.hintText {
+  font-size: 12px;
+  color: var(--color-text-faint);
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+
+.errorBox {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(179, 38, 30, 0.08);
+  border: 1px solid rgba(179, 38, 30, 0.25);
+}
+
+.errorLine {
+  font-size: 13px;
+  color: #b3261e;
+  margin: 2px 0;
+}
+
+.footer {
+  flex: none;
+  padding: 16px 24px 26px;
+  background: var(--color-surface);
+  border-top: 1px solid rgba(31, 61, 43, 0.08);
+}
+
+.submitButton {
+  width: 100%;
+  height: 52px;
+  border-radius: 12px;
+  border: none;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--color-accent);
+  color: var(--color-primary);
+}
+
+.submitButton:disabled {
+  background: rgba(31, 61, 43, 0.08);
+  color: rgba(31, 61, 43, 0.35);
+  cursor: not-allowed;
+}
+
+.summaryItemRow {
+  font-size: 13px;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin: 4px 0;
+}

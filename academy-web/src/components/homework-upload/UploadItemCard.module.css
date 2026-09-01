@@ -1,0 +1,188 @@
+.card {
+  background: var(--color-white);
+  border: 2px solid var(--color-border);
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 6px 18px rgba(31, 61, 43, 0.06);
+}
+
+.card[data-done='true'] {
+  border-color: var(--color-accent);
+}
+
+.headRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 4px;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-faint);
+  background: var(--color-tint);
+  border-radius: 100px;
+  padding: 3px 10px;
+  margin-bottom: 6px;
+}
+
+.materialName {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.description {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.doneMark {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.doneMarkIcon {
+  color: var(--color-primary);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.fullNotice {
+  font-size: 13px;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin: 8px 0;
+}
+
+.pageRangeBlock {
+  margin: 10px 0;
+}
+
+.progressCaption {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0 0 10px;
+}
+
+.stepperRow {
+  display: flex;
+  gap: 12px;
+}
+
+.stepper {
+  flex: 1;
+}
+
+.stepperLabel {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-faint);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.stepperControl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-tint);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.stepperBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-white);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.stepperBtn:disabled {
+  background: rgba(31, 61, 43, 0.2);
+  cursor: not-allowed;
+}
+
+.stepperValue {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
+  min-width: 28px;
+  text-align: center;
+}
+
+.photoNeedCaption {
+  font-size: 12px;
+  color: var(--color-primary);
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+.mutedCaption {
+  font-size: 12px;
+  color: var(--color-text-faint);
+  margin: 8px 0 0;
+}
+
+.remainingCaption {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 6px 0 0;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 10px 0;
+  cursor: pointer;
+}
+
+.checkboxRow input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
+}
+
+.noteInput {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(31, 61, 43, 0.15);
+  background: var(--color-white);
+  font-size: 13px;
+  color: var(--color-primary);
+}
+
+.noteInput::placeholder {
+  color: var(--color-text-faint);
+}
+
+.existingPhotoCaption {
+  font-size: 12px;
+  color: var(--color-text-faint);
+  margin: 10px 0 0;
+}

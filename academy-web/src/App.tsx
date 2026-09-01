@@ -20,11 +20,12 @@ function App() {
     <Routes>
       {/* 2026-08-26: 루트("/")가 학생용 과제 인증 mock 화면이라 개발 중
           매번 localhost:5173으로 들어오면 그 화면부터 보이는 게 불편하다는
-          피드백을 받아 선생님용 대시보드로 리다이렉트하도록 변경함. 실제
-          운영에서는 학부모/학생이 SMS로 받는 링크가 토큰 파라미터를 포함해서
-          이 루트 경로로 오는 구조가 될 예정인데, 그 토큰 연동은 아직 안
-          되어 있고(hw_ 관련 DB 연동 단계에서 진행 예정) 지금은 순수 mock UI라
-          "/upload" 경로로 옮겨서 미리보기용으로만 남겨둠. */}
+          피드백을 받아 선생님용 대시보드로 리다이렉트하도록 변경함.
+          2026-08-31: "/upload" 화면을 실제 dev DB(hw_ 테이블)에 연동함 —
+          "/upload?hw=업로드토큰" 형태로 접속하면 그 학생의 실제 과제 항목이
+          뜬다(토큰은 hw_submissions.upload_token, 테스트하려면 Supabase
+          SQL Editor에서 실제 값을 하나 조회해서 써야 함). 운영 전환 시
+          루트 경로를 이 화면으로 바꿀지는 나중에 결정. */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/upload" element={<AssignmentUpload />} />
       <Route path="/parent-report" element={<ParentReport />} />

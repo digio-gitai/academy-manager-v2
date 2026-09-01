@@ -69,3 +69,31 @@ export async function deleteReferencePdf(path: string): Promise<void> {
     throw new Error(`참조 PDF 삭제 실패: ${describeStorageError(error)}`);
   }
 }
+
+/**
+ * [2026-08-31] 학생이 올리는 인증 사진을 업로드 전에 적당히 줄인다(긴 변
+ * 1600px, JPEG 70%) — 운영(스트림릿)의 _compress_photo_to_data_uri()와 같은
+ * 의도. 휴대폰 원본 사진(수 MB)을 그대로 올리면 느린 통신 환경에서 오래
+ * 걸리므로, 브라우저 Canvas로 리사이즈+재인코딩해서 용량을 줄인다.
+ * imageOrientation: 'from-image'로 휴대폰 사진의 EXIF 회전 정보를 반영해서
+ * 옆으로 눕는 문제를 방지한다. 디코딩 실패 등으로 압축이 안 되면 원본
+ * 파일을 그대로 반환(제출 자체는 막지 않음).
+ */
+export async function compressPhotoForUpload(file: File, maxDim = 1600, quality = 0.7): Promise<Blob> {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    return blob ?? file;
+  } catch {
+    return file;
+  }
+}
