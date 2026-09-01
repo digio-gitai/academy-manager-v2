@@ -106,6 +106,12 @@
   margin: -4px 0 12px;
 }
 
+.comingSoonNote {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 8px 0 0;
+}
+
 .pageBlock {
   margin-top: 14px;
   padding-top: 14px;

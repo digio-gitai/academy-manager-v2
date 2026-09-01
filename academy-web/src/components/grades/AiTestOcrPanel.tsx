@@ -14,6 +14,7 @@ import type {
   TestQuestionDraft,
   QuestionType,
   DifficultyLevel,
+  CognitiveDomain,
   TestListItem,
 } from '../../lib/testAnalysis';
 import { TestResultAssignPanel } from './TestResultAssignPanel';
@@ -22,6 +23,7 @@ import styles from './AiTestOcrPanel.module.css';
 const TEST_TYPE_OPTIONS = ['일일테스트', '주간테스트', '월간테스트', '단원테스트', '기타'];
 const QUESTION_TYPE_OPTIONS: QuestionType[] = ['객관식', '서술형'];
 const DIFFICULTY_OPTIONS: DifficultyLevel[] = ['A', 'B', 'C', 'D', 'E'];
+const COGNITIVE_OPTIONS: CognitiveDomain[] = ['계산', '이해', '추론', '해결'];
 
 function todayStr(): string {
   const d = new Date();
@@ -210,6 +212,9 @@ export function AiTestOcrPanel() {
           difficulty: (DIFFICULTY_OPTIONS.includes(q.difficulty as DifficultyLevel)
             ? q.difficulty
             : 'C') as DifficultyLevel,
+          cognitiveDomain: (COGNITIVE_OPTIONS.includes(q.cognitiveDomain as CognitiveDomain)
+            ? q.cognitiveDomain
+            : '미분류') as CognitiveDomain,
         }));
       setEditQuestions(drafts);
       setRefinedText(result.refinedText);
@@ -240,7 +245,14 @@ export function AiTestOcrPanel() {
       : '1';
     setEditQuestions((prev) => [
       ...prev,
-      { questionNumber: nextNumber, topic: '미분류', method: '', questionType: '객관식', difficulty: 'C' },
+      {
+        questionNumber: nextNumber,
+        topic: '미분류',
+        method: '',
+        questionType: '객관식',
+        difficulty: 'C',
+        cognitiveDomain: '미분류',
+      },
     ]);
   }
 
@@ -344,6 +356,7 @@ export function AiTestOcrPanel() {
                       <th>단원</th>
                       <th>풀이유형</th>
                       <th>난이도</th>
+                      <th>인지영역</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -354,6 +367,7 @@ export function AiTestOcrPanel() {
                         <td>{q.topic}</td>
                         <td>{q.method}</td>
                         <td>{q.difficulty}</td>
+                        <td>{q.cognitiveDomain}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -442,6 +456,7 @@ export function AiTestOcrPanel() {
                   <th>단원</th>
                   <th>풀이유형</th>
                   <th>난이도</th>
+                  <th>인지영역</th>
                   <th></th>
                 </tr>
               </thead>
@@ -490,6 +505,17 @@ export function AiTestOcrPanel() {
                         onChange={(e) => updateQuestion(idx, { difficulty: e.target.value as DifficultyLevel })}
                       >
                         {DIFFICULTY_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        className={styles.cellSelect}
+                        value={q.cognitiveDomain}
+                        onChange={(e) => updateQuestion(idx, { cognitiveDomain: e.target.value as CognitiveDomain })}
+                      >
+                        {COGNITIVE_OPTIONS.map((opt) => (
                           <option key={opt} value={opt}>{opt}</option>
                         ))}
                       </select>
@@ -596,6 +622,16 @@ export function AiTestOcrPanel() {
             totalQuestions={activeTest.total}
             questionNumbers={activeTest.questionNumbers}
           />
+
+          <div className={styles.pageBlock}>
+            <div className={styles.pageLabel}>📄 오답노트 · 유사문제 PDF</div>
+            <button type="button" className={styles.extractButton} disabled title="다음 단계에서 연결됩니다">
+              오답노트 생성 (준비 중)
+            </button>
+            <p className={styles.comingSoonNote}>
+              학생별 오답노트(유사문제 포함) PDF 생성은 아직 준비 중인 기능입니다. 추후 개발 예정입니다.
+            </p>
+          </div>
         </div>
       )}
     </div>
