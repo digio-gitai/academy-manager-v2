@@ -137,7 +137,7 @@ export function AssignmentUpload() {
     setSubmitErrors([]);
     setSubmitting(true);
     try {
-      const res = await submitUpload(meta.submissionId, payload);
+      const res = await submitUpload(meta.submissionId, payload, items, meta.classId);
       setResult(res);
       const its = await fetchUploadItems(meta);
       setItems(its);

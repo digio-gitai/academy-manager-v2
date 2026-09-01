@@ -217,6 +217,59 @@ export async function updateReferenceMaterialOffset(id: number, pageOffset: numb
   if (error) throw new Error(`보정값 저장에 실패했습니다: ${describeError(error)}`);
 }
 
+// [2026-09-01] 과제인증 4단계(2/3): 학생 사진↔참조 PDF 페이지 이미지 대조용
+// 후보 이미지 렌더링. 스트림릿 hw_reference.py의 get_reference_page_images()
+// 대응 — page_offset 보정 적용, 범위가 너무 넓으면(15페이지 초과) 빈 배열을
+// 돌려줘서 호출한 쪽(hwUpload.ts)이 텍스트 인식 방식으로 자동 폴백하게 함.
+export async function getReferencePageImages(
+  material: ReferenceMaterial,
+  pageStart: number,
+  pageEnd: number,
+  maxCandidatePages = 15
+): Promise<{ page: number; image: string }[]> {
+  const start = Math.max(1, Math.floor(pageStart));
+  const end = Math.max(start, Math.floor(pageEnd));
+  if (end - start + 1 > maxCandidatePages) return [];
+
+  let buffer: ArrayBuffer;
+  try {
+    const resp = await fetch(material.fileUrl);
+    if (!resp.ok) return [];
+    buffer = await resp.arrayBuffer();
+  } catch {
+    return [];
+  }
+
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  } catch {
+    return [];
+  }
+  const total = pdf.numPages;
+
+  const images: { page: number; image: string }[] = [];
+  for (let pageNum = start; pageNum <= end; pageNum++) {
+    // 인쇄된 페이지 번호 → PDF 파일 내 1-based 장 번호로 변환.
+    const filePageIndex = pageNum - 1 + material.pageOffset; // 0-based
+    if (filePageIndex < 0 || filePageIndex >= total) continue;
+    try {
+      const page = await pdf.getPage(filePageIndex + 1);
+      const viewport = page.getViewport({ scale: 1.6 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const context = canvas.getContext('2d');
+      if (!context) continue;
+      await page.render({ canvasContext: context, viewport }).promise;
+      images.push({ page: pageNum, image: canvas.toDataURL('image/jpeg', 0.85) });
+    } catch {
+      continue;
+    }
+  }
+  return images;
+}
+
 export async function deleteReferenceMaterial(material: ReferenceMaterial): Promise<void> {
   const { error } = await supabase.from('hw_reference_materials').delete().eq('id', material.id);
   if (error) throw new Error(`참조 자료 삭제에 실패했습니다: ${describeError(error)}`);

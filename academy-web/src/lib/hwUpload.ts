@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { uploadHwPhoto, compressPhotoForUpload } from './hwStorage';
+import { fetchReferenceMaterials, getReferencePageImages, type ReferenceMaterial } from './hwReference';
 import type { HwItemType } from '../types/homework';
 
 // [2026-08-31] 학생용 과제 업로드 화면(3단계) 데이터/로직 레이어.
@@ -21,6 +22,7 @@ export interface HwUploadMeta {
   submissionId: string;
   assignmentId: string;
   studentId: string;
+  classId: string;
   status: HwUploadStatus;
   title: string;
   dueDate: string;
@@ -151,6 +153,7 @@ export async function fetchUploadMeta(token: string): Promise<HwUploadMeta | nul
     submissionId: String(row.id),
     assignmentId: String(row.assignment_id),
     studentId: String(row.student_id),
+    classId: String(assignment?.class_id ?? ''),
     status: row.status,
     title: assignment?.title ?? '',
     dueDate: assignment?.due_date ?? '',
@@ -296,13 +299,76 @@ export function deriveItemState(item: HwUploadItem, raw: RawItemInput): ItemForm
   };
 }
 
-/** 항목별 완료 체크·메모·새 사진 저장 + 전체 제출 상태 갱신 — hw_upload.py save_submission() 대응. */
-export async function submitUpload(submissionId: string, items: HwUploadItemPayload[]): Promise<HwUploadResult> {
+/**
+ * 사진 한 장에 대해 AI 1차 페이지 검증을 실행하고 결과를 hw_photos에 기록한다.
+ * 스트림릿 hw_photo_review.run_ai_page_check()에 대응 — 참조 자료가 있으면
+ * 사진↔페이지 이미지 대조(referencePages를 채워서 호출), 없으면 빈 배열로
+ * 호출해 Edge Function이 텍스트(인쇄 숫자 읽기) 방식으로 자동 전환하게 한다.
+ * 실패해도 예외를 던지지 않는다 — 이 검증은 어디까지나 참고용 1차 판단이라
+ * 실패하더라도 학생의 과제 제출 자체를 막으면 안 된다(호출부에서 그렇게
+ * 감싸 쓴다).
+ */
+async function verifyUploadedPhoto(
+  photoId: number,
+  photoUrl: string,
+  pageStart: number,
+  pageEnd: number,
+  referencePages: { page: number; image: string }[]
+): Promise<void> {
+  const { data, error } = await supabase.functions.invoke<{
+    guess?: string | null;
+    flag?: string;
+    message?: string;
+    error?: string;
+  }>('hw-verify-page', {
+    body: { photoUrl, pageStart, pageEnd, referencePages },
+  });
+  if (error || !data || data.error) return; // 참고용 기능이라 실패는 조용히 무시
+  await supabase
+    .from('hw_photos')
+    .update({ ai_page_guess: data.guess ?? null, ai_flag: data.flag ?? null })
+    .eq('id', photoId);
+}
+
+/**
+ * 항목별 완료 체크·메모·새 사진 저장 + 전체 제출 상태 갱신 — hw_upload.py
+ * save_submission() 대응.
+ *
+ * [2026-09-01] 과제인증 4단계(2/3): 사진을 저장한 직후, 그 항목이
+ * 페이지범위형(page_range)이면 AI 1차 페이지 검증을 자동으로 실행해서
+ * hw_photos.ai_page_guess/ai_flag를 채운다(스트림릿과 동일하게 "학생이
+ * 사진을 올리는 순간" 자동 실행). 반에 참조 PDF가 등록돼 있고 문제집 이름이
+ * 이 항목과 정확히 같으면 사진↔페이지 대조 방식을, 아니면 텍스트(인쇄 숫자
+ * 읽기) 방식을 자동으로 씀. 오답정리형 항목/페이지 정보가 없는 항목은 검증
+ * 대상이 아니라 건너뜀. 검증이 실패해도(네트워크 오류 등) 학생 제출 자체는
+ * 그대로 성공 처리된다 — 최종 확인은 어차피 선생님 몫이라 이 1차 검증은
+ * "최선을 다하되 실패해도 무방한" 부가 기능으로 다룬다.
+ */
+export async function submitUpload(
+  submissionId: string,
+  items: HwUploadItemPayload[],
+  itemsMeta: HwUploadItem[],
+  classId: string
+): Promise<HwUploadResult> {
   const submissionIdNum = Number(submissionId);
   const now = nowStr();
   let doneCount = 0;
   let anyDone = false;
   let allDone = true;
+
+  const metaById = new Map<string, HwUploadItem>(itemsMeta.map((it) => [it.itemId, it]));
+
+  // 이 반에 등록된 참조 자료 목록은 제출 전체에서 한 번만 조회(항목마다 매번
+  // 조회하지 않음). 조회 자체가 실패해도(예: 네트워크 문제) 참고용 기능이니
+  // 빈 목록으로 취급해서 전체가 텍스트 인식 방식으로 자연스럽게 폴백되게 함.
+  let referenceMaterials: ReferenceMaterial[] = [];
+  if (classId) {
+    try {
+      referenceMaterials = await fetchReferenceMaterials(classId);
+    } catch {
+      referenceMaterials = [];
+    }
+  }
 
   for (const it of items) {
     const status = it.done ? 'done' : 'not_done';
@@ -334,15 +400,41 @@ export async function submitUpload(submissionId: string, items: HwUploadItemPayl
     if (upsertErr) throw new Error(`저장에 실패했습니다: ${describeError(upsertErr)}`);
     const itemSubmissionId = (upserted as { id: number }).id;
 
+    const meta = metaById.get(it.itemId);
+    const isPageRange =
+      meta?.itemType === 'page_range' && meta.pageStart != null && meta.pageEnd != null && meta.pageStart <= meta.pageEnd;
+    const material = isPageRange
+      ? referenceMaterials.find((m) => m.materialName === meta!.materialName)
+      : undefined;
+    let referencePages: { page: number; image: string }[] = [];
+    if (isPageRange && material) {
+      try {
+        referencePages = await getReferencePageImages(material, meta!.pageStart!, meta!.pageEnd!);
+      } catch {
+        referencePages = [];
+      }
+    }
+
     for (let i = 0; i < it.newPhotos.length; i++) {
       const file = it.newPhotos[i];
       const blob = await compressPhotoForUpload(file);
       const path = `${submissionIdNum}/${it.itemId}/${Date.now()}_${i}.jpg`;
       const photoUrl = await uploadHwPhoto(blob, path);
-      const { error: photoErr } = await supabase
+      const { data: insertedPhoto, error: photoErr } = await supabase
         .from('hw_photos')
-        .insert({ item_submission_id: itemSubmissionId, photo_url: photoUrl, uploaded_at: now });
+        .insert({ item_submission_id: itemSubmissionId, photo_url: photoUrl, uploaded_at: now })
+        .select('id')
+        .single();
       if (photoErr) throw new Error(`사진 저장에 실패했습니다: ${describeError(photoErr)}`);
+
+      if (isPageRange) {
+        const photoId = (insertedPhoto as { id: number }).id;
+        try {
+          await verifyUploadedPhoto(photoId, photoUrl, meta!.pageStart!, meta!.pageEnd!, referencePages);
+        } catch {
+          // AI 1차 검증은 참고용일 뿐이라 실패해도 제출 자체는 계속 진행.
+        }
+      }
     }
   }
 
