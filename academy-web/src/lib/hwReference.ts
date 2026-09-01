@@ -5,6 +5,56 @@ import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { uploadReferencePdf, deleteReferencePdf } from './hwStorage';
 
+// [2026-09-01] 과제인증 4단계(1/3): 페이지 오프셋 자동 감지.
+// PDF → 이미지 렌더링은 브라우저에서 pdf.js로 직접 하고(visionOcr.ts와 동일
+// 패턴), 실제 GPT-4o Vision 판독만 Edge Function(hw-detect-page-offset)에
+// 맡긴다 — OpenAI 키를 브라우저에 노출하지 않기 위함(기존 원칙과 동일).
+async function renderPdfPagesToImages(buffer: ArrayBuffer, maxPages: number, scale: number): Promise<string[]> {
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const pageCount = Math.min(pdf.numPages, maxPages);
+  const images: string[] = [];
+  for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('이미지를 그릴 캔버스를 만들지 못했습니다.');
+    await page.render({ canvasContext: context, viewport }).promise;
+    images.push(canvas.toDataURL('image/jpeg', 0.85));
+  }
+  return images;
+}
+
+async function invokeDetectOffset(images: string[]): Promise<{ offset: number | null; detail: string }> {
+  const { data, error } = await supabase.functions.invoke<{
+    offset?: number | null;
+    detail?: string;
+    error?: string;
+  }>('hw-detect-page-offset', { body: { images } });
+  if (error) throw new Error(describeError(error));
+  if (!data) throw new Error('자동 감지 응답이 비어 있습니다.');
+  if (data.error) throw new Error(data.error);
+  return { offset: data.offset ?? null, detail: data.detail || '' };
+}
+
+/** 아직 업로드하지 않은 새 PDF(File)의 페이지 오프셋을 자동 감지한다. */
+export async function detectPageOffsetFromFile(file: File): Promise<{ offset: number | null; detail: string }> {
+  const buffer = await file.arrayBuffer();
+  const images = await renderPdfPagesToImages(buffer, 15, 1.3);
+  return invokeDetectOffset(images);
+}
+
+/** 이미 등록된 참조 자료(공개 URL)의 페이지 오프셋을 다시 감지한다("자동 재감지"). */
+export async function detectPageOffsetFromUrl(fileUrl: string): Promise<{ offset: number | null; detail: string }> {
+  const resp = await fetch(fileUrl);
+  if (!resp.ok) throw new Error('PDF 파일을 불러오지 못했습니다.');
+  const buffer = await resp.arrayBuffer();
+  const images = await renderPdfPagesToImages(buffer, 15, 1.3);
+  return invokeDetectOffset(images);
+}
+
 // [2026-08-30 성능 수정] 아래 GlobalWorkerOptions 설정이 빠져있어서 PDF 페이지
 // 수를 셀 때(getPdfPageCount) pdf.js가 "워커 스레드"를 못 찾고 브라우저 메인
 // 스레드에서 느리게 처리했음(화면이 멈춘 것처럼 오래 걸리는 원인) —

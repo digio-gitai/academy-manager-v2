@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { ReferenceMaterial } from '../../lib/hwReference';
 import {
   deleteReferenceMaterial,
+  detectPageOffsetFromFile,
+  detectPageOffsetFromUrl,
   fetchReferenceMaterials,
   saveReferenceMaterial,
   updateReferenceMaterialOffset,
@@ -20,10 +22,12 @@ interface ReferenceUploadSectionProps {
  * 파일 내 장 번호"가 어긋나는 경우를 위한 page_offset 보정도 포함.
  *
  * [2026-08-30] dev DB(hw_reference_materials) + Supabase Storage(hw-reference-pdfs
- * 버킷)에 실제로 연결함(lib/hwReference.ts). "🤖 자동 감지" 버튼은 화면에 그대로
- * 남겨두되(사용자 요청 — 아예 안 보이면 기능이 없어진 것처럼 보임) disabled 처리 +
- * title 툴팁으로 "다음 단계에서 연결 예정"임을 밝혀둠. 가짜 성공 메시지는 보여주지
- * 않음. 수동 보정 입력/저장은 실제로 동작함.
+ * 버킷)에 실제로 연결함(lib/hwReference.ts). 수동 보정 입력/저장은 실제로 동작함.
+ *
+ * [2026-09-01] "🤖 자동 감지"/"자동 재감지" 버튼을 실제로 연결함(과제인증
+ * 4단계의 1/3) — Edge Function hw-detect-page-offset 호출, 결과로 오프셋
+ * 입력값을 자동 채움(hw_reference.py의 auto_detect_page_offset과 동일 로직).
+ * PDF→이미지 렌더링은 브라우저(pdf.js)에서, GPT-4o 판독만 서버(Edge Function)에서.
  *
  * [2026-08-30] PDF 파일 선택 칸에 드래그 앤 드롭 추가 — AiTestOcrPanel.tsx의
  * 기존 드롭존 패턴(isDragging state + onDragOver/onDragLeave/onDrop)을 그대로
@@ -50,6 +54,12 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
   const [offsetSavingId, setOffsetSavingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [rowError, setRowError] = useState<Record<number, string>>({});
+
+  // [2026-09-01] 과제인증 4단계(1/3): 페이지 오프셋 자동 감지 상태.
+  const [detectingNew, setDetectingNew] = useState(false);
+  const [detectNewMessage, setDetectNewMessage] = useState('');
+  const [detectingId, setDetectingId] = useState<number | null>(null);
+  const [detectMessages, setDetectMessages] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (!classId || !isOpen) return;
@@ -107,6 +117,46 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
     if (file) {
       applyPickedFile(file);
       setFileInputKey((k) => k + 1);
+    }
+  }
+
+  async function handleDetectNewOffset() {
+    if (!newFile) return;
+    setDetectNewMessage('');
+    setDetectingNew(true);
+    try {
+      const result = await detectPageOffsetFromFile(newFile);
+      if (result.offset !== null) {
+        setNewOffsetInput(String(result.offset + 1));
+        setDetectNewMessage(`✅ 자동 감지 완료 — ${result.detail} 아래 숫자를 확인해보세요.`);
+      } else {
+        setDetectNewMessage(`⚠️ 자동 감지 실패: ${result.detail}`);
+      }
+    } catch (err) {
+      setDetectNewMessage(`⚠️ 자동 감지 중 오류: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDetectingNew(false);
+    }
+  }
+
+  async function handleDetectExistingOffset(material: ReferenceMaterial) {
+    setDetectMessages((prev) => ({ ...prev, [material.id]: '' }));
+    setDetectingId(material.id);
+    try {
+      const result = await detectPageOffsetFromUrl(material.fileUrl);
+      if (result.offset !== null) {
+        setOffsetInputs((prev) => ({ ...prev, [material.id]: String(result.offset! + 1) }));
+        setDetectMessages((prev) => ({ ...prev, [material.id]: `✅ 자동 감지 완료 — ${result.detail}` }));
+      } else {
+        setDetectMessages((prev) => ({ ...prev, [material.id]: `⚠️ 자동 감지 실패: ${result.detail}` }));
+      }
+    } catch (err) {
+      setDetectMessages((prev) => ({
+        ...prev,
+        [material.id]: `⚠️ 자동 감지 중 오류: ${err instanceof Error ? err.message : String(err)}`,
+      }));
+    } finally {
+      setDetectingId(null);
     }
   }
 
@@ -242,12 +292,13 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
                       <button
                         type="button"
                         className={styles.smallButton}
-                        disabled
-                        title="AI 자동 감지는 다음 단계(서버 연동)에서 연결됩니다. 지금은 위에 직접 입력해주세요."
+                        onClick={() => handleDetectExistingOffset(m)}
+                        disabled={detectingId === m.id}
                       >
-                        🤖 자동 재감지 (다음 단계 예정)
+                        {detectingId === m.id ? '감지 중...' : '🤖 자동 재감지'}
                       </button>
                       {offsetSavedMessages[m.id] && <p className={styles.successText}>{offsetSavedMessages[m.id]}</p>}
+                      {detectMessages[m.id] && <p className={styles.caption}>{detectMessages[m.id]}</p>}
                     </div>
                   )}
                   {rowError[m.id] && <p className={styles.errorText}>{rowError[m.id]}</p>}
@@ -315,11 +366,12 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
           <button
             type="button"
             className={styles.smallButton}
-            disabled
-            title="AI 자동 감지는 다음 단계(서버 연동)에서 연결됩니다. 지금은 위에 직접 입력해주세요."
+            onClick={handleDetectNewOffset}
+            disabled={!newFile || detectingNew}
           >
-            🤖 페이지 번호 자동 감지 (다음 단계 예정)
+            {detectingNew ? '감지 중...' : '🤖 페이지 번호 자동 감지 (추천)'}
           </button>
+          {detectNewMessage && <p className={styles.caption}>{detectNewMessage}</p>}
 
           {newError && <p className={styles.errorText}>{newError}</p>}
 
