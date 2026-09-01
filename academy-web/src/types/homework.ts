@@ -37,6 +37,28 @@ export interface HwSubmissionItemState {
 
 export type HwSubmissionStatus = 'not_viewed' | 'viewed' | 'done';
 
+// [2026-09-01] 과제인증 4단계(3/3): 선생님 화면에 실제 AI 검증 결과를 사진
+// 한 장 한 장 단위로 보여주기 위한 타입 — 스트림릿 hw_photo_review.py의
+// 화면 구조(항목별로 묶어서, 사진마다 AI 배지 + 개별 확인 버튼)를 그대로 따름.
+export interface HwPhotoDetail {
+  id: string;
+  photoUrl: string;
+  uploadedAt: string;
+  aiPageGuess: string | null;
+  aiFlag: string | null;
+  teacherVerified: boolean;
+  teacherVerifiedAt: string | null;
+}
+
+export interface HwItemPhotoGroup {
+  itemId: string;
+  materialName: string;
+  itemType: HwItemType;
+  pageStart?: number;
+  pageEnd?: number;
+  photos: HwPhotoDetail[];
+}
+
 export interface HwSubmission {
   id: string;
   assignmentId: string;

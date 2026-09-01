@@ -7,7 +7,6 @@ import {
   ensureAssignment,
   deleteHwItem as deleteHwItemDb,
   deleteAssignment as deleteAssignmentDb,
-  toggleTeacherVerified as toggleTeacherVerifiedDb,
 } from '../lib/homework';
 import type { ClassInfo } from '../types/classManagement';
 import type { HwAssignment, HwItem, HwSubmission } from '../types/homework';
@@ -50,7 +49,10 @@ function draftToItemInput(d: ItemRowDraft) {
  * 다른 경로(예: 스트림릿 쪽 야간 자동발송)로 이미 발송됐을 수 있어서다.
  *
  * 선생님 사진 확인(✅ 선생님 확인 버튼)은 외부 API 호출이 없는 단순 DB
- * 갱신이라 실제로 반영됨 — lib/homework.ts의 toggleTeacherVerified() 참고.
+ * 갱신이라 실제로 반영됨 — lib/homework.ts의 setPhotoTeacherVerified() 참고
+ * (2026-09-01부터 제출 1건 전체가 아니라 사진 1장 단위로 확인함).
+ * AI 1차 사진 판독(hw_photo_review.py 대응)도 2026-09-01부터 실제 GPT-4o
+ * Vision 연동 완료 — RecentAssignmentsPanel의 "제출 사진 보기"에서 확인.
  *
  * 2026-08-26 수정: 공통 과제를 먼저 저장하지 않아도 개별 과제만 바로 부여할
  * 수 있어야 한다는 요청에 따라, handleSaveIndividual이 currentAssignment가
@@ -162,11 +164,6 @@ export function HomeworkCertification() {
     // (RecentAssignmentsPanel이 자체적으로 "(데모)" 안내 문구를 보여줌).
   }
 
-  async function handleToggleTeacherVerified(submissionId: string) {
-    await toggleTeacherVerifiedDb(submissionId);
-    reload();
-  }
-
   function handleBulkSms(assignmentId: string) {
     const relevant = submissions.filter((s) => s.assignmentId === assignmentId);
     const sentNames: string[] = [];
@@ -251,7 +248,7 @@ export function HomeworkCertification() {
         onDeleteItem={handleDeleteItem}
         onDeleteAssignment={handleDeleteAssignment}
         onSendUploadLink={handleSendUploadLink}
-        onToggleTeacherVerified={handleToggleTeacherVerified}
+        onPhotosChanged={reload}
         onBulkSms={handleBulkSms}
       />
     </>

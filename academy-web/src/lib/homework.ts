@@ -2,6 +2,7 @@ import { supabase } from './supabaseClient';
 import type {
   HwAssignment,
   HwItem,
+  HwItemPhotoGroup,
   HwItemStatus,
   HwItemType,
   HwSubmission,
@@ -524,6 +525,65 @@ export async function deleteHwItem(itemId: string): Promise<void> {
 /** 과제 1건 통째로 삭제 — hw_assign.py delete_assignment() 대응(대상학생·제출·항목 연쇄삭제). */
 export async function deleteAssignment(assignmentId: string): Promise<void> {
   const { error } = await supabase.from('hw_assignments').delete().eq('id', Number(assignmentId));
+  if (error) throw error;
+}
+
+/**
+ * 제출 1건의 사진들을 항목(문제집/프린트)별로 묶어서 상세 조회 — 스트림릿
+ * hw_photo_review.render_photo_review()의 데이터 부분 대응. "제출 사진 보기"를
+ * 펼칠 때만 지연 조회한다(목록 전체를 미리 다 가져오지 않음, 다른 화면들과
+ * 동일한 패턴).
+ */
+export async function fetchSubmissionPhotoDetails(submissionId: string): Promise<HwItemPhotoGroup[]> {
+  const { data, error } = await supabase
+    .from('hw_item_submissions')
+    .select(
+      `
+        item_id,
+        hw_items ( material_name, item_type, page_start, page_end ),
+        hw_photos ( id, photo_url, uploaded_at, ai_page_guess, ai_flag, teacher_verified, teacher_verified_at )
+      `,
+    )
+    .eq('submission_id', Number(submissionId));
+  if (error) throw error;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (data as any[]) ?? [];
+  return rows.map((row) => {
+    const item = row.hw_items;
+    const photos = ((row.hw_photos as unknown[] | null) ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((p: any) => ({
+        id: String(p.id),
+        photoUrl: p.photo_url,
+        uploadedAt: p.uploaded_at ?? '',
+        aiPageGuess: p.ai_page_guess ?? null,
+        aiFlag: p.ai_flag ?? null,
+        teacherVerified: Boolean(p.teacher_verified),
+        teacherVerifiedAt: p.teacher_verified_at ?? null,
+      }))
+      .sort((a, b) => (a.uploadedAt < b.uploadedAt ? -1 : 1));
+    return {
+      itemId: String(row.item_id),
+      materialName: item?.material_name ?? '',
+      itemType: (item?.item_type as HwItemType) ?? 'page_range',
+      pageStart: item?.page_start ?? undefined,
+      pageEnd: item?.page_end ?? undefined,
+      photos,
+    };
+  });
+}
+
+/**
+ * 사진 한 장의 선생님 확인 여부를 개별로 바꾼다 — hw_photo_review.py
+ * mark_teacher_verified()와 동일(제출 1건 전체가 아니라 사진 1장 단위).
+ * 외부 API 호출 없는 단순 DB 값 갱신이라 실제로 반영함.
+ */
+export async function setPhotoTeacherVerified(photoId: string, verified: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('hw_photos')
+    .update({ teacher_verified: verified, teacher_verified_at: verified ? nowStr() : null })
+    .eq('id', Number(photoId));
   if (error) throw error;
 }
 

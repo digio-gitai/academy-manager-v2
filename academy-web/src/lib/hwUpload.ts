@@ -300,34 +300,67 @@ export function deriveItemState(item: HwUploadItem, raw: RawItemInput): ItemForm
 }
 
 /**
- * 사진 한 장에 대해 AI 1차 페이지 검증을 실행하고 결과를 hw_photos에 기록한다.
- * 스트림릿 hw_photo_review.run_ai_page_check()에 대응 — 참조 자료가 있으면
- * 사진↔페이지 이미지 대조(referencePages를 채워서 호출), 없으면 빈 배열로
- * 호출해 Edge Function이 텍스트(인쇄 숫자 읽기) 방식으로 자동 전환하게 한다.
- * 실패해도 예외를 던지지 않는다 — 이 검증은 어디까지나 참고용 1차 판단이라
- * 실패하더라도 학생의 과제 제출 자체를 막으면 안 된다(호출부에서 그렇게
- * 감싸 쓴다).
+ * 사진 한 장에 대해 AI 1차 페이지 검증을 실행하고 결과를 hw_photos에 기록한
+ * 뒤 그 결과를 반환한다 — 스트림릿 hw_photo_review.run_ai_page_check()에
+ * 대응. 반에 참조 PDF가 등록돼 있으면(materialName이 정확히 일치) 사진↔
+ * 페이지 이미지 대조 방식을, 없으면 텍스트(인쇄 숫자 읽기) 방식을 자동으로
+ * 쓴다. referenceMaterials를 미리 넘기면(같은 반 여러 사진을 한 번에 처리할
+ * 때, 예: submitUpload) 반복 조회를 피할 수 있고, 안 넘기면(예: 선생님 화면의
+ * "다시 확인" 버튼 — 사진 한 장만 다루므로) 이 함수가 classId로 직접 조회한다.
+ *
+ * [2026-09-01] 학생 업로드 자동 검증(submitUpload)과 선생님의 "다시 확인"
+ * 버튼(RecentAssignmentsPanel)이 이 함수 하나를 공유해서 쓴다 — 두 진입점이
+ * 서로 다른 검증 로직을 갖지 않도록 하기 위함.
+ *
+ * 실패해도 예외를 던지지 않는다 — 이 검증은 어디까지나 참고용 1차 판단이라,
+ * 실패하더라도 호출한 쪽(학생 제출/선생님 재확인)의 나머지 동작을 막으면 안
+ * 된다. 실패 시 guess/flag를 null로 반환하고 DB도 건드리지 않는다.
  */
-async function verifyUploadedPhoto(
+export async function runPageVerification(
   photoId: number,
   photoUrl: string,
+  classId: string,
+  materialName: string,
   pageStart: number,
   pageEnd: number,
-  referencePages: { page: number; image: string }[]
-): Promise<void> {
-  const { data, error } = await supabase.functions.invoke<{
-    guess?: string | null;
-    flag?: string;
-    message?: string;
-    error?: string;
-  }>('hw-verify-page', {
-    body: { photoUrl, pageStart, pageEnd, referencePages },
-  });
-  if (error || !data || data.error) return; // 참고용 기능이라 실패는 조용히 무시
-  await supabase
-    .from('hw_photos')
-    .update({ ai_page_guess: data.guess ?? null, ai_flag: data.flag ?? null })
-    .eq('id', photoId);
+  referenceMaterials?: ReferenceMaterial[]
+): Promise<{ guess: string | null; flag: string | null }> {
+  let materials = referenceMaterials;
+  if (!materials) {
+    try {
+      materials = classId ? await fetchReferenceMaterials(classId) : [];
+    } catch {
+      materials = [];
+    }
+  }
+  const material = materials.find((m) => m.materialName === materialName);
+
+  let referencePages: { page: number; image: string }[] = [];
+  if (material) {
+    try {
+      referencePages = await getReferencePageImages(material, pageStart, pageEnd);
+    } catch {
+      referencePages = [];
+    }
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke<{
+      guess?: string | null;
+      flag?: string;
+      message?: string;
+      error?: string;
+    }>('hw-verify-page', {
+      body: { photoUrl, pageStart, pageEnd, referencePages },
+    });
+    if (error || !data || data.error) return { guess: null, flag: null };
+    const guess = data.guess ?? null;
+    const flag = data.flag ?? null;
+    await supabase.from('hw_photos').update({ ai_page_guess: guess, ai_flag: flag }).eq('id', photoId);
+    return { guess, flag };
+  } catch {
+    return { guess: null, flag: null };
+  }
 }
 
 /**
@@ -403,17 +436,6 @@ export async function submitUpload(
     const meta = metaById.get(it.itemId);
     const isPageRange =
       meta?.itemType === 'page_range' && meta.pageStart != null && meta.pageEnd != null && meta.pageStart <= meta.pageEnd;
-    const material = isPageRange
-      ? referenceMaterials.find((m) => m.materialName === meta!.materialName)
-      : undefined;
-    let referencePages: { page: number; image: string }[] = [];
-    if (isPageRange && material) {
-      try {
-        referencePages = await getReferencePageImages(material, meta!.pageStart!, meta!.pageEnd!);
-      } catch {
-        referencePages = [];
-      }
-    }
 
     for (let i = 0; i < it.newPhotos.length; i++) {
       const file = it.newPhotos[i];
@@ -430,7 +452,15 @@ export async function submitUpload(
       if (isPageRange) {
         const photoId = (insertedPhoto as { id: number }).id;
         try {
-          await verifyUploadedPhoto(photoId, photoUrl, meta!.pageStart!, meta!.pageEnd!, referencePages);
+          await runPageVerification(
+            photoId,
+            photoUrl,
+            classId,
+            meta!.materialName,
+            meta!.pageStart!,
+            meta!.pageEnd!,
+            referenceMaterials
+          );
         } catch {
           // AI 1차 검증은 참고용일 뿐이라 실패해도 제출 자체는 계속 진행.
         }
