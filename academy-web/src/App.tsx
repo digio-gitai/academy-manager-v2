@@ -13,6 +13,7 @@ import { ConsultationLog } from './pages/ConsultationLog';
 import { SchoolInfo } from './pages/SchoolInfo';
 import { SettingsPage } from './pages/SettingsPage';
 import { ComingSoon } from './pages/ComingSoon';
+import { PastExamAnalyzer } from './pages/PastExamAnalyzer';
 import { AppLayout } from './components/layout/AppLayout';
 
 function App() {
@@ -42,7 +43,7 @@ function App() {
         <Route path="/tuition" element={<TuitionManagement />} />
         <Route path="/consultation" element={<ConsultationLog />} />
         <Route path="/reports" element={<GradeReport />} />
-        <Route path="/past-exams" element={<ComingSoon title="기출문제분석" />} />
+        <Route path="/past-exams" element={<PastExamAnalyzer />} />
         <Route path="/question-bank" element={<ComingSoon title="문제 은행" />} />
         <Route path="/homework" element={<HomeworkCertification />} />
         <Route path="/school-info" element={<SchoolInfo />} />
