@@ -8,6 +8,7 @@ import type { StudentProfile } from '../types/student';
 export const students: StudentProfile[] = [
   {
     id: 's1',
+    isPaused: false,
     name: '김지우',
     initial: '김',
     school: '압구정중학교',
@@ -38,6 +39,7 @@ export const students: StudentProfile[] = [
   },
   {
     id: 's2',
+    isPaused: false,
     name: '박서연',
     initial: '박',
     school: '압구정중학교',
@@ -64,6 +66,7 @@ export const students: StudentProfile[] = [
   },
   {
     id: 's3',
+    isPaused: false,
     name: '이준호',
     initial: '이',
     school: '영동중학교',
@@ -94,6 +97,7 @@ export const students: StudentProfile[] = [
   },
   {
     id: 's4',
+    isPaused: false,
     name: '최민서',
     initial: '최',
     school: '신사중학교',
@@ -121,6 +125,7 @@ export const students: StudentProfile[] = [
   },
   {
     id: 's5',
+    isPaused: false,
     name: '정하윤',
     initial: '정',
     school: '신사중학교',
@@ -146,6 +151,7 @@ export const students: StudentProfile[] = [
   },
   {
     id: 's6',
+    isPaused: false,
     name: '강예린',
     initial: '강',
     school: '청담고등학교',

@@ -36,6 +36,7 @@ interface StudentRow {
   pre_visit_progress: string | null;
   expectations: string | null;
   notes: string | null;
+  is_paused: boolean | null;
 }
 
 interface FlatScheduleEntry {
@@ -96,7 +97,7 @@ export async function fetchClasses(): Promise<ClassInfo[]> {
     supabase
       .from('students')
       .select(
-        'id, name, school, grade, class_id, registered_at, parent_phone, student_phone, pre_visit_progress, expectations, notes',
+        'id, name, school, grade, class_id, registered_at, parent_phone, student_phone, pre_visit_progress, expectations, notes, is_paused',
       )
       .order('name', { ascending: true }),
   ]);
@@ -108,9 +109,14 @@ export async function fetchClasses(): Promise<ClassInfo[]> {
     throw studentsRes.error;
   }
 
+  // 2026-09-02: 휴원(수업중지) 처리된 학생은 반별 학생 목록에서 제외한다 —
+  // 이 fetchClasses()가 출석 관리/과제 인증/성적 입력 대상 화면의 학생 목록으로
+  // 공용으로 쓰이기 때문에(app.py의 get_students_by_class()와 동일한 역할),
+  // 여기 한 곳만 고치면 그 화면들에 자연스럽게 다 반영된다. 학생 명부
+  // (StudentRoster)는 별도의 fetchStudents()를 쓰므로 휴원 학생도 계속 보임.
   const studentsByClass = new Map<number, Omit<ClassStudentInfo, 'className'>[]>();
   for (const row of (studentsRes.data as unknown as StudentRow[]) ?? []) {
-    if (row.class_id == null) continue;
+    if (row.class_id == null || row.is_paused) continue;
     const list = studentsByClass.get(row.class_id) ?? [];
     list.push({
       id: String(row.id),

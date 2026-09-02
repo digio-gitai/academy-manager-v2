@@ -14,7 +14,10 @@ export function StudentListItem({ student, active, onSelect }: StudentListItemPr
         <span className={styles.avatarInitial}>{student.initial}</span>
       </div>
       <div className={styles.info}>
-        <div className={styles.name}>{student.name}</div>
+        <div className={styles.name}>
+          {student.name}
+          {student.isPaused && <span className={styles.pauseTag}>⏸ 휴원중</span>}
+        </div>
         <div className={styles.meta}>{student.className}</div>
       </div>
     </button>

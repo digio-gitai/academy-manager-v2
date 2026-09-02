@@ -15,6 +15,7 @@ import {
   fetchHomeworkPerformance,
   addStudentIntake,
   updateStudentProfile,
+  setStudentPaused,
 } from '../lib/students';
 import type { ClassOption, NewStudentInput, UpdateStudentInput } from '../lib/students';
 import { fetchConsultationLogs } from '../lib/consultation';
@@ -55,6 +56,9 @@ export function StudentRoster() {
   const [reassigning, setReassigning] = useState(false);
   const [deleteNotice, setDeleteNotice] = useState('');
   const [deleting, setDeleting] = useState(false);
+  // 2026-09-02 추가: 수업중지(휴원) / 재개 처리 상태.
+  const [pauseNotice, setPauseNotice] = useState('');
+  const [pausing, setPausing] = useState(false);
 
   // 2026-08-27: 신규 학생 등록 폼. 대시보드의 "+ 신규 학생 등록" 버튼이
   // `/students?new=1`로 이동시키면 이 폼을 자동으로 펼침(아래 useEffect).
@@ -187,6 +191,7 @@ export function StudentRoster() {
 
   const selected = roster.find((s) => s.id === selectedId) ?? filtered[0];
   const unassignedCount = roster.filter((s) => s.className === '반 미배정').length;
+  const pausedCount = roster.filter((s) => s.isPaused).length;
 
   async function handleReassign() {
     if (!selected || !reassignTarget) return;
@@ -206,6 +211,35 @@ export function StudentRoster() {
       );
     } finally {
       setReassigning(false);
+    }
+  }
+
+  /**
+   * 수업중지(휴원) / 재개 토글. 반 재배정과 동일하게 로컬 상태를 낙관적으로
+   * 갱신(전체 재조회 없이 즉시 화면 반영). 2026-09-02 추가.
+   */
+  async function handleTogglePause() {
+    if (!selected) return;
+    const nextPaused = !selected.isPaused;
+    setPausing(true);
+    setPauseNotice('');
+    try {
+      await setStudentPaused(selected.id, nextPaused);
+      const pausedAt = nextPaused ? new Date().toISOString().slice(0, 10) : '';
+      setRoster((prev) =>
+        prev.map((s) => (s.id === selected.id ? { ...s, isPaused: nextPaused, pausedAt } : s)),
+      );
+      setPauseNotice(
+        nextPaused
+          ? `${selected.name} 학생을 휴원 처리했습니다. 출석 체크·과제 인증 대상에서 제외됩니다.`
+          : `${selected.name} 학생의 수업을 재개했습니다.`,
+      );
+    } catch (err) {
+      setPauseNotice(
+        err instanceof Error ? `저장 실패: ${err.message}` : '휴원 처리 저장에 실패했습니다.',
+      );
+    } finally {
+      setPausing(false);
     }
   }
 
@@ -298,6 +332,12 @@ export function StudentRoster() {
           <span className={styles.summaryLabel}>반 미배정 학생</span>
           <span className={styles.summaryValue}>{unassignedCount}</span>
         </div>
+        {pausedCount > 0 && (
+          <div className={styles.summaryItem}>
+            <span className={styles.summaryLabel}>⏸ 휴원중인 학생</span>
+            <span className={styles.summaryValue}>{pausedCount}</span>
+          </div>
+        )}
       </div>
 
       <div className={styles.layout}>
@@ -351,6 +391,14 @@ export function StudentRoster() {
                   <span>{selected.className}</span>
                   <span>·</span>
                   <span>{selected.grade}</span>
+                  {selected.isPaused && (
+                    <span
+                      className={styles.levelBadge}
+                      style={{ background: badgePalette.gray.badgeBg, color: badgePalette.gray.badgeColor }}
+                    >
+                      ⏸ 휴원중
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -498,6 +546,34 @@ export function StudentRoster() {
                   </button>
                 </div>
                 {reassignNotice && <p className={styles.inlineNotice}>{reassignNotice}</p>}
+              </ExpandableSection>
+
+              <ExpandableSection title="수업중지 / 재개 (휴원 처리)">
+                <p className={styles.pageSub}>
+                  한 달 정도 사정이 있어 안 나오는 학생을 삭제하지 않고 "휴원중" 상태로만
+                  표시합니다. 휴원중인 학생은 출석 체크·과제 인증 대상에서 자동으로
+                  제외되고, 성적·상담 등 과거 기록은 그대로 남습니다.
+                </p>
+                <div className={styles.inlineForm}>
+                  <span>
+                    현재 상태:{' '}
+                    <strong>{selected.isPaused ? '⏸ 휴원중' : '재원'}</strong>
+                    {selected.isPaused && selected.pausedAt ? ` (휴원 시작일: ${selected.pausedAt})` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    className={selected.isPaused ? styles.primaryButton : styles.dangerButton}
+                    onClick={handleTogglePause}
+                    disabled={pausing}
+                  >
+                    {pausing
+                      ? '저장 중...'
+                      : selected.isPaused
+                        ? '수업 재개 (휴원 해제)'
+                        : '수업중지 (휴원 처리)'}
+                  </button>
+                </div>
+                {pauseNotice && <p className={styles.inlineNotice}>{pauseNotice}</p>}
               </ExpandableSection>
 
               <ExpandableSection title="학생 삭제">

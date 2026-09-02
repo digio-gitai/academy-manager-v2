@@ -74,6 +74,22 @@ export async function reassignStudentClass(studentId: string, classId: string): 
   }
 }
 
+/**
+ * 수업중지(휴원) / 재개 처리. 스트림릿 운영 앱(app.py의 set_student_paused)과
+ * 동일한 동작 — 삭제하지 않고 is_paused만 바꾼다. 휴원 처리 시 paused_at에
+ * 오늘 날짜를 기록하고, 해제 시 빈 문자열로 되돌린다. 2026-09-02 추가.
+ */
+export async function setStudentPaused(studentId: string, paused: boolean): Promise<void> {
+  const pausedAt = paused ? new Date().toISOString().slice(0, 10) : '';
+  const { error } = await supabase
+    .from('students')
+    .update({ is_paused: paused, paused_at: pausedAt })
+    .eq('id', Number(studentId));
+  if (error) {
+    throw error;
+  }
+}
+
 export interface NewStudentInput {
   name: string;
   registeredAt: string; // 'YYYY-MM-DD'
@@ -140,6 +156,8 @@ interface StudentRow {
   notes: string | null;
   student_phone: string | null;
   test_results: string | null;
+  is_paused: boolean | null;
+  paused_at: string | null;
   classes: { name: string; teachers: { name: string } | null } | null;
 }
 
@@ -154,7 +172,7 @@ export async function fetchStudents(teacherId?: number | null): Promise<StudentP
   let query = supabase
     .from('students')
     .select(
-      `id, name, parent_phone, class_id, registered_at, school, grade, pre_visit_progress, contact_info, expectations, notes, student_phone, test_results, ${classesEmbed}`,
+      `id, name, parent_phone, class_id, registered_at, school, grade, pre_visit_progress, contact_info, expectations, notes, student_phone, test_results, is_paused, paused_at, ${classesEmbed}`,
     )
     .order('id', { ascending: true });
 
@@ -187,6 +205,8 @@ export async function fetchStudents(teacherId?: number | null): Promise<StudentP
     homeworkHistory: [],
     grades: [],
     consultations: [],
+    isPaused: Boolean(row.is_paused),
+    pausedAt: row.paused_at ?? '',
   }));
 }
 

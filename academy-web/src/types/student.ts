@@ -40,4 +40,8 @@ export interface StudentProfile {
   homeworkHistory: HomeworkHistoryEntry[];
   grades: UnifiedGradeRecord[];
   consultations: ConsultationEntry[];
+  // 2026-09-02 추가: 수업중지(휴원) 상태. 스트림릿 운영 앱과 동일한 필드
+  // (students.is_paused/paused_at)를 그대로 반영.
+  isPaused: boolean;
+  pausedAt?: string;
 }
