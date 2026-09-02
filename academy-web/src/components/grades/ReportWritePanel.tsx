@@ -7,7 +7,7 @@ import type { UnifiedGradeRecord } from '../../types/grades';
 import { ExamSelectionChecklist } from './ExamSelectionChecklist';
 import { ExamComparisonChart } from './ExamComparisonChart';
 import { ParentCommentPanel } from './ParentCommentPanel';
-import { IntegratedReportSection } from './IntegratedReportSection';
+import { IntegratedTestReportSection } from './IntegratedTestReportSection';
 import styles from './ReportWritePanel.module.css';
 
 function generateParentCommentFallback(studentName: string, avg: number): string {
@@ -178,7 +178,7 @@ export function ReportWritePanel() {
                 isGenerating={isGeneratingComment}
                 generateError={generateError}
               />
-              <IntegratedReportSection />
+              <IntegratedTestReportSection studentId={studentId} parentComment={comment} />
             </>
           )}
         </>

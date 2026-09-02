@@ -3,12 +3,15 @@ import { supabase } from './supabaseClient';
 export type QuestionType = '객관식' | '서술형';
 export type DifficultyLevel = 'A' | 'B' | 'C' | 'D' | 'E';
 
+export type CognitiveDomain = '계산' | '이해' | '추론' | '해결' | '미분류';
+
 export interface TestQuestionDraft {
   questionNumber: string;
   topic: string;
   method: string;
   questionType: QuestionType;
   difficulty: DifficultyLevel;
+  cognitiveDomain: CognitiveDomain;
 }
 
 export interface SaveTestInput {
@@ -71,6 +74,7 @@ export async function saveTestWithQuestions(input: SaveTestInput): Promise<numbe
       question_type: q.questionType || '객관식',
       difficulty: q.difficulty || 'C',
       question_method: q.method.trim(),
+      cognitive_domain: q.cognitiveDomain || '미분류',
     }));
     const { error: qError } = await supabase.from('test_questions').insert(rows);
     if (qError) throw qError;
@@ -150,9 +154,10 @@ export async function fetchRecentTests(limit = 100): Promise<TestListItem[]> {
 export async function fetchTestQuestions(testId: number): Promise<TestQuestionDraft[]> {
   const { data, error } = await supabase
     .from('test_questions')
-    .select('question_number, topic, question_type, difficulty, question_method')
+    .select('question_number, topic, question_type, difficulty, question_method, cognitive_domain')
     .eq('test_id', testId);
   if (error) throw error;
+  const COGNITIVE_OPTIONS = ['계산', '이해', '추론', '해결'];
   const rows = (
     (data as {
       question_number: string;
@@ -160,6 +165,7 @@ export async function fetchTestQuestions(testId: number): Promise<TestQuestionDr
       question_type: string;
       difficulty: string;
       question_method: string;
+      cognitive_domain: string | null;
     }[]) ?? []
   ).map((row) => ({
     questionNumber: row.question_number,
@@ -167,6 +173,9 @@ export async function fetchTestQuestions(testId: number): Promise<TestQuestionDr
     method: row.question_method || '',
     questionType: (row.question_type === '서술형' ? '서술형' : '객관식') as QuestionType,
     difficulty: (['A', 'B', 'C', 'D', 'E'].includes(row.difficulty) ? row.difficulty : 'C') as DifficultyLevel,
+    cognitiveDomain: (COGNITIVE_OPTIONS.includes(row.cognitive_domain || '')
+      ? row.cognitive_domain
+      : '미분류') as CognitiveDomain,
   }));
   rows.sort((a, b) => {
     const na = Number(a.questionNumber);

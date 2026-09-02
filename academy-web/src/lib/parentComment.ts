@@ -16,12 +16,19 @@ import type { UnifiedGradeRecord } from '../types/grades';
 export async function generateParentComment(
   studentName: string,
   records: UnifiedGradeRecord[],
+  /**
+   * "통합보고서"에서만 넘기는 값(2026-08-29 추가) — 여러 단원테스트를 합친
+   * 단원별/난이도별/인지영역별 분석 + 취약·강점 단원을 정리한 텍스트.
+   * 이게 있으면 Edge Function이 점수 목록 대신 이 내용을 바탕으로 더 구체적인
+   * 총평을 써줌(integratedReport.ts의 summarizeForAiComment() 참고).
+   */
+  integratedSummary?: string,
 ): Promise<string> {
   const exams = records.map((r) => ({ label: r.examLabel, score: r.score }));
 
   const { data, error } = await supabase.functions.invoke<{ comment?: string; error?: string }>(
     'generate-parent-comment',
-    { body: { studentName, exams } },
+    { body: { studentName, exams, integratedSummary } },
   );
 
   if (error) {

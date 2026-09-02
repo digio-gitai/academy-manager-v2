@@ -33,7 +33,7 @@
 // 입력: { rawText: string }  — OCR로 추출된 시험지 원문 텍스트 전체(여러 페이지면
 //        미리 하나로 합쳐서 보냄, 스트림릿의 "\n\n".join(...)과 동일).
 // 출력(성공): {
-//   questions: [{ number, topic, method, difficulty, questionType }, ...],
+//   questions: [{ number, topic, method, difficulty, questionType, cognitiveDomain }, ...],
 //   refinedText: "수식(LaTeX) 정제된 전체 텍스트"
 // }
 // 출력(실패): { error: "에러 메시지" }
@@ -57,6 +57,7 @@ interface GptQuestion {
   method?: string;
   difficulty?: string;
   question_type?: string;
+  cognitive_domain?: string;
 }
 
 // 요청 ①: 문항 분석 전용(스트림릿 TOPIC_ANALYSIS_SYSTEM_PROMPT와 동일 내용).
@@ -104,6 +105,19 @@ const TOPIC_ANALYSIS_PROMPT = `당신은 수학 시험지 OCR 텍스트를 분�
 - D: 기본 (하, 공식 대입, 배점 2~3점)
 - E: 쉬움 (최하, 단순 계산, 배점 2점 이하)
 
+[작업 5] 인지영역을 분류하세요.
+- 이 문항을 풀 때 학생에게 가장 핵심적으로 요구되는 사고 능력이 무엇인지
+  아래 4개 중 하나로 분류하세요(난이도와는 다른 기준입니다 — 쉬운 문항도
+  "추론"일 수 있고, 어려운 문항도 "계산"일 수 있습니다).
+- 계산: 공식·연산 과정을 정확히 수행하는 능력이 핵심(예: 전개, 인수분해,
+  대입 계산, 방정식 풀이 과정 자체)
+- 이해: 개념·정의를 올바르게 알고 있는지가 핵심(예: 용어의 뜻, 그래프의
+  의미, 공식이 성립하는 조건 이해)
+- 추론: 주어진 조건들을 논리적으로 연결해 결론을 이끌어내는 능력이 핵심
+  (예: 조건 여러 개를 종합, 참/거짓 판단, 경우의 수 나누기)
+- 해결: 실생활 맥락이나 복합 상황을 수식으로 옮기고 전체 풀이 전략을 세우는
+  능력이 핵심(예: 문장제, 여러 단원 개념을 합쳐 새로운 풀이 경로를 설계)
+
 문항이 많아도 절대 생략하지 말고 마지막 문항까지 빠짐없이 포함하세요.
 반드시 아래 JSON 형식으로만 반환하세요:
 {
@@ -113,7 +127,8 @@ const TOPIC_ANALYSIS_PROMPT = `당신은 수학 시험지 OCR 텍스트를 분�
       "topic": "삼각함수의 그래프와 성질",
       "method": "사인·코사인 부등식 동시 조건 추론",
       "difficulty": "C",
-      "question_type": "객관식"
+      "question_type": "객관식",
+      "cognitive_domain": "추론"
     }
   ]
 }`;
@@ -276,6 +291,7 @@ Deno.serve(async (req: Request) => {
       method: (q.method || '').toString().trim(),
       difficulty: (q.difficulty || 'C').toString().trim(),
       questionType: (q.question_type || '객관식').toString().trim(),
+      cognitiveDomain: (q.cognitive_domain || '미분류').toString().trim() || '미분류',
     }));
 
     // 수식 정제(②)는 실패해도 문항 분석(①) 결과는 그대로 돌려줌 — 정제된

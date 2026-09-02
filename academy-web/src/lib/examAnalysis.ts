@@ -6,6 +6,7 @@ export interface AnalyzedQuestion {
   method: string;
   difficulty: string;
   questionType: string;
+  cognitiveDomain: string;
 }
 
 export interface RefineAnalyzeResult {
