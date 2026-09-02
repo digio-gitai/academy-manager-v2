@@ -18,6 +18,7 @@ import {
 } from '../lib/students';
 import type { ClassOption, NewStudentInput, UpdateStudentInput } from '../lib/students';
 import { fetchConsultationLogs } from '../lib/consultation';
+import { useAuth } from '../context/AuthContext';
 import { CATEGORY_LABELS } from '../types/consultation';
 import { fetchUnifiedGrades } from '../lib/grades';
 import { EXAM_GROUP_LABELS, type UnifiedGradeRecord } from '../types/grades';
@@ -41,6 +42,7 @@ export function StudentRoster() {
   // 2026-08-27: 상세 패널(상담 일지/성적/과제 수행 이력)과 "학생 삭제"도 실제
   // DB 연동으로 교체. 상세 데이터는 목록을 부를 때 다 같이 가져오지 않고,
   // 학생을 선택할 때마다 그 학생 것만 지연 조회함(다른 화면들과 같은 패턴).
+  const { scopeTeacherId } = useAuth();
   const [roster, setRoster] = useState<StudentProfile[]>([]);
   const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,7 +82,7 @@ export function StudentRoster() {
     let cancelled = false;
     setLoading(true);
     setLoadError('');
-    Promise.all([fetchStudents(), fetchClassOptions()])
+    Promise.all([fetchStudents(scopeTeacherId), fetchClassOptions(scopeTeacherId)])
       .then(([studentData, classData]) => {
         if (cancelled) return;
         setRoster(studentData);
@@ -99,7 +101,7 @@ export function StudentRoster() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scopeTeacherId]);
 
   // 대시보드에서 `/students?new=1`로 넘어온 경우 등록 폼을 자동으로 펼치고,
   // 쿼리 파라미터는 지워서 새로고침해도 계속 펼쳐져 있지 않게 함.
@@ -215,7 +217,7 @@ export function StudentRoster() {
    */
   async function handleAddStudent(input: NewStudentInput) {
     await addStudentIntake(input);
-    const refreshed = await fetchStudents();
+    const refreshed = await fetchStudents(scopeTeacherId);
     setRoster(refreshed);
     const matches = refreshed.filter((s) => s.name === input.name);
     const created = matches[matches.length - 1];
@@ -229,7 +231,7 @@ export function StudentRoster() {
   async function handleUpdateStudent(input: UpdateStudentInput) {
     if (!selected) return;
     await updateStudentProfile(selected.id, input);
-    const refreshed = await fetchStudents();
+    const refreshed = await fetchStudents(scopeTeacherId);
     setRoster(refreshed);
   }
 

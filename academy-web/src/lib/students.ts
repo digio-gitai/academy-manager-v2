@@ -13,8 +13,12 @@ export interface ClassOption {
  * (사용자가 실사용 중 발견). classes 테이블을 직접 조회해서 항상 전체 반
  * 목록이 뜨도록 수정.
  */
-export async function fetchClassOptions(): Promise<ClassOption[]> {
-  const { data, error } = await supabase.from('classes').select('id, name').order('name', { ascending: true });
+export async function fetchClassOptions(teacherId?: number | null): Promise<ClassOption[]> {
+  let query = supabase.from('classes').select('id, name').order('name', { ascending: true });
+  if (teacherId != null) {
+    query = query.eq('teacher_id', teacherId);
+  }
+  const { data, error } = await query;
   if (error) {
     throw error;
   }
@@ -139,13 +143,26 @@ interface StudentRow {
   classes: { name: string; teachers: { name: string } | null } | null;
 }
 
-export async function fetchStudents(): Promise<StudentProfile[]> {
-  const { data, error } = await supabase
+export async function fetchStudents(teacherId?: number | null): Promise<StudentProfile[]> {
+  // teacherId가 주어지면(비관리자 로그인) 본인이 맡은 반의 학생만 조회한다.
+  // PostgREST에서 embed된 테이블(classes)의 컬럼으로 필터링하려면 !inner 조인
+  // 힌트가 필요함 — 안 쓰면 filter가 무시된다. 반이 없는 학생까지 보여줘야
+  // 하는 관리자(teacherId 없음) 조회에서는 !inner를 쓰면 안 되므로 분기한다.
+  const classesEmbed =
+    teacherId != null ? 'classes!inner ( name, teacher_id, teachers ( name ) )' : 'classes ( name, teachers ( name ) )';
+
+  let query = supabase
     .from('students')
     .select(
-      'id, name, parent_phone, class_id, registered_at, school, grade, pre_visit_progress, contact_info, expectations, notes, student_phone, test_results, classes ( name, teachers ( name ) )',
+      `id, name, parent_phone, class_id, registered_at, school, grade, pre_visit_progress, contact_info, expectations, notes, student_phone, test_results, ${classesEmbed}`,
     )
     .order('id', { ascending: true });
+
+  if (teacherId != null) {
+    query = query.eq('classes.teacher_id', teacherId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw error;

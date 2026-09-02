@@ -139,3 +139,24 @@
     transform: translateX(0);
   }
 }
+
+.profileText {
+  flex: 1;
+  min-width: 0;
+}
+
+.logoutButton {
+  flex: none;
+  background: transparent;
+  border: 1px solid rgba(240, 230, 210, 0.25);
+  border-radius: 7px;
+  color: rgba(240, 230, 210, 0.75);
+  font-size: 11px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.logoutButton:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

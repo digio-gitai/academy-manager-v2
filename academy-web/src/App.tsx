@@ -16,9 +16,11 @@ import { ComingSoon } from './pages/ComingSoon';
 import { SmsSend } from './pages/SmsSend';
 import { PastExamAnalyzer } from './pages/PastExamAnalyzer';
 import { AppLayout } from './components/layout/AppLayout';
+import { AuthProvider } from './context/AuthContext';
 
 function App() {
   return (
+    <AuthProvider>
     <Routes>
       {/* 2026-08-26: 루트("/")가 학생용 과제 인증 mock 화면이라 개발 중
           매번 localhost:5173으로 들어오면 그 화면부터 보이는 게 불편하다는
@@ -52,6 +54,7 @@ function App() {
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>
+    </AuthProvider>
   );
 }
 

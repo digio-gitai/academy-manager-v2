@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchStudents } from '../lib/students';
+import { useAuth } from '../context/AuthContext';
 import { sendBulkSms, fetchSmsSendLogs } from '../lib/smsSend';
 import type { SendSmsResult, SkippedRecipient, SmsRecipient, SmsSendLog } from '../lib/smsSend';
 import type { StudentProfile } from '../types/student';
@@ -53,6 +54,7 @@ const LOG_STATUS_LABEL: Record<SmsSendLog['status'], string> = {
 type SectionKind = 'parent' | 'student';
 
 export function SmsSend() {
+  const { scopeTeacherId } = useAuth();
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -75,7 +77,7 @@ export function SmsSend() {
       setLoading(true);
       setLoadError('');
       try {
-        const data = await fetchStudents();
+        const data = await fetchStudents(scopeTeacherId);
         if (!cancelled) setStudents(data);
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : '학생 목록을 불러오지 못했습니다.');
@@ -86,7 +88,7 @@ export function SmsSend() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scopeTeacherId]);
 
   async function loadLogs() {
     setLogsLoading(true);

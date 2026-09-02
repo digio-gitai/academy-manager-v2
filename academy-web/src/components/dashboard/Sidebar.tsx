@@ -7,9 +7,11 @@ interface SidebarProps {
   profile: TeacherProfile;
   /** 2026-09-02 모바일 대응 추가 — true면 좁은 화면에서 슬라이드인으로 펼쳐짐(AppLayout이 관리). */
   mobileOpen?: boolean;
+  /** 2026-09-02 로그인 연동 추가 — 있으면 프로필 영역에 로그아웃 버튼을 보여줌. */
+  onLogout?: () => void;
 }
 
-export function Sidebar({ menuItems, profile, mobileOpen }: SidebarProps) {
+export function Sidebar({ menuItems, profile, mobileOpen, onLogout }: SidebarProps) {
   const location = useLocation();
 
   return (
@@ -51,10 +53,15 @@ export function Sidebar({ menuItems, profile, mobileOpen }: SidebarProps) {
         <div className={styles.avatar}>
           <span className={styles.avatarInitial}>{profile.initial}</span>
         </div>
-        <div>
+        <div className={styles.profileText}>
           <div className={styles.profileName}>{profile.name}</div>
           <div className={styles.profileEmail}>{profile.email}</div>
         </div>
+        {onLogout && (
+          <button type="button" className={styles.logoutButton} onClick={onLogout}>
+            로그아웃
+          </button>
+        )}
       </div>
     </aside>
   );
