@@ -5,13 +5,15 @@ import styles from './Sidebar.module.css';
 interface SidebarProps {
   menuItems: MenuItem[];
   profile: TeacherProfile;
+  /** 2026-09-02 모바일 대응 추가 — true면 좁은 화면에서 슬라이드인으로 펼쳐짐(AppLayout이 관리). */
+  mobileOpen?: boolean;
 }
 
-export function Sidebar({ menuItems, profile }: SidebarProps) {
+export function Sidebar({ menuItems, profile, mobileOpen }: SidebarProps) {
   const location = useLocation();
 
   return (
-    <aside className={styles.sidebar}>
+    <aside className={styles.sidebar} data-mobile-open={mobileOpen ? 'true' : 'false'}>
       <Link to="/dashboard" className={styles.logoRow}>
         <div className={styles.logoBadge}>
           <span className={styles.logoLetter}>J</span>

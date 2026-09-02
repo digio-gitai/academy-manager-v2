@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchStudents } from '../lib/students';
-import { sendBulkSms } from '../lib/smsSend';
-import type { SendSmsResult, SkippedRecipient, SmsRecipient } from '../lib/smsSend';
+import { sendBulkSms, fetchSmsSendLogs } from '../lib/smsSend';
+import type { SendSmsResult, SkippedRecipient, SmsRecipient, SmsSendLog } from '../lib/smsSend';
 import type { StudentProfile } from '../types/student';
 import styles from './SmsSend.module.css';
 
@@ -35,6 +35,21 @@ function nowTimeLabel(): string {
   return `${period} ${h12}:${m}`;
 }
 
+function formatLogTime(iso: string): string {
+  const d = new Date(iso);
+  const h = d.getHours();
+  const period = h < 12 ? '오전' : '오후';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${period} ${h12}:${m}`;
+}
+
+const LOG_STATUS_LABEL: Record<SmsSendLog['status'], string> = {
+  success: '성공',
+  failed: '실패',
+  skipped: '건너뜀',
+};
+
 type SectionKind = 'parent' | 'student';
 
 export function SmsSend() {
@@ -49,6 +64,10 @@ export function SmsSend() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [sendResult, setSendResult] = useState<SendSmsResult | null>(null);
+
+  const [logs, setLogs] = useState<SmsSendLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+  const [logsError, setLogsError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +86,23 @@ export function SmsSend() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  async function loadLogs() {
+    setLogsLoading(true);
+    setLogsError('');
+    try {
+      const data = await fetchSmsSendLogs(50);
+      setLogs(data);
+    } catch (e) {
+      setLogsError(e instanceof Error ? e.message : '발송 내역을 불러오지 못했습니다.');
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadLogs();
   }, []);
 
   const sortedStudents = useMemo(
@@ -141,6 +177,7 @@ export function SmsSend() {
     try {
       const result = await sendBulkSms(recipients, messageText.trim());
       setSendResult(result);
+      loadLogs();
     } catch (e) {
       setSendError(e instanceof Error ? e.message : 'SMS 발송 중 오류가 발생했습니다.');
     } finally {
@@ -266,6 +303,55 @@ export function SmsSend() {
           </div>
         </div>
       )}
+
+      <div className={styles.card} style={{ marginTop: 20 }}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <div className={styles.sectionTitle}>발송 내역</div>
+            <div className={styles.sectionHint}>최근 50건 · 보낸 날짜/시간, 받는 사람, 성공 여부를 확인할 수 있습니다.</div>
+          </div>
+          <button type="button" className={styles.selectAllButton} onClick={loadLogs} disabled={logsLoading}>
+            {logsLoading ? '불러오는 중...' : '새로고침'}
+          </button>
+        </div>
+
+        {logsError && <div className={styles.errorText}>{logsError}</div>}
+
+        {!logsLoading && !logsError && logs.length === 0 && (
+          <p className={styles.sectionHint}>아직 발송 내역이 없습니다.</p>
+        )}
+
+        {logs.length > 0 && (
+          <div className={styles.logTableWrap}>
+            <table className={styles.logTable}>
+              <thead>
+                <tr>
+                  <th>보낸 일시</th>
+                  <th>받는 사람</th>
+                  <th>번호</th>
+                  <th>상태</th>
+                  <th>내용</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log) => (
+                  <tr key={log.id}>
+                    <td className={styles.logTimeCell}>{formatLogTime(log.sentAt)}</td>
+                    <td>{log.recipientName ?? '—'}</td>
+                    <td className={styles.logTimeCell}>{log.recipientPhone}</td>
+                    <td>
+                      <span className={styles.logStatusBadge} data-status={log.status}>
+                        {LOG_STATUS_LABEL[log.status]}
+                      </span>
+                    </td>
+                    <td className={styles.logMessageCell}>{log.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

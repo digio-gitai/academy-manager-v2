@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ClassOption, NewStudentInput } from '../../lib/students';
 import styles from './NewStudentForm.module.css';
 
-const GRADE_OPTIONS = [
+export const GRADE_OPTIONS = [
   '초등학교 1학년', '초등학교 2학년', '초등학교 3학년',
   '초등학교 4학년', '초등학교 5학년', '초등학교 6학년',
   '중학교 1학년', '중학교 2학년', '중학교 3학년',

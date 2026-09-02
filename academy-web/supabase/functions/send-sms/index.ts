@@ -37,6 +37,7 @@
 //     succeeded: number,   // 접수 성공
 //     failed: number,      // 접수 실패(Solapi가 거부)
 //     skipped: { name?: string; phone: string; reason: string }[],  // 전화번호/내용 문제로 아예 시도조차 안 한 건
+//     results: { name?: string; phone: string; status: 'success' | 'failed' }[],  // 실제 시도한 건별 결과(발송내역 기록용)
 //     raw: unknown          // Solapi 원본 응답(디버깅용)
 //   }
 // }
@@ -183,12 +184,30 @@ Deno.serve(async (req: Request) => {
         ? count.registeredSuccess
         : messages.length - failed;
 
+    // 발송 내역 기록용: Solapi가 실패로 명시한 번호(failedMessageList, 'to' 필드
+    // 있음)와 대조해서 시도한 recipient 각각에 성공/실패를 매긴다. Solapi가
+    // 실패 목록에 안 넣었으면 접수 성공으로 간주(배달 완료가 아니라 "접수"
+    // 기준 — 배달 확인은 통신사 레벨이라 여기서는 알 수 없음).
+    const failedTo = new Set(
+      (Array.isArray(resultJson?.failedMessageList) ? resultJson.failedMessageList : [])
+        .map((f: { to?: string }) => cleanPhone(f?.to ?? '')),
+    );
+    const results = messages.map((m) => {
+      const original = recipients.find((r) => cleanPhone(r?.phone ?? '') === m.to);
+      return {
+        name: original?.name,
+        phone: m.to,
+        status: failedTo.has(m.to) ? ('failed' as const) : ('success' as const),
+      };
+    });
+
     return jsonResponse({
       data: {
         requested: messages.length,
         succeeded,
         failed,
         skipped,
+        results,
         raw: resultJson,
       },
     });

@@ -5,6 +5,7 @@ import { ConsultationLog } from '../components/students/ConsultationLog';
 import { ExpandableSection } from '../components/students/ExpandableSection';
 import { HomeworkHistoryList } from '../components/students/HomeworkHistoryList';
 import { NewStudentForm } from '../components/students/NewStudentForm';
+import { EditStudentForm } from '../components/students/EditStudentForm';
 import { badgePalette } from '../components/dashboard/badgePalette';
 import {
   fetchStudents,
@@ -13,8 +14,9 @@ import {
   deleteStudent,
   fetchHomeworkPerformance,
   addStudentIntake,
+  updateStudentProfile,
 } from '../lib/students';
-import type { ClassOption, NewStudentInput } from '../lib/students';
+import type { ClassOption, NewStudentInput, UpdateStudentInput } from '../lib/students';
 import { fetchConsultationLogs } from '../lib/consultation';
 import { CATEGORY_LABELS } from '../types/consultation';
 import { fetchUnifiedGrades } from '../lib/grades';
@@ -220,6 +222,17 @@ export function StudentRoster() {
     if (created) setSelectedId(created.id);
   }
 
+  /**
+   * 학생 정보 수정 저장. 2026-09-02 사용자 요청으로 추가. 저장 후 목록을
+   * 다시 조회해서 상세 패널에 바로 반영되게 함(반 재배정과 동일 패턴).
+   */
+  async function handleUpdateStudent(input: UpdateStudentInput) {
+    if (!selected) return;
+    await updateStudentProfile(selected.id, input);
+    const refreshed = await fetchStudents();
+    setRoster(refreshed);
+  }
+
   async function handleDelete() {
     if (!selected) return;
     const name = selected.name;
@@ -417,6 +430,10 @@ export function StudentRoster() {
             </div>
 
             <div className={styles.expandGroup}>
+              <ExpandableSection title="학생 정보 수정">
+                <EditStudentForm key={selected.id} student={selected} onSubmit={handleUpdateStudent} />
+              </ExpandableSection>
+
               <ExpandableSection title="학생 성적 통합 조회">
                 {detailLoading ? (
                   <p>불러오는 중...</p>

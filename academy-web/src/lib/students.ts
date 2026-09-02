@@ -21,6 +21,44 @@ export async function fetchClassOptions(): Promise<ClassOption[]> {
   return ((data as { id: number; name: string }[]) ?? []).map((row) => ({ id: String(row.id), name: row.name }));
 }
 
+export interface UpdateStudentInput {
+  name: string;
+  school: string;
+  grade: string;
+  preVisitProgress: string;
+  contactInfo: string; // 학부모 연락처 — parent_phone/contact_info 둘 다 이 값으로 갱신(addStudentIntake와 동일 규칙)
+  studentPhone: string;
+  expectations: string;
+  notes: string;
+}
+
+/**
+ * 학생 정보 수정(이름/학교/학년/연락처/메모 등). 2026-09-02 사용자 요청 —
+ * 명부에 "등록" 기능만 있고 이미 등록된 학생 정보를 고치는 기능이 없어서
+ * 추가함. 반 배정은 이미 별도의 reassignStudentClass가 있어서 여기서는
+ * 다루지 않음.
+ */
+export async function updateStudentProfile(studentId: string, input: UpdateStudentInput): Promise<void> {
+  const phone = input.contactInfo.trim() || '—';
+  const { error } = await supabase
+    .from('students')
+    .update({
+      name: input.name.trim(),
+      parent_phone: phone,
+      contact_info: input.contactInfo.trim(),
+      school: input.school.trim(),
+      grade: input.grade.trim(),
+      pre_visit_progress: input.preVisitProgress.trim(),
+      expectations: input.expectations.trim(),
+      notes: input.notes.trim(),
+      student_phone: input.studentPhone.trim(),
+    })
+    .eq('id', Number(studentId));
+  if (error) {
+    throw error;
+  }
+}
+
 /** 학생의 반 배정 변경(class_id 갱신). 2026-08-24: 화면에서만 바뀌던 걸 실제 DB 저장으로 연결. */
 export async function reassignStudentClass(studentId: string, classId: string): Promise<void> {
   const { error } = await supabase
