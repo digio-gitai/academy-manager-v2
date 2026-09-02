@@ -30,13 +30,18 @@ export function isManagerRole(role: string): boolean {
 
 const STORAGE_KEY = 'jmath_teacher_session';
 
-/** 로그인 화면의 "이름 선택" 드롭다운용 — 이름만 조회(비밀번호는 절대 조회 안 함). */
+/**
+ * 로그인 화면의 "이름 선택" 드롭다운용 — 이름만 조회(비밀번호는 절대 조회 안 함).
+ * 운영 스트림릿 app.py의 get_all_teachers()와 동일하게, 이름에 "test"/"테스트"가
+ * 들어간 계정(개발 중 테스트용으로 만들어둔 계정)은 로그인 목록에서 숨긴다.
+ */
 export async function fetchTeacherOptions(): Promise<TeacherOption[]> {
   const { data, error } = await supabase.from('teachers').select('id, name').order('name', { ascending: true });
   if (error) {
     throw error;
   }
-  return (data as TeacherOption[]) ?? [];
+  const all = (data as TeacherOption[]) ?? [];
+  return all.filter((t) => !/test|테스트/i.test(t.name));
 }
 
 /**
