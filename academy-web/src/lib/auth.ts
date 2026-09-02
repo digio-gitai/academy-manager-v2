@@ -99,3 +99,27 @@ export function clearSession(): void {
     // ignore
   }
 }
+
+/**
+ * 로그인된 강사 본인의 비밀번호를 변경한다("설정" 화면에서 사용). 현재
+ * 비밀번호 대조는 change_teacher_password() 함수 안에서만 이뤄진다(비밀번호
+ * 칸은 브라우저에서 직접 SELECT하지 않는다는 프로젝트 규칙 유지).
+ *
+ * 반환값 false = 현재 비밀번호가 틀림. 서버 쪽 유효성 검사(4자리 숫자가
+ * 아님 등) 실패 시에는 Supabase가 에러를 던지므로 그대로 throw됨.
+ */
+export async function changeTeacherPassword(
+  teacherId: number,
+  currentPassword: string,
+  newPassword: string,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('change_teacher_password', {
+    p_teacher_id: teacherId,
+    p_current_password: currentPassword,
+    p_new_password: newPassword,
+  });
+  if (error) {
+    throw error;
+  }
+  return Boolean(data);
+}

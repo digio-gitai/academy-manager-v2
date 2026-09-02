@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { changeTeacherPassword } from '../lib/auth';
 import styles from './SettingsPage.module.css';
 
 const DEFAULT_PDF_SAVE_DIR = 'data/reports';
@@ -10,9 +12,17 @@ const DEFAULT_PDF_SAVE_DIR = 'data/reports';
  * (실제 백엔드 연동 시 진짜 상태로 교체 예정).
  */
 export function SettingsPage() {
+  const { session } = useAuth();
   const [pdfDir, setPdfDir] = useState('');
   const [appliedDir, setAppliedDir] = useState(DEFAULT_PDF_SAVE_DIR);
   const [message, setMessage] = useState('');
+
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
 
   function handleSave() {
     const chosen = pdfDir.trim() || DEFAULT_PDF_SAVE_DIR;
@@ -20,10 +30,87 @@ export function SettingsPage() {
     setMessage(`저장 경로가 설정되었습니다: \`${chosen}\``);
   }
 
+  async function handleChangePassword(e: FormEvent) {
+    e.preventDefault();
+    setPwError('');
+    setPwSuccess('');
+
+    if (!session) return;
+    if (!/^[0-9]{4}$/.test(newPw)) {
+      setPwError('새 비밀번호는 4자리 숫자로 입력해주세요.');
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setPwError('새 비밀번호가 서로 일치하지 않습니다.');
+      return;
+    }
+
+    setPwSaving(true);
+    try {
+      const ok = await changeTeacherPassword(session.id, currentPw, newPw);
+      if (!ok) {
+        setPwError('현재 비밀번호가 올바르지 않습니다.');
+        return;
+      }
+      setPwSuccess('비밀번호가 변경되었습니다. 다음 로그인부터 새 비밀번호를 사용해주세요.');
+      setCurrentPw('');
+      setNewPw('');
+      setConfirmPw('');
+    } catch (err) {
+      setPwError(err instanceof Error ? err.message : '비밀번호 변경 중 오류가 발생했습니다.');
+    } finally {
+      setPwSaving(false);
+    }
+  }
+
   return (
     <div className={styles.wrap}>
       <h1 className={styles.pageTitle}>설정</h1>
       <hr className={styles.divider} />
+
+      {session && (
+        <div className={styles.card}>
+          <h3 className={styles.cardTitle}>비밀번호 변경</h3>
+          <p className={styles.caption}>
+            현재 로그인된 계정(<strong>{session.name}</strong>)의 로그인 비밀번호를 변경합니다. 4자리 숫자로
+            입력해주세요.
+          </p>
+          <form onSubmit={handleChangePassword}>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              className={styles.textInput}
+              placeholder="현재 비밀번호 (4자리)"
+              value={currentPw}
+              onChange={(e) => setCurrentPw(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+            />
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              className={styles.textInput}
+              placeholder="새 비밀번호 (4자리)"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+            />
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              className={styles.textInput}
+              placeholder="새 비밀번호 확인"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+            />
+            <button type="submit" className={styles.saveButton} disabled={pwSaving}>
+              {pwSaving ? '변경 중…' : '비밀번호 변경'}
+            </button>
+          </form>
+          {pwError && <p className={styles.errorText}>{pwError}</p>}
+          {pwSuccess && <p className={styles.successText}>{pwSuccess}</p>}
+        </div>
+      )}
 
       <div className={styles.card}>
         <h3 className={styles.cardTitle}>PDF 저장 경로</h3>
