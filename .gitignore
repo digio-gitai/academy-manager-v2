@@ -226,6 +226,8 @@ service-account-key.json
 academy.db
 students.db
 data/
+!academy-web/src/data/
+!academy-web/src/data/**
 reports/
 output/
 static/reports/

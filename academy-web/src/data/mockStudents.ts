@@ -1,0 +1,177 @@
+import type { StudentProfile } from '../types/student';
+
+// 2026-08-27: grades 필드는 이제 lib/grades.ts의 fetchUnifiedGrades()가 반환하는
+// UnifiedGradeRecord[] 타입을 그대로 씀(반평균 개념이 없는 실제 DB 스키마에 맞춤).
+// 이 파일 자체는 더 이상 어떤 화면에서도 안 씀(학생 명부는 2026-08-22부터 실제
+// DB만 조회) — mockGrades.ts/mockSchoolInfo.ts가 이름/학교 등 다른 필드만 참고로
+// 계속 쓰고 있어서 파일은 남겨두고, 타입만 최신 형태에 맞춰 고침.
+export const students: StudentProfile[] = [
+  {
+    id: 's1',
+    name: '김지우',
+    initial: '김',
+    school: '압구정중학교',
+    grade: '중학교 2학년',
+    className: '중2 심화 A반',
+    teacherName: '정재훈',
+    registeredAt: '2026-03-04 00:00',
+    studentPhone: '010-1234-5601',
+    parentPhone: '010-9876-5601',
+    preVisitProgress: '개념원리 중2-2까지',
+    expectations: '내신 90점 이상 목표',
+    notes: '—',
+    homeworkCompletionRate: 92,
+    recentHomeworkLevel: '상',
+    homeworkHistory: [
+      { date: '2026.08.21', level: '상', note: '쎈 수학 42~47p 전체 완료' },
+      { date: '2026.08.19', level: '상', note: '오답정리까지 제출' },
+      { date: '2026.08.14', level: '중', note: '일부 문항 미완료' },
+    ],
+    grades: [
+      { id: 's1-g1', studentId: 's1', examGroup: 'school', examLabel: '8월 정기고사', score: 92, examDate: '2026.08.10', updatedAt: '2026-08-10 00:00' },
+      { id: 's1-g2', studentId: 's1', examGroup: 'school', examLabel: '7월 정기고사', score: 86, examDate: '2026.07.13', updatedAt: '2026-07-13 00:00' },
+    ],
+    consultations: [
+      { date: '2026.08.18', content: '이차방정식 단원에서 자신감이 붙기 시작함. 다음 시험 목표를 90점대로 같이 설정함.' },
+      { date: '2026.07.29', content: '학교 시험 기간과 겹쳐 숙제량을 일시적으로 줄여주기로 학부모님과 협의.' },
+    ],
+  },
+  {
+    id: 's2',
+    name: '박서연',
+    initial: '박',
+    school: '압구정중학교',
+    grade: '중학교 2학년',
+    className: '중2 심화 A반',
+    teacherName: '정재훈',
+    registeredAt: '2026-03-11 00:00',
+    parentPhone: '010-9876-5602',
+    preVisitProgress: '—',
+    expectations: '서술형 답안 작성 능력 향상',
+    notes: '집중력 좋음',
+    homeworkCompletionRate: 88,
+    recentHomeworkLevel: '상',
+    homeworkHistory: [
+      { date: '2026.08.21', level: '상' },
+      { date: '2026.08.19', level: '상' },
+    ],
+    grades: [
+      { id: 's2-g1', studentId: 's2', examGroup: 'school', examLabel: '8월 정기고사', score: 89, examDate: '2026.08.10', updatedAt: '2026-08-10 00:00' },
+    ],
+    consultations: [
+      { date: '2026.08.02', content: '집중력은 좋으나 서술형 답안 작성 속도가 느림 — 다음 달부터 서술형 별도 훈련 병행 예정.' },
+    ],
+  },
+  {
+    id: 's3',
+    name: '이준호',
+    initial: '이',
+    school: '영동중학교',
+    grade: '중학교 2학년',
+    className: '중2 심화 A반',
+    teacherName: '정재훈',
+    registeredAt: '2026-04-02 00:00',
+    studentPhone: '010-1234-5603',
+    parentPhone: '010-9876-5603',
+    preVisitProgress: '개념원리 중1 과정만 이수',
+    expectations: '—',
+    notes: '과제 미제출 잦음, 학부모 협조 요청 중',
+    homeworkCompletionRate: 61,
+    recentHomeworkLevel: '중',
+    homeworkHistory: [
+      { date: '2026.08.21', level: '하', note: '미제출' },
+      { date: '2026.08.19', level: '중' },
+      { date: '2026.08.14', level: '중' },
+    ],
+    grades: [
+      { id: 's3-g1', studentId: 's3', examGroup: 'school', examLabel: '8월 정기고사', score: 64, examDate: '2026.08.10', updatedAt: '2026-08-10 00:00' },
+    ],
+    consultations: [
+      { date: '2026.08.20', content: '과제 미제출이 잦아 학부모님께 전화 상담 진행. 스터디플래너 병행하기로 함.' },
+      { date: '2026.08.05', content: '오답노트 작성 습관이 잡히기 시작함, 긍정적.' },
+      { date: '2026.07.10', content: '반 배정 상담 — 심화반 적응 어려움 호소, 2주 더 지켜보기로 함.' },
+    ],
+  },
+  {
+    id: 's4',
+    name: '최민서',
+    initial: '최',
+    school: '신사중학교',
+    grade: '중학교 3학년',
+    className: '중3 내신반',
+    teacherName: '정재훈',
+    registeredAt: '2026-02-20 00:00',
+    parentPhone: '010-9876-5604',
+    preVisitProgress: '쎈 중3-1 완료',
+    expectations: '특목고 대비',
+    notes: '—',
+    homeworkCompletionRate: 95,
+    recentHomeworkLevel: '상',
+    homeworkHistory: [
+      { date: '2026.08.21', level: '상' },
+      { date: '2026.08.19', level: '상' },
+    ],
+    grades: [
+      { id: 's4-g1', studentId: 's4', examGroup: 'school', examLabel: '8월 정기고사', score: 96, examDate: '2026.08.10', updatedAt: '2026-08-10 00:00' },
+      { id: 's4-g2', studentId: 's4', examGroup: 'school', examLabel: '7월 정기고사', score: 91, examDate: '2026.07.13', updatedAt: '2026-07-13 00:00' },
+    ],
+    consultations: [
+      { date: '2026.08.21', content: '내신 대비 취약 단원(이차함수) 보충 필요 — 다음 주 보충수업 안내함.' },
+    ],
+  },
+  {
+    id: 's5',
+    name: '정하윤',
+    initial: '정',
+    school: '신사중학교',
+    grade: '중학교 3학년',
+    className: '중3 내신반',
+    teacherName: '정재훈',
+    registeredAt: '2026-05-08 00:00',
+    studentPhone: '010-1234-5605',
+    parentPhone: '010-9876-5605',
+    preVisitProgress: '—',
+    expectations: '—',
+    notes: '결석 잦음, 보강 안내 필요',
+    homeworkCompletionRate: 40,
+    recentHomeworkLevel: '하',
+    homeworkHistory: [
+      { date: '2026.08.21', level: '하', note: '미제출' },
+      { date: '2026.08.19', level: '하', note: '미제출' },
+    ],
+    grades: [
+      { id: 's5-g1', studentId: 's5', examGroup: 'school', examLabel: '8월 정기고사', score: 58, examDate: '2026.08.10', updatedAt: '2026-08-10 00:00' },
+    ],
+    consultations: [],
+  },
+  {
+    id: 's6',
+    name: '강예린',
+    initial: '강',
+    school: '청담고등학교',
+    grade: '고등학교 1학년',
+    className: '고1 심화반',
+    teacherName: '정재훈',
+    registeredAt: '2026-01-15 00:00',
+    parentPhone: '010-9876-5606',
+    preVisitProgress: '고1 수학(상) 개인 선행 완료',
+    expectations: '이과 진학, 심화 문제풀이 위주',
+    notes: '—',
+    homeworkCompletionRate: 100,
+    recentHomeworkLevel: '상',
+    homeworkHistory: [
+      { date: '2026.08.21', level: '상' },
+      { date: '2026.08.19', level: '상' },
+      { date: '2026.08.14', level: '상' },
+    ],
+    grades: [
+      { id: 's6-g1', studentId: 's6', examGroup: 'mock', examLabel: '8월 모의고사', score: 94, examDate: '2026.08.10', updatedAt: '2026-08-10 00:00' },
+    ],
+    consultations: [
+      { date: '2026.08.15', content: '진로 상담 겸 학습 상담 — 이과 진학 희망, 수학 학습량 늘리기로 합의.' },
+      { date: '2026.06.28', content: '학기 초 적응 상담. 특이사항 없음.' },
+    ],
+  },
+];
+
+export const classNames = Array.from(new Set(students.map((s) => s.className)));

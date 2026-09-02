@@ -118,28 +118,41 @@
   margin-bottom: 16px;
 }
 
-.fileUploadButton {
-  height: 38px;
-  padding: 0 16px;
-  border-radius: 9px;
+.dropzone {
+  position: relative;
   border: 1.5px dashed rgba(31, 61, 43, 0.25);
+  border-radius: 12px;
   background: var(--color-surface);
-  color: var(--color-primary);
-  font-size: 13px;
-  font-weight: 600;
+  padding: 22px 16px;
+  text-align: center;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
+  transition: border-color 0.15s, background 0.15s;
 }
 
-.fileUploadButton:hover {
-  background: var(--color-tint);
+.dropzone:hover {
+  border-color: var(--color-accent);
 }
 
-.fileList {
-  font-size: 12px;
+.dropzoneActive {
+  border-color: var(--color-accent);
+  background: rgba(201, 169, 97, 0.1);
+}
+
+.dropzoneText {
+  margin: 0;
+  font-size: 13px;
   color: var(--color-text-muted);
-  margin: 10px 0 0;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.hiddenFileInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .generateButton {

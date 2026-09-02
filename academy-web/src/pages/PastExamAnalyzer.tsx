@@ -67,6 +67,7 @@ export function PastExamAnalyzer() {
   const [reportHtml, setReportHtml] = useState('');
   const [reportFileName, setReportFileName] = useState('past_exam_report.html');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     try {
@@ -91,6 +92,23 @@ export function PastExamAnalyzer() {
 
   function handleFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
     const list = Array.from(e.target.files || []);
+    if (list.length > 0) setFiles(list);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+    const list = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
     if (list.length > 0) setFiles(list);
   }
 
@@ -206,22 +224,30 @@ export function PastExamAnalyzer() {
         </div>
 
         <div className={styles.fileRow}>
-          <label className={styles.fileUploadButton}>
-            📎 기출 파일 선택 (PDF 또는 JPG/PNG, 여러 개 가능)
+          <div
+            className={`${styles.dropzone} ${isDragging ? styles.dropzoneActive : ''}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {files.length === 0 ? (
+              <p className={styles.dropzoneText}>📎 여기로 기출 파일(PDF/JPG/PNG)을 끌어다 놓거나, 클릭해서 선택하세요</p>
+            ) : (
+              <p className={styles.dropzoneText}>
+                📎 {files.length}개 파일 선택됨: {files.map((f) => f.name).join(', ')}
+                <br />
+                (다시 클릭하거나 새로 끌어다 놓으면 선택이 바뀝니다)
+              </p>
+            )}
             <input
               ref={fileInputRef}
               type="file"
               accept=".pdf,.jpg,.jpeg,.png"
               multiple
               onChange={handleFilesChange}
-              hidden
+              className={styles.hiddenFileInput}
             />
-          </label>
-          {files.length > 0 && (
-            <p className={styles.fileList}>
-              📎 {files.length}개 파일 선택됨: {files.map((f) => f.name).join(', ')}
-            </p>
-          )}
+          </div>
         </div>
 
         <button
