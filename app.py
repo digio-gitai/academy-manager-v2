@@ -632,6 +632,10 @@ def init_db():
         "expectations": "TEXT DEFAULT ''",
         "notes": "TEXT DEFAULT ''",
         "student_phone": "TEXT DEFAULT ''",
+        # [2026-09-02 추가] 수업중지(휴원) 처리용 — is_paused=True면 휴원중.
+        # paused_at은 휴원 처리한 날짜(YYYY-MM-DD) 기록용, 해제 시 빈 문자열로 되돌림.
+        "is_paused": "BOOLEAN DEFAULT FALSE",
+        "paused_at": "TEXT DEFAULT ''",
     }
     for col_name, col_def in _student_intake_cols.items():
         if col_name not in cols:
@@ -836,6 +840,21 @@ def delete_student(student_id: int):
     conn.close()
 
 
+def set_student_paused(student_id: int, paused: bool) -> None:
+    """수업중지(휴원)/재원 처리. paused_at은 휴원 처리 시점 날짜, 해제 시 빈 문자열로 초기화."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE students SET is_paused = ?, paused_at = ? WHERE id = ?",
+        (
+            bool(paused),
+            datetime.now().strftime("%Y-%m-%d") if paused else "",
+            student_id,
+        ),
+    )
+    _commit(conn)
+    conn.close()
+
+
 def assign_class(student_id: int, class_id: int | None):
     conn = get_conn()
     conn.execute(
@@ -858,7 +877,9 @@ def get_all_students(teacher_id: int | None = None) -> pd.DataFrame:
                    COALESCE(t.name, '—') AS teacher_name,
                    s.registered_at,
                    s.school, s.grade, s.student_phone,
-                   s.pre_visit_progress, s.expectations, s.notes
+                   s.pre_visit_progress, s.expectations, s.notes,
+                   COALESCE(s.is_paused, FALSE) AS is_paused,
+                   COALESCE(s.paused_at, '') AS paused_at
             FROM   students s
             LEFT JOIN classes  c ON c.id = s.class_id
             LEFT JOIN teachers t ON t.id = c.teacher_id
@@ -875,7 +896,9 @@ def get_all_students(teacher_id: int | None = None) -> pd.DataFrame:
                    COALESCE(t.name, '—') AS teacher_name,
                    s.registered_at,
                    s.school, s.grade, s.student_phone,
-                   s.pre_visit_progress, s.expectations, s.notes
+                   s.pre_visit_progress, s.expectations, s.notes,
+                   COALESCE(s.is_paused, FALSE) AS is_paused,
+                   COALESCE(s.paused_at, '') AS paused_at
             FROM   students s
             LEFT JOIN classes  c ON c.id = s.class_id
             LEFT JOIN teachers t ON t.id = c.teacher_id
@@ -890,9 +913,16 @@ def get_all_students(teacher_id: int | None = None) -> pd.DataFrame:
 
 
 def get_students_by_class(class_id: int) -> pd.DataFrame:
+    """반 학생 목록 (출석/대시보드/출석부 등에서 공용으로 사용).
+
+    [2026-09-02] 휴원(수업중지) 처리된 학생은 여기서 제외한다 — 출석 체크,
+    출석부 인쇄, 대시보드 통계 등 "오늘 수업 대상"을 의미하는 화면들이
+    전부 이 함수를 쓰기 때문에, 한 곳만 고치면 자연스럽게 다 반영된다.
+    """
     conn = get_conn()
     df = pd.read_sql_query(
-        "SELECT id, name, grade, school, parent_phone, COALESCE(student_phone,'') AS student_phone FROM students WHERE class_id = ? ORDER BY name",
+        "SELECT id, name, grade, school, parent_phone, COALESCE(student_phone,'') AS student_phone "
+        "FROM students WHERE class_id = ? AND COALESCE(is_paused, FALSE) = FALSE ORDER BY name",
         conn,
         params=(class_id,),
     )
@@ -5475,6 +5505,10 @@ def page_students():
     df_scope = get_all_students(teacher_id)
     total = len(df_scope)
     unassigned = int(df_scope["class_id"].isna().sum()) if not df_scope.empty else 0
+    paused_count = (
+        int(df_scope["is_paused"].fillna(False).astype(bool).sum())
+        if not df_scope.empty else 0
+    )
     with st.container(border=True):
         st.markdown("#### 명부 요약")
         m1, m2 = st.columns(2)
@@ -5482,6 +5516,8 @@ def page_students():
         m2.metric("수업 수", len(classes_df))
         if total > 0:
             st.caption(f"반 미배정 학생 {unassigned}명")
+        if paused_count > 0:
+            st.caption(f"⏸ 휴원중인 학생 {paused_count}명")
         if teacher_id is not None:
             st.caption(f"강사 **{_current_teacher_name()}** 기준 통계")
 
@@ -5517,9 +5553,14 @@ def page_students():
                     view["name"].str.contains(search_query, case=False, na=False)
                 ]
 
+            view["_status_label"] = (
+                view["is_paused"].fillna(False).astype(bool)
+                .map({True: "⏸ 휴원중", False: "재원"})
+            )
             display_df = view[
                 [
                     "name",
+                    "_status_label",
                     "parent_phone",
                     "class_name",
                     "teacher_name",
@@ -5528,6 +5569,7 @@ def page_students():
             ].copy()
             display_df.columns = [
                 "학생 이름",
+                "상태",
                 "학부모 연락처",
                 "반",
                 "담당 강사",
@@ -5630,6 +5672,55 @@ def page_students():
                         assign_class(student_options[sel_s], class_options[new_cl])
                         st.success("반 배정이 업데이트되었습니다.")
                         st.rerun()
+
+            # [신규 추가 2026-09-02] 수업중지(휴원) / 재원 처리.
+            # 한 달 정도 사정이 있어 안 나오는 학생을 삭제하지 않고 "휴원중" 상태로만
+            # 표시 — 이 상태인 학생은 출석 체크 대상과 과제 인증 발송 대상에서 자동 제외되고,
+            # 성적/상담 등 과거 기록은 그대로 남는다. 다시 나오게 되면 "수업 재개"로 해제.
+            with st.expander("수업중지 / 재개 (휴원 처리)"):
+                pause_options = {
+                    (
+                        f"{r['name']} — ⏸ 휴원중"
+                        if bool(r.get("is_paused"))
+                        else f"{r['name']} — 재원"
+                    ): int(r["id"])
+                    for _, r in df.iterrows()
+                }
+                if pause_options:
+                    sel_p = st.selectbox(
+                        "학생 선택",
+                        list(pause_options.keys()),
+                        key="pause_student_sel",
+                    )
+                    sel_p_id = pause_options[sel_p]
+                    sel_p_row = df[df["id"] == sel_p_id].iloc[0]
+                    sel_p_name = sel_p_row["name"]
+                    currently_paused = bool(sel_p_row.get("is_paused"))
+
+                    if currently_paused:
+                        paused_since = sel_p_row.get("paused_at") or "—"
+                        st.caption(f"현재 **⏸ 휴원중** (휴원 시작일: {paused_since})")
+                        if st.button(
+                            "수업 재개 (휴원 해제)",
+                            key="resume_student_btn",
+                            type="primary",
+                        ):
+                            set_student_paused(sel_p_id, False)
+                            st.success(f"**{sel_p_name}** 학생의 수업을 재개했습니다.")
+                            st.rerun()
+                    else:
+                        st.caption("현재 **재원중**")
+                        if st.button(
+                            "수업중지 (휴원 처리)",
+                            key="pause_student_btn",
+                            type="primary",
+                        ):
+                            set_student_paused(sel_p_id, True)
+                            st.warning(
+                                f"**{sel_p_name}** 학생을 휴원 처리했습니다. "
+                                "출석 체크·과제 인증 대상에서 제외됩니다."
+                            )
+                            st.rerun()
 
             with st.expander("학생 삭제"):
                 remove_options = {

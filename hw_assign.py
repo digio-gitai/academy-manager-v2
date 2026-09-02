@@ -201,8 +201,10 @@ def _build_hw_sms_text(
 
 
 def get_students_by_class(class_id: int) -> pd.DataFrame:
+    # [2026-09-02] 휴원(수업중지) 처리된 학생은 과제 부여 대상에서 제외한다.
     return _read_sql_df(
-        "SELECT id, name FROM students WHERE class_id = %s ORDER BY name",
+        "SELECT id, name FROM students "
+        "WHERE class_id = %s AND COALESCE(is_paused, FALSE) = FALSE ORDER BY name",
         (class_id,),
     )
 

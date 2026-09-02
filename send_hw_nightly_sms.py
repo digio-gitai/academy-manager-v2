@@ -90,9 +90,11 @@ def _classes_meeting_on(day_kr: str) -> list[dict]:
 
 
 def _students_with_phone(class_id: int) -> list[dict]:
+    # [2026-09-02] 휴원(수업중지) 처리된 학생은 야간 자동 SMS 대상에서 제외한다.
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, name, parent_phone FROM students WHERE class_id = ?",
+        "SELECT id, name, parent_phone FROM students "
+        "WHERE class_id = ? AND COALESCE(is_paused, FALSE) = FALSE",
         (class_id,),
     ).fetchall()
     conn.close()
@@ -122,6 +124,7 @@ def _students_with_due_tomorrow(target_date: str) -> list[dict]:
         JOIN students st ON st.id = sub.student_id
         LEFT JOIN classes c ON c.id = a.class_id
         WHERE a.due_date = ?
+          AND COALESCE(st.is_paused, FALSE) = FALSE
         """,
         (target_date,),
     ).fetchall()
