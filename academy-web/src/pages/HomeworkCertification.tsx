@@ -7,7 +7,10 @@ import {
   ensureAssignment,
   deleteHwItem as deleteHwItemDb,
   deleteAssignment as deleteAssignmentDb,
+  buildHwSmsText,
+  markNotified,
 } from '../lib/homework';
+import { sendBulkSms } from '../lib/smsSend';
 import type { ClassInfo } from '../types/classManagement';
 import type { HwAssignment, HwItem, HwSubmission } from '../types/homework';
 import { AssignmentForm, type CommonSavePayload } from '../components/homework/AssignmentForm';
@@ -42,11 +45,12 @@ function draftToItemInput(d: ItemRowDraft) {
  * - 참조 PDF 업로드 + AI 페이지 대조(ReferenceUploadSection, hw_reference.py 대응)
  *   — 둘 다 실제 AI/OCR 연동이 핵심이라 mock으로 만드는 의미가 적어서 보류.
  *
- * SMS 발송(업로드 링크 개별 발송 / 완료·미완료 일괄 발송)도 여전히 데모임 —
- * 브라우저에서 Solapi를 직접 호출하지 않는다는 프로젝트 방침(다른 화면들과
- * 동일). 버튼을 눌러도 문자는 안 나가고 DB의 notified_at도 건드리지 않지만,
- * "오늘 문자 발송됨" 표시 자체는 실제 notified_at 값을 읽어서 보여준다 —
- * 다른 경로(예: 스트림릿 쪽 야간 자동발송)로 이미 발송됐을 수 있어서다.
+ * [2026-09-03] "완료·미완료 일괄 발송"은 실제 문자 발송으로 전환함 — 아래
+ * handleBulkSms 참고(lib/homework.ts의 buildHwSmsText/markNotified,
+ * lib/smsSend.ts의 sendBulkSms — 이미 배포된 send-sms Edge Function 재사용).
+ * "업로드 링크 개별 발송"은 여전히 데모임 — academy-web이 아직 공개 배포되지
+ * 않아서 실제 링크를 보내면 학부모가 못 여는 깨진 링크가 되기 때문(배포 후
+ * 재검토 예정).
  *
  * 선생님 사진 확인(✅ 선생님 확인 버튼)은 외부 API 호출이 없는 단순 DB
  * 갱신이라 실제로 반영됨 — lib/homework.ts의 setPhotoTeacherVerified() 참고
@@ -161,24 +165,64 @@ export function HomeworkCertification() {
 
   function handleSendUploadLink(_studentId: string) {
     // 실제 문자 발송(Solapi)은 브라우저에서 직접 호출하지 않음 — 데모로만 동작
-    // (RecentAssignmentsPanel이 자체적으로 "(데모)" 안내 문구를 보여줌).
+    // (RecentAssignmentsPanel이 자체적으로 "(데모)" 안내 문구를 보여줌). 이유는
+    // 위 컴포넌트 설명 주석 참고(academy-web 미배포).
   }
 
-  function handleBulkSms(assignmentId: string) {
+  /**
+   * [2026-09-03] "학부모에게 완료/미완료 문자 발송" 실제 발송.
+   * 학생마다 문구가 달라서(각자 완료/미완료 현황) send-sms Edge Function을
+   * 1명씩 호출한다 — 운영 스트림릿 send_hw_nightly_sms.py의 수동 발송 버튼과
+   * 같은 조건으로 건너뜀: (1) 선생님이 아직 확인 안 한 제출 사진이 있으면
+   * 건너뜀 (2) 오늘 이미 발송됐으면(수동이든 야간자동이든) 중복 발송 방지로
+   * 건너뜀. 성공한 건만 markNotified()로 기록.
+   */
+  async function handleBulkSms(
+    assignmentId: string,
+  ): Promise<{ sentNames: string[]; skippedNames: string[]; failedNames: string[] }> {
+    const assignment = assignments.find((a) => a.id === assignmentId);
     const relevant = submissions.filter((s) => s.assignmentId === assignmentId);
     const sentNames: string[] = [];
     const skippedNames: string[] = [];
-    relevant.forEach((s) => {
-      const name = classInfo?.students.find((st) => st.id === s.studentId)?.name ?? s.studentId;
+    const failedNames: string[] = [];
+
+    for (const s of relevant) {
+      const student = classInfo?.students.find((st) => st.id === s.studentId);
+      const name = student?.name ?? s.studentId;
+
       if (s.hasPhoto && !s.teacherVerified) {
-        skippedNames.push(name);
-      } else {
-        sentNames.push(name);
+        skippedNames.push(`${name}(선생님 확인 대기)`);
+        continue;
       }
-    });
-    // 실제 문자 발송(Solapi)은 브라우저에서 직접 호출하지 않음 — 데모로만 동작
-    // (notified_at 갱신 없음, 실제 발송은 send_hw_nightly_sms.py 쪽 몫).
-    return { sentNames, skippedNames };
+      if (s.notifiedToday) {
+        skippedNames.push(`${name}(오늘 이미 발송됨)`);
+        continue;
+      }
+      const phone = student?.parentPhone?.trim();
+      if (!phone) {
+        skippedNames.push(`${name}(보호자 연락처 없음)`);
+        continue;
+      }
+
+      const { text } = buildHwSmsText({
+        studentName: name,
+        assignedDate: assignment?.assignedDate ?? todayStr(),
+        title: assignment?.title ?? '과제',
+        itemStates: s.itemStates,
+        items,
+      });
+
+      try {
+        await sendBulkSms([{ name, phone }], text);
+        await markNotified(s.id);
+        sentNames.push(name);
+      } catch (err) {
+        failedNames.push(`${name}(${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
+
+    reload();
+    return { sentNames, skippedNames, failedNames };
   }
 
   if (classesLoading) {

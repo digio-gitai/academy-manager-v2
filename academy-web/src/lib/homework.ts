@@ -6,6 +6,7 @@ import type {
   HwItemStatus,
   HwItemType,
   HwSubmission,
+  HwSubmissionItemState,
   HwSubmissionStatus,
 } from '../types/homework';
 
@@ -35,12 +36,15 @@ import type {
 // 타입에 맞춰 내려서 씀(partial/열람함 둘 다 'viewed'로 합침) — 나중에 학생
 // 업로드 페이지를 실제로 연동할 때 이 3단계 타입 자체를 확장하는 걸 고려할 것.
 //
-// SMS(업로드 링크 개별 발송 / 완료·미완료 일괄 발송)는 실제로 브라우저에서
-// Solapi를 직접 호출하지 않는다는 프로젝트 방침(다른 화면과 동일)에 따라
-// 이 파일에 실제 발송 함수를 두지 않음 — 화면(HomeworkCertification.tsx)에서
-// 버튼 클릭은 데모 메시지만 보여주고 DB의 notified_at은 건드리지 않는다.
-// 다만 "오늘 문자 발송됨" 표시 자체는 실제 notified_at 값을 그대로 읽어서
-// 보여준다(스트림릿 쪽 send_hw_nightly_sms.py가 이미 보냈을 수도 있으므로).
+// [2026-09-03] "완료·미완료 일괄 발송"은 실제 발송으로 전환함 — 아래
+// buildHwSmsText()/markNotified() 참고. Solapi 직접 호출은 여전히 브라우저에서
+// 안 하고, 이미 배포되어 있는 send-sms Edge Function(lib/smsSend.ts의
+// sendBulkSms, "SMS발송" 메뉴가 쓰던 것과 동일)을 학생 1명씩 재사용한다 —
+// send-sms가 "여러 명에게 같은 문구"만 지원해서, 학생마다 다른 완료/미완료
+// 문구를 보내려면 1명씩 호출해야 함(Edge Function 새로 안 만들어도 됨).
+// "업로드 링크 개별 발송"은 여전히 데모임 — academy-web이 아직 공개 배포되지
+// 않아서(로컬 개발 서버뿐) 실제 링크를 보내면 학부모가 못 여는 깨진 링크가
+// 되므로, 배포 전까지는 의도적으로 보류함(2026-09-03 사용자에게 설명함).
 //
 // 선생님 사진 확인(hw_photos.teacher_verified)은 외부 API 호출이 아니라 단순
 // DB 값 갱신이라 실제로 씀 — toggleTeacherVerified() 참고.
@@ -101,6 +105,70 @@ interface RawAssignment {
   hw_assignment_targets: RawTarget[] | null;
   hw_items: RawItem[] | null;
   hw_submissions: RawSubmission[] | null;
+}
+
+/**
+ * 과제 완료/미완료 요약 문자 문구 — 운영 스트림릿 hw_assign.py의
+ * _build_hw_sms_text()를 그대로 이식(문구 형식까지 동일하게 맞춤).
+ * branding.py의 SMS_GREETING("안녕하세요, 수학 정재훈T입니다.")도 그대로 씀.
+ */
+export const HW_SMS_GREETING = '안녕하세요, 수학 정재훈T입니다.';
+
+export function buildHwSmsText(params: {
+  studentName: string;
+  assignedDate: string;
+  title: string;
+  itemStates: HwSubmissionItemState[];
+  items: HwItem[];
+}): { text: string; allDone: boolean } {
+  const { studentName, assignedDate, title, itemStates, items } = params;
+  const itemById = new Map(items.map((it) => [it.id, it]));
+  const lines: string[] = [];
+  let allDone = true;
+
+  for (const state of itemStates) {
+    const item = itemById.get(state.itemId);
+    if (!item) continue;
+    const hasPages = item.itemType === 'page_range' && item.pageStart != null && item.pageEnd != null;
+    if (hasPages) {
+      const pageStart = item.pageStart as number;
+      const pageEnd = item.pageEnd as number;
+      const totalPages = pageEnd - pageStart + 1;
+      const fullRange = new Set<number>();
+      for (let p = pageStart; p <= pageEnd; p += 1) fullRange.add(p);
+      const donePages = state.completedPages.filter((p) => fullRange.has(p));
+      if (totalPages > 0 && donePages.length >= totalPages) {
+        lines.push(`- ${item.materialName}: 완료`);
+      } else {
+        allDone = false;
+        lines.push(`- ${item.materialName}: 미완료(${donePages.length}/${totalPages}쪽)`);
+      }
+    } else if (state.status === 'done') {
+      lines.push(`- ${item.materialName}: 완료`);
+    } else {
+      allDone = false;
+      lines.push(`- ${item.materialName}: 미완료`);
+    }
+  }
+
+  const overall = allDone ? '완료' : '미완료';
+  const text = `${HW_SMS_GREETING}\n${studentName} 학생 ${assignedDate} 과제(${title}) 현황 — ${overall}\n${lines.join('\n')}`;
+  return { text, allDone };
+}
+
+/**
+ * 이 제출건에 학부모 문자를 보냈다고 기록(hw_submissions.notified_at) — 운영
+ * mark_notified()와 동일 목적(같은 학생에게 수동/야간자동이 겹쳐서 문자가
+ * 두 번 가는 걸 막기 위한 "오늘 이미 보냈는지" 판단 기준).
+ */
+export async function markNotified(submissionId: string): Promise<void> {
+  const { error } = await supabase
+    .from('hw_submissions')
+    .update({ notified_at: nowStr() })
+    .eq('id', submissionId);
+  if (error) {
+    throw error;
+  }
 }
 
 export interface HwClassData {

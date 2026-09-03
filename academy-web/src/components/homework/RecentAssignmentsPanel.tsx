@@ -31,7 +31,7 @@ interface RecentAssignmentsPanelProps {
   onDeleteAssignment: (assignmentId: string) => void;
   onSendUploadLink: (studentId: string) => void;
   onPhotosChanged: () => void;
-  onBulkSms: (assignmentId: string) => { sentNames: string[]; skippedNames: string[] };
+  onBulkSms: (assignmentId: string) => Promise<{ sentNames: string[]; skippedNames: string[]; failedNames: string[] }>;
 }
 
 /**
@@ -65,6 +65,7 @@ export function RecentAssignmentsPanel({
   const [photoOpenFor, setPhotoOpenFor] = useState<string | null>(null);
   const [linkMessage, setLinkMessage] = useState<Record<string, string>>({});
   const [bulkMessage, setBulkMessage] = useState<Record<string, string>>({});
+  const [bulkSendingFor, setBulkSendingFor] = useState<string | null>(null);
 
   // [2026-09-01] 과제인증 4단계(3/3): 사진별 AI 검증 결과 표시용 상태.
   const [photoDetails, setPhotoDetails] = useState<Record<string, HwItemPhotoGroup[]>>({});
@@ -142,12 +143,24 @@ export function RecentAssignmentsPanel({
     }
   }
 
-  function handleBulk(assignmentId: string) {
-    const result = onBulkSms(assignmentId);
-    const parts: string[] = [];
-    if (result.sentNames.length > 0) parts.push(`발송: ${result.sentNames.join(', ')}`);
-    if (result.skippedNames.length > 0) parts.push(`선생님 확인 대기 중이라 건너뜀: ${result.skippedNames.join(', ')}`);
-    setBulkMessage((prev) => ({ ...prev, [assignmentId]: parts.join(' / ') || '발송 대상이 없습니다.' }));
+  async function handleBulk(assignmentId: string) {
+    setBulkSendingFor(assignmentId);
+    setBulkMessage((prev) => ({ ...prev, [assignmentId]: '문자 발송 중입니다...' }));
+    try {
+      const result = await onBulkSms(assignmentId);
+      const parts: string[] = [];
+      if (result.sentNames.length > 0) parts.push(`발송 완료: ${result.sentNames.join(', ')}`);
+      if (result.skippedNames.length > 0) parts.push(`건너뜀: ${result.skippedNames.join(', ')}`);
+      if (result.failedNames.length > 0) parts.push(`발송 실패: ${result.failedNames.join(', ')}`);
+      setBulkMessage((prev) => ({ ...prev, [assignmentId]: parts.join(' / ') || '발송 대상이 없습니다.' }));
+    } catch (err) {
+      setBulkMessage((prev) => ({
+        ...prev,
+        [assignmentId]: `발송 중 오류가 발생했습니다: ${err instanceof Error ? err.message : String(err)}`,
+      }));
+    } finally {
+      setBulkSendingFor(null);
+    }
   }
 
   return (
@@ -329,8 +342,13 @@ export function RecentAssignmentsPanel({
                 })}
 
                 <div className={styles.bulkRow}>
-                  <button type="button" className={styles.bulkButton} onClick={() => handleBulk(assignment.id)}>
-                    학부모에게 완료/미완료 문자 발송
+                  <button
+                    type="button"
+                    className={styles.bulkButton}
+                    disabled={bulkSendingFor === assignment.id}
+                    onClick={() => handleBulk(assignment.id)}
+                  >
+                    {bulkSendingFor === assignment.id ? '발송 중...' : '학부모에게 완료/미완료 문자 발송'}
                   </button>
                   {bulkMessage[assignment.id] && <p className={styles.successText}>{bulkMessage[assignment.id]}</p>}
                 </div>
