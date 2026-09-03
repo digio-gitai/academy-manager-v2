@@ -28,8 +28,6 @@ export function isManagerRole(role: string): boolean {
   return role === 'admin' || role === 'vice' || role === 'director';
 }
 
-const STORAGE_KEY = 'jmath_teacher_session';
-
 /**
  * 로그인 화면의 "이름 선택" 드롭다운용 — 이름만 조회(비밀번호는 절대 조회 안 함).
  * 운영 스트림릿 app.py의 get_all_teachers()와 동일하게, 이름에 "test"/"테스트"가
@@ -70,34 +68,10 @@ export async function loginTeacher(name: string, password: string): Promise<Teac
     name: row.name,
     role: (row.role || 'teacher') as TeacherRole,
   };
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-  } catch {
-    // localStorage를 못 쓰는 환경이어도 로그인 자체는 성공 처리 — 새로고침 시
-    // 세션 유지만 안 될 뿐, 지금 이 화면에서 로그인된 상태로 계속 쓸 수 있음.
-  }
+  // 2026-09-03: 세션을 localStorage에 저장하지 않음 — 사용자 요청(항상 새로
+  // 접속 시 로그인 화면부터 나오게). 새로고침/새 탭/재접속 시 매번 다시
+  // 로그인해야 하며, 로그인 상태는 이 페이지가 열려 있는 동안(메모리)에만 유지됨.
   return session;
-}
-
-/** 새로고침 후에도 로그인 상태를 유지하기 위해 저장해둔 세션을 읽어옴. */
-export function getStoredSession(): TeacherSession | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.id !== 'number' || typeof parsed.name !== 'string') return null;
-    return parsed as TeacherSession;
-  } catch {
-    return null;
-  }
-}
-
-export function clearSession(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // ignore
-  }
 }
 
 /**
