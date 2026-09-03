@@ -410,7 +410,7 @@ export function AiTestOcrPanel() {
           )}
           <input
             type="file"
-            accept="image/*,application/pdf"
+            accept="image/*,application/pdf,.hwp,.hwpx"
             multiple
             onChange={handleFileChange}
             className={styles.hiddenFileInput}

@@ -242,7 +242,7 @@ export function PastExamAnalyzer() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
+              accept=".pdf,.jpg,.jpeg,.png,.hwp,.hwpx"
               multiple
               onChange={handleFilesChange}
               className={styles.hiddenFileInput}
