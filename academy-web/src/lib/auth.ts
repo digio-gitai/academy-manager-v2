@@ -13,6 +13,8 @@ export interface TeacherOption {
   name: string;
 }
 
+const STORAGE_KEY = 'jmath_teacher_session';
+
 export const ROLE_LABEL_KR: Record<TeacherRole, string> = {
   teacher: '강사',
   admin: '관리자',
@@ -68,9 +70,16 @@ export async function loginTeacher(name: string, password: string): Promise<Teac
     name: row.name,
     role: (row.role || 'teacher') as TeacherRole,
   };
-  // 2026-09-03: 세션을 localStorage에 저장하지 않음 — 사용자 요청(항상 새로
-  // 접속 시 로그인 화면부터 나오게). 새로고침/새 탭/재접속 시 매번 다시
-  // 로그인해야 하며, 로그인 상태는 이 페이지가 열려 있는 동안(메모리)에만 유지됨.
+  // 2026-09-03: localStorage 대신 sessionStorage에 저장 — 사용자가 "새로고침할
+  // 때마다 로그인 화면 나오는 건 불편하다"고 재요청해서 절충함. sessionStorage는
+  // 같은 탭에서 새로고침해도 유지되지만, 탭/브라우저를 완전히 닫거나 새 탭을
+  // 열면 사라진다 — "지난 사람이 로그인된 채로 남아있는" 원래 문제(localStorage)도
+  // 막으면서, 새로고침마다 재로그인해야 하는 불편함(세션 미저장)도 없앤 절충안.
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  } catch {
+    // sessionStorage를 못 쓰는 환경이어도 로그인 자체는 성공 처리.
+  }
   return session;
 }
 
@@ -82,6 +91,27 @@ export async function loginTeacher(name: string, password: string): Promise<Teac
  * 반환값 false = 현재 비밀번호가 틀림. 서버 쪽 유효성 검사(4자리 숫자가
  * 아님 등) 실패 시에는 Supabase가 에러를 던지므로 그대로 throw됨.
  */
+/** 같은 탭에서 새로고침해도 로그인 상태를 유지하기 위해 sessionStorage에서 세션을 읽어옴. */
+export function getStoredSession(): TeacherSession | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.id !== 'number' || typeof parsed.name !== 'string') return null;
+    return parsed as TeacherSession;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSession(): void {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export async function changeTeacherPassword(
   teacherId: number,
   currentPassword: string,

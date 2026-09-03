@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { isManagerRole, type TeacherSession } from '../lib/auth';
+import { getStoredSession, clearSession, isManagerRole, type TeacherSession } from '../lib/auth';
 
 interface AuthContextValue {
   session: TeacherSession | null;
@@ -22,18 +22,18 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
  * 그동안 로그인 화면은 있었지만 실제로 인증하지 않고 그냥 대시보드로
  * 넘어가는 mock이었음. 이제 teachers 테이블과 실제로 연동됨(src/lib/auth.ts).
  *
- * 2026-09-03: 세션은 저장하지 않음(사용자 요청) — 새로 접속하거나 새로고침하면
- * 항상 로그인 화면부터 다시 시작한다. 로그인 상태는 이 앱이 열려 있는 동안
- * 메모리(React state)에만 유지된다.
+ * 2026-09-03(수정): sessionStorage에서 초기 세션을 읽어옴 — 같은 탭에서
+ * 새로고침해도 로그인 유지, 탭/브라우저를 닫으면 사라짐(auth.ts 주석 참고).
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<TeacherSession | null>(null);
+  const [session, setSession] = useState<TeacherSession | null>(() => getStoredSession());
 
   function login(next: TeacherSession) {
     setSession(next);
   }
 
   function logout() {
+    clearSession();
     setSession(null);
   }
 
