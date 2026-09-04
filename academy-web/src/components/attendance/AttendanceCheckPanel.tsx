@@ -11,6 +11,19 @@ import {
 import styles from './AttendanceCheckPanel.module.css';
 
 const WEEKDAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
+
+// [2026-09-05] 버그 수정: sessionDate 초기값이 '2026-08-20'으로 고정돼 있어서
+// 화면을 열 때마다 오늘이 아니라 과거 날짜가 떠 있었고, 그 상태로 출석을
+// 저장해서 실제로 잘못된 날짜에 저장되는 사고가 있었음. 브라우저의 로컬
+// 날짜(YYYY-MM-DD)를 항상 기본값으로 쓰도록 수정 — toISOString()은 UTC
+// 기준이라 자정 근처(한국시간 00~09시)에 하루가 밀리는 문제가 있어서 쓰지
+// 않고, getFullYear/getMonth/getDate로 직접 조합함(lib/homework.ts의
+// nowStr()과 같은 방식).
+function getLocalTodayStr(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 const STATUS_LABELS: Record<AttendanceStatus, string> = {
   present: '출석',
   late: '지각',
@@ -35,7 +48,7 @@ interface AttendanceCheckPanelProps {
  */
 export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
   const [classId, setClassId] = useState(classes[0]?.id ?? '');
-  const [sessionDate, setSessionDate] = useState('2026-08-20');
+  const [sessionDate, setSessionDate] = useState(getLocalTodayStr());
   const [savedRecords, setSavedRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -132,6 +145,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
     const d = new Date(`${sessionDate}T00:00:00`);
     return Number.isNaN(d.getTime()) ? '' : WEEKDAYS_KO[d.getDay()];
   }, [sessionDate]);
+  const isTodaySelected = sessionDate === getLocalTodayStr();
 
   function getStatus(studentId: string): AttendanceStatus {
     if (records[studentId]) return records[studentId].status;
@@ -230,15 +244,26 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
           </div>
           <div className={styles.field}>
             <label className={styles.label}>수업 날짜</label>
-            <input
-              type="date"
-              className={styles.dateInput}
-              value={sessionDate}
-              onChange={(e) => setSessionDate(e.target.value)}
-            />
+            <div className={styles.dateRow}>
+              <input
+                type="date"
+                className={styles.dateInput}
+                value={sessionDate}
+                onChange={(e) => setSessionDate(e.target.value)}
+              />
+              <button
+                type="button"
+                className={styles.todayButton}
+                onClick={() => setSessionDate(getLocalTodayStr())}
+                disabled={isTodaySelected}
+              >
+                오늘로
+              </button>
+            </div>
           </div>
-          <div className={styles.weekdayCaption}>
+          <div className={isTodaySelected ? styles.weekdayCaption : styles.weekdayCaptionWarn}>
             선택 날짜: {sessionDate} ({weekdayLabel})
+            {!isTodaySelected && ' — 오늘이 아닙니다, 확인해주세요'}
           </div>
         </div>
 

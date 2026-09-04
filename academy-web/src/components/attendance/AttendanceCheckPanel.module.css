@@ -54,6 +54,45 @@
   padding-bottom: 9px;
 }
 
+/* [2026-09-05] 선택 날짜가 오늘이 아닐 때 눈에 띄게 경고 — 실수로 다른
+   날짜에 출석을 저장하는 사고를 막기 위함. */
+.weekdayCaptionWarn {
+  font-size: 12px;
+  font-weight: 700;
+  color: #b23a3a;
+  align-self: flex-end;
+  padding-bottom: 9px;
+}
+
+.dateRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.todayButton {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1.5px solid var(--color-primary);
+  background: var(--color-white);
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.todayButton:hover:not(:disabled) {
+  background: rgba(31, 61, 43, 0.06);
+}
+
+.todayButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .infoBanner {
   font-size: 12px;
   background: rgba(201, 169, 97, 0.14);
