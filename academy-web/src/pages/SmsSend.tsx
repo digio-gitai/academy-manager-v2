@@ -251,27 +251,16 @@ export function SmsSend() {
     }
   }
 
-  const SECTION_LABELS: Record<SectionKind, { title: string; hint: string; empty: string }> = {
+  const SECTION_LABELS: Record<'parent' | 'student', { title: string; hint: string; empty: string }> = {
     parent: { title: '학부모에게 보내기', hint: '체크한 학생의 학부모 번호로 전송됩니다.', empty: '등록된 학생이 없습니다.' },
     student: { title: '학생에게 보내기', hint: '체크한 학생 본인 번호로 전송됩니다.', empty: '등록된 학생이 없습니다.' },
-    'withdrawn-parent': {
-      title: '퇴원생 학부모에게 보내기',
-      hint: '체크한 퇴원생의 학부모 번호로 전송됩니다. (재등록 안내 등에 활용)',
-      empty: '퇴원 처리된 학생이 없습니다.',
-    },
-    'withdrawn-student': {
-      title: '퇴원생 본인에게 보내기',
-      hint: '체크한 퇴원생 본인 번호로 전송됩니다.',
-      empty: '퇴원 처리된 학생이 없습니다.',
-    },
   };
 
-  function renderSection(kind: SectionKind) {
-    const isParentKind = kind === 'parent' || kind === 'withdrawn-parent';
+  function renderSection(kind: 'parent' | 'student') {
     const { title, hint, empty } = SECTION_LABELS[kind];
     const list = listFor(kind);
     const [selected] = selectedSetFor(kind);
-    const phoneOf = (s: StudentProfile) => (isParentKind ? s.parentPhone : s.studentPhone) ?? '';
+    const phoneOf = (s: StudentProfile) => (kind === 'parent' ? s.parentPhone : s.studentPhone) ?? '';
 
     return (
       <div className={styles.section}>
@@ -314,6 +303,66 @@ export function SmsSend() {
     );
   }
 
+  /**
+   * 퇴원생 목록 — 재원생 섹션(학부모용/학생용 두 목록)과 달리, 사용자 요청으로
+   * 목록을 하나만 두고 이름 옆에 "학생"/"학부모" 체크박스 두 개만 배치했다.
+   * 평소엔 번호를 안 보여주고, 체크했을 때만(=문자를 보낼 곳으로 고른 순간만)
+   * 그 번호가 옆에 나타난다. 2026-09-04 추가, 2026-09-05 간소화(사용자 요청).
+   */
+  function renderWithdrawnSection() {
+    if (withdrawnLoading || sortedWithdrawn.length === 0) return null;
+    return (
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <div className={styles.sectionTitle}>퇴원생 목록</div>
+            <div className={styles.sectionHint}>
+              보낼 곳(학생/학부모)을 체크하면 그 번호가 표시됩니다. (재등록 안내 문자 등에 활용)
+            </div>
+          </div>
+        </div>
+        <div className={styles.studentList}>
+          {sortedWithdrawn.map((s) => {
+            const studentPhone = (s.studentPhone ?? '').trim();
+            const parentPhone = (s.parentPhone ?? '').trim();
+            const studentChecked = selectedWithdrawnStudentIds.has(s.id);
+            const parentChecked = selectedWithdrawnParentIds.has(s.id);
+            return (
+              <div key={s.id} className={styles.studentRow}>
+                <span className={styles.studentName}>{s.name} 학생</span>
+                <span className={styles.studentMeta} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input
+                    type="checkbox"
+                    checked={studentChecked}
+                    disabled={!studentPhone}
+                    onChange={() => toggle('withdrawn-student', s.id)}
+                  />
+                  학생
+                  {studentChecked && (
+                    <span className={styles.studentPhone}>{studentPhone || '번호 없음'}</span>
+                  )}
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={parentChecked}
+                    disabled={!parentPhone}
+                    onChange={() => toggle('withdrawn-parent', s.id)}
+                  />
+                  학부모
+                  {parentChecked && (
+                    <span className={styles.studentPhone}>{parentPhone || '번호 없음'}</span>
+                  )}
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>SMS발송</h1>
@@ -332,9 +381,7 @@ export function SmsSend() {
             {!withdrawnLoading && sortedWithdrawn.length > 0 && (
               <>
                 <div className={styles.sectionDivider} />
-                {renderSection('withdrawn-parent')}
-                <div className={styles.sectionDivider} />
-                {renderSection('withdrawn-student')}
+                {renderWithdrawnSection()}
               </>
             )}
 
