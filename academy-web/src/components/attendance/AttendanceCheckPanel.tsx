@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ClassInfo } from '../../types/classManagement';
 import type { AttendanceRecord, AttendanceStatus } from '../../types/attendance';
 import { fetchAttendanceForSession, saveAttendanceSession } from '../../lib/attendance';
-import { fetchTodayHomeworkSummary } from '../../lib/homework';
+import {
+  fetchTodayHomeworkSummary,
+  fetchHomeworkPerformanceForSession,
+  saveHomeworkPerformanceForSession,
+  type HomeworkPerformanceLevel,
+} from '../../lib/homework';
 import styles from './AttendanceCheckPanel.module.css';
 
 const WEEKDAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
@@ -41,6 +46,14 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
   const [homework, setHomework] = useState<{ title: string; summary: string } | null>(null);
   const [homeworkLoading, setHomeworkLoading] = useState(true);
   const [homeworkError, setHomeworkError] = useState('');
+
+  // 2026-09-05 추가: 과제 수행도(상/중/하) 체크 — 출석과 별개로 저장/불러오기.
+  const [perfSaved, setPerfSaved] = useState<Record<string, HomeworkPerformanceLevel>>({});
+  const [perfEdits, setPerfEdits] = useState<Record<string, HomeworkPerformanceLevel>>({});
+  const [perfLoading, setPerfLoading] = useState(true);
+  const [perfError, setPerfError] = useState('');
+  const [perfSaving, setPerfSaving] = useState(false);
+  const [perfMessage, setPerfMessage] = useState('');
 
   const selectedClass = classes.find((c) => c.id === classId);
   const alreadySaved = savedRecords.length > 0;
@@ -91,6 +104,30 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
     };
   }, [classId, sessionDate]);
 
+  useEffect(() => {
+    if (!classId || !sessionDate) return;
+    let cancelled = false;
+    setPerfLoading(true);
+    setPerfError('');
+    setPerfEdits({});
+    setPerfMessage('');
+    fetchHomeworkPerformanceForSession(classId, sessionDate)
+      .then((data) => {
+        if (cancelled) return;
+        setPerfSaved(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPerfError(err instanceof Error ? err.message : '과제 수행도를 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setPerfLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classId, sessionDate]);
+
   const weekdayLabel = useMemo(() => {
     const d = new Date(`${sessionDate}T00:00:00`);
     return Number.isNaN(d.getTime()) ? '' : WEEKDAYS_KO[d.getDay()];
@@ -114,6 +151,35 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
 
   function updateNote(studentId: string, note: string) {
     setRecords((prev) => ({ ...prev, [studentId]: { status: getStatus(studentId), note } }));
+  }
+
+  function getPerf(studentId: string): HomeworkPerformanceLevel {
+    return perfEdits[studentId] ?? perfSaved[studentId] ?? '중';
+  }
+
+  function updatePerf(studentId: string, level: HomeworkPerformanceLevel) {
+    setPerfEdits((prev) => ({ ...prev, [studentId]: level }));
+  }
+
+  async function handleSavePerf() {
+    if (!selectedClass) return;
+    const recs = selectedClass.students.map((s) => ({ studentId: s.id, level: getPerf(s.id) }));
+    setPerfSaving(true);
+    setPerfMessage('');
+    try {
+      await saveHomeworkPerformanceForSession(classId, sessionDate, recs);
+      setPerfSaved((prev) => {
+        const next = { ...prev };
+        for (const r of recs) next[r.studentId] = r.level;
+        return next;
+      });
+      setPerfEdits({});
+      setPerfMessage('과제 수행도가 저장되었습니다.');
+    } catch (err) {
+      setPerfMessage(err instanceof Error ? `저장 실패: ${err.message}` : '과제 수행도 저장에 실패했습니다.');
+    } finally {
+      setPerfSaving(false);
+    }
   }
 
   async function handleSave() {
@@ -245,6 +311,53 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
           <p className={styles.emptyText}>
             이 날짜에 등록된 과제가 없습니다. '과제 인증' 메뉴에서 등록해주세요.
           </p>
+        )}
+      </div>
+
+      {/* 2026-09-05 추가: 과제 수행도(상/중/하) 체크 — 직전 수업 과제를 오늘
+          얼마나 해왔는지 눈대중으로 체크하는 구 기능. 과제 "등록"(위 카드,
+          과제 인증 메뉴 전용)과는 별개라서 리액트 전환 때도 그대로 남아있었어야
+          했는데 빠져 있던 것을 복원함 — 학생 명부의 "과제 수행 이력"과 나중에
+          월간 보고서에도 이 기록이 쓰인다. */}
+      <div className={styles.card}>
+        <h3 className={styles.cardTitle}>과제 수행도 체크 (직전 과제 기준, 상/중/하)</h3>
+        {perfLoading && <p className={styles.emptyText}>불러오는 중입니다...</p>}
+        {perfError && !perfLoading && <p className={styles.emptyText}>불러오지 못했습니다: {perfError}</p>}
+        {!perfLoading && (!selectedClass || selectedClass.students.length === 0) ? (
+          <p className={styles.emptyText}>{selectedClass?.name ?? '선택한'} 수업에 배정된 학생이 없습니다.</p>
+        ) : (
+          !perfLoading &&
+          selectedClass && (
+            <>
+              {selectedClass.students.map((s) => {
+                const level = getPerf(s.id);
+                return (
+                  <div key={s.id} className={styles.studentRow}>
+                    <span className={styles.studentName}>{s.name}</span>
+                    <div className={styles.radioGroup}>
+                      {(['상', '중', '하'] as HomeworkPerformanceLevel[]).map((opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          className={styles.radioBtn}
+                          data-status={opt}
+                          data-active={level === opt}
+                          disabled={perfSaving}
+                          onClick={() => updatePerf(s.id, opt)}
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              <button type="button" className={styles.saveButton} onClick={handleSavePerf} disabled={perfSaving}>
+                {perfSaving ? '저장 중...' : '과제 수행도 저장'}
+              </button>
+              {perfMessage && <p className={styles.successText}>{perfMessage}</p>}
+            </>
+          )
         )}
       </div>
     </>

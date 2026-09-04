@@ -114,6 +114,26 @@
   border-color: #b23a3a;
 }
 
+/* 2026-09-05 추가: 과제 수행도(상/중/하) 체크 — 출결 상태와 같은 radioBtn을
+   재사용하되, 상=좋음(초록)/중=보통(골드)/하=주의(빨강)로 매핑. */
+.radioBtn[data-status='상'][data-active='true'] {
+  background: var(--color-primary);
+  color: var(--color-tint);
+  border-color: var(--color-primary);
+}
+
+.radioBtn[data-status='중'][data-active='true'] {
+  background: var(--color-accent);
+  color: var(--color-primary);
+  border-color: var(--color-accent);
+}
+
+.radioBtn[data-status='하'][data-active='true'] {
+  background: #b23a3a;
+  color: #fff;
+  border-color: #b23a3a;
+}
+
 .radioBtn:disabled,
 .noteInput:disabled,
 .saveButton:disabled {

@@ -736,3 +736,69 @@ export async function fetchTodayHomeworkSummary(
   const sorted = [...((itemRows as { sort_order: number }[] | null) ?? [])].sort((a: any, b: any) => a.sort_order - b.sort_order);
   return { title: assignment.title, summary: buildItemSummaryText(sorted as any) };
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 과제 수행도(상/중/하) — 출석 체크 화면 전용
+// ═══════════════════════════════════════════════════════════════
+//
+// student_homework_performance 테이블(homework.py, 2026-08-06 추가된 구 기능)을
+// 그대로 쓴다. 위쪽의 hw_(과제인증, 사진 인증) 기능과는 완전히 별개 — "직전
+// 수업 과제를 오늘 얼마나 해왔는지" 선생님이 눈대중으로 상/중/하 체크하는
+// 용도로, StudentRoster.tsx의 "과제 수행 이력"과 나중에 보고서(월간 리포트
+// 등)에 쓰인다(lib/students.ts의 fetchHomeworkPerformance가 그 읽기 쪽).
+//
+// [2026-09-05] 리액트로 전환하면서(2026-08-22 결정: 과제 "등록"은 과제 인증
+// 메뉴로만 일원화) 이 상/중/하 체크 UI가 출석 관리 화면에서 통째로 빠져있던
+// 것을 사용자가 지적해서 복원 — "과제 등록"과 "과제 수행도 체크"는 서로 다른
+// 기능이라 전자만 옮기고 후자는 그대로 남아있었어야 했다.
+
+export type HomeworkPerformanceLevel = '상' | '중' | '하';
+
+interface HwPerformanceRow {
+  student_id: number;
+  level: string;
+}
+
+/** 이 반+날짜에 이미 저장된 학생별 과제 수행도. {student_id: '상'|'중'|'하'} */
+export async function fetchHomeworkPerformanceForSession(
+  classId: string,
+  sessionDate: string,
+): Promise<Record<string, HomeworkPerformanceLevel>> {
+  const { data, error } = await supabase
+    .from('student_homework_performance')
+    .select('student_id, level')
+    .eq('class_id', Number(classId))
+    .eq('session_date', sessionDate);
+  if (error) throw error;
+
+  const result: Record<string, HomeworkPerformanceLevel> = {};
+  for (const row of (data as HwPerformanceRow[]) ?? []) {
+    if (row.level === '상' || row.level === '중' || row.level === '하') {
+      result[String(row.student_id)] = row.level;
+    }
+  }
+  return result;
+}
+
+/** 학생별 과제 수행도 저장(있으면 갱신) — student_homework_performance의
+ * UNIQUE(student_id, session_date) 제약을 그대로 이용한 upsert. */
+export async function saveHomeworkPerformanceForSession(
+  classId: string,
+  sessionDate: string,
+  records: { studentId: string; level: HomeworkPerformanceLevel }[],
+): Promise<void> {
+  if (records.length === 0) return;
+  const now = nowStr();
+  const rows = records.map((r) => ({
+    student_id: Number(r.studentId),
+    class_id: Number(classId),
+    session_date: sessionDate,
+    level: r.level,
+    created_at: now,
+    updated_at: now,
+  }));
+  const { error } = await supabase
+    .from('student_homework_performance')
+    .upsert(rows, { onConflict: 'student_id,session_date' });
+  if (error) throw error;
+}
