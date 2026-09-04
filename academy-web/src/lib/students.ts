@@ -90,6 +90,35 @@ export async function setStudentPaused(studentId: string, paused: boolean): Prom
   }
 }
 
+/**
+ * 퇴원 처리. 삭제(deleteStudent)와 달리 데이터를 지우지 않고 withdrawn_at에
+ * 처리 날짜만 기록한다. class_id는 그대로 남겨두어(마지막 소속 반 표시용),
+ * fetchStudents()/fetchClasses() 등 '현재 재원생' 조회 지점에서만 자동으로
+ * 제외되게 한다. 스트림릿 운영 앱의 withdraw_student()와 동일한 동작.
+ * 2026-09-04 추가.
+ */
+export async function withdrawStudent(studentId: string): Promise<void> {
+  const withdrawnAt = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase
+    .from('students')
+    .update({ withdrawn_at: withdrawnAt })
+    .eq('id', Number(studentId));
+  if (error) {
+    throw error;
+  }
+}
+
+/** 퇴원 취소(복귀). withdrawn_at을 비워 다시 재원생 목록/반에 나타나게 한다. */
+export async function restoreStudent(studentId: string): Promise<void> {
+  const { error } = await supabase
+    .from('students')
+    .update({ withdrawn_at: '' })
+    .eq('id', Number(studentId));
+  if (error) {
+    throw error;
+  }
+}
+
 export interface NewStudentInput {
   name: string;
   registeredAt: string; // 'YYYY-MM-DD'
@@ -158,35 +187,12 @@ interface StudentRow {
   test_results: string | null;
   is_paused: boolean | null;
   paused_at: string | null;
+  withdrawn_at: string | null;
   classes: { name: string; teachers: { name: string } | null } | null;
 }
 
-export async function fetchStudents(teacherId?: number | null): Promise<StudentProfile[]> {
-  // teacherId가 주어지면(비관리자 로그인) 본인이 맡은 반의 학생만 조회한다.
-  // PostgREST에서 embed된 테이블(classes)의 컬럼으로 필터링하려면 !inner 조인
-  // 힌트가 필요함 — 안 쓰면 filter가 무시된다. 반이 없는 학생까지 보여줘야
-  // 하는 관리자(teacherId 없음) 조회에서는 !inner를 쓰면 안 되므로 분기한다.
-  const classesEmbed =
-    teacherId != null ? 'classes!inner ( name, teacher_id, teachers ( name ) )' : 'classes ( name, teachers ( name ) )';
-
-  let query = supabase
-    .from('students')
-    .select(
-      `id, name, parent_phone, class_id, registered_at, school, grade, pre_visit_progress, contact_info, expectations, notes, student_phone, test_results, is_paused, paused_at, ${classesEmbed}`,
-    )
-    .order('id', { ascending: true });
-
-  if (teacherId != null) {
-    query = query.eq('classes.teacher_id', teacherId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    throw error;
-  }
-
-  return ((data as unknown as StudentRow[]) ?? []).map((row) => ({
+function mapStudentRow(row: StudentRow): StudentProfile {
+  return {
     id: String(row.id),
     name: row.name,
     initial: row.name?.charAt(0) ?? '',
@@ -207,7 +213,59 @@ export async function fetchStudents(teacherId?: number | null): Promise<StudentP
     consultations: [],
     isPaused: Boolean(row.is_paused),
     pausedAt: row.paused_at ?? '',
-  }));
+    withdrawnAt: row.withdrawn_at ?? '',
+  };
+}
+
+/**
+ * teacherId 스코프 학생 전체를 (재원/퇴원 구분 없이) 조회하는 내부 헬퍼.
+ * fetchStudents()/fetchWithdrawnStudents()가 이걸 공유하고 각자 필터만 다르게 건다.
+ */
+async function fetchAllStudentRows(teacherId?: number | null): Promise<StudentRow[]> {
+  // teacherId가 주어지면(비관리자 로그인) 본인이 맡은 반의 학생만 조회한다.
+  // PostgREST에서 embed된 테이블(classes)의 컬럼으로 필터링하려면 !inner 조인
+  // 힌트가 필요함 — 안 쓰면 filter가 무시된다. 반이 없는 학생까지 보여줘야
+  // 하는 관리자(teacherId 없음) 조회에서는 !inner를 쓰면 안 되므로 분기한다.
+  const classesEmbed =
+    teacherId != null ? 'classes!inner ( name, teacher_id, teachers ( name ) )' : 'classes ( name, teachers ( name ) )';
+
+  let query = supabase
+    .from('students')
+    .select(
+      `id, name, parent_phone, class_id, registered_at, school, grade, pre_visit_progress, contact_info, expectations, notes, student_phone, test_results, is_paused, paused_at, withdrawn_at, ${classesEmbed}`,
+    )
+    .order('id', { ascending: true });
+
+  if (teacherId != null) {
+    query = query.eq('classes.teacher_id', teacherId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw error;
+  }
+  return (data as unknown as StudentRow[]) ?? [];
+}
+
+/**
+ * 재원생 목록(퇴원 처리된 학생은 제외). 2026-09-04: 퇴원 기능 추가 전에는
+ * 이 함수가 전체 학생(휴원 포함)을 다 반환했지만, 퇴원 학생은 성적 입력·
+ * 상담 일지·SMS발송·학생 명부 등 거의 모든 화면에서 대상이 아니어야 하므로
+ * 여기 한 곳에서 기본적으로 제외한다 — 스트림릿 운영 앱의 get_all_students()
+ * 기본 동작과 동일. 퇴원생만 따로 봐야 할 땐 fetchWithdrawnStudents() 사용.
+ */
+export async function fetchStudents(teacherId?: number | null): Promise<StudentProfile[]> {
+  const rows = await fetchAllStudentRows(teacherId);
+  return rows.filter((row) => !(row.withdrawn_at ?? '').trim()).map(mapStudentRow);
+}
+
+/**
+ * 퇴원생 목록. 학생 명부 화면의 '퇴원생 목록' 섹션과 SMS발송 화면의 퇴원생
+ * 수신자 선택에서 사용. 2026-09-04 추가.
+ */
+export async function fetchWithdrawnStudents(teacherId?: number | null): Promise<StudentProfile[]> {
+  const rows = await fetchAllStudentRows(teacherId);
+  return rows.filter((row) => (row.withdrawn_at ?? '').trim()).map(mapStudentRow);
 }
 
 /**

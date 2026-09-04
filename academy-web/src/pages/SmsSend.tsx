@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchStudents } from '../lib/students';
+import { fetchStudents, fetchWithdrawnStudents } from '../lib/students';
 import { useAuth } from '../context/AuthContext';
 import { sendBulkSms, fetchSmsSendLogs } from '../lib/smsSend';
 import type { SendSmsResult, SkippedRecipient, SmsRecipient, SmsSendLog } from '../lib/smsSend';
@@ -51,7 +51,7 @@ const LOG_STATUS_LABEL: Record<SmsSendLog['status'], string> = {
   skipped: '건너뜀',
 };
 
-type SectionKind = 'parent' | 'student';
+type SectionKind = 'parent' | 'student' | 'withdrawn-parent' | 'withdrawn-student';
 
 export function SmsSend() {
   const { scopeTeacherId } = useAuth();
@@ -59,8 +59,16 @@ export function SmsSend() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
+  // 2026-09-04 추가: 퇴원생 목록 — 다시 오라는 안내 문자를 보낼 대상으로
+  // 재원생과 별도 그룹으로 선택할 수 있게 한다(사용자 요청: "SMS전송 메뉴에서도
+  // 퇴원생 목록이 떠서 문자 보낼 수 있게").
+  const [withdrawnStudents, setWithdrawnStudents] = useState<StudentProfile[]>([]);
+  const [withdrawnLoading, setWithdrawnLoading] = useState(true);
+
   const [selectedParentIds, setSelectedParentIds] = useState<Set<string>>(new Set());
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+  const [selectedWithdrawnParentIds, setSelectedWithdrawnParentIds] = useState<Set<string>>(new Set());
+  const [selectedWithdrawnStudentIds, setSelectedWithdrawnStudentIds] = useState<Set<string>>(new Set());
   const [messageText, setMessageText] = useState('');
 
   const [sending, setSending] = useState(false);
@@ -90,6 +98,24 @@ export function SmsSend() {
     };
   }, [scopeTeacherId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setWithdrawnLoading(true);
+      try {
+        const data = await fetchWithdrawnStudents(scopeTeacherId);
+        if (!cancelled) setWithdrawnStudents(data);
+      } catch {
+        // 퇴원생 목록은 부가 정보라 실패해도 재원생 발송 화면 자체는 그대로 쓸 수 있게 조용히 넘어간다.
+      } finally {
+        if (!cancelled) setWithdrawnLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeTeacherId]);
+
   async function loadLogs() {
     setLogsLoading(true);
     setLogsError('');
@@ -111,22 +137,43 @@ export function SmsSend() {
     () => [...students].sort((a, b) => a.name.localeCompare(b.name, 'ko')),
     [students],
   );
+  const sortedWithdrawn = useMemo(
+    () => [...withdrawnStudents].sort((a, b) => a.name.localeCompare(b.name, 'ko')),
+    [withdrawnStudents],
+  );
+
+  // kind별로 대상 학생 목록/선택 상태 setter를 한 곳에서 매핑 — 재원생(parent/student)과
+  // 퇴원생(withdrawn-parent/withdrawn-student) 4가지를 같은 로직으로 다룬다.
+  function listFor(kind: SectionKind): StudentProfile[] {
+    return kind === 'withdrawn-parent' || kind === 'withdrawn-student' ? sortedWithdrawn : sortedStudents;
+  }
+  function selectedSetFor(kind: SectionKind): [Set<string>, (next: Set<string>) => void] {
+    switch (kind) {
+      case 'parent':
+        return [selectedParentIds, setSelectedParentIds];
+      case 'student':
+        return [selectedStudentIds, setSelectedStudentIds];
+      case 'withdrawn-parent':
+        return [selectedWithdrawnParentIds, setSelectedWithdrawnParentIds];
+      case 'withdrawn-student':
+        return [selectedWithdrawnStudentIds, setSelectedWithdrawnStudentIds];
+    }
+  }
 
   function toggle(kind: SectionKind, id: string) {
-    const setState = kind === 'parent' ? setSelectedParentIds : setSelectedStudentIds;
-    setState((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    const [, setState] = selectedSetFor(kind);
+    const [current] = selectedSetFor(kind);
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setState(next);
   }
 
   function toggleAll(kind: SectionKind) {
-    const phoneOf = (s: StudentProfile) => (kind === 'parent' ? s.parentPhone : s.studentPhone);
-    const eligible = sortedStudents.filter((s) => (phoneOf(s) ?? '').trim().length > 0);
-    const setState = kind === 'parent' ? setSelectedParentIds : setSelectedStudentIds;
-    const current = kind === 'parent' ? selectedParentIds : selectedStudentIds;
+    const isParentKind = kind === 'parent' || kind === 'withdrawn-parent';
+    const phoneOf = (s: StudentProfile) => (isParentKind ? s.parentPhone : s.studentPhone);
+    const eligible = listFor(kind).filter((s) => (phoneOf(s) ?? '').trim().length > 0);
+    const [current, setState] = selectedSetFor(kind);
     const allSelected = eligible.length > 0 && eligible.every((s) => current.has(s.id));
     setState(allSelected ? new Set() : new Set(eligible.map((s) => s.id)));
   }
@@ -141,8 +188,23 @@ export function SmsSend() {
         list.push({ name: s.name, phone: s.studentPhone ?? '' });
       }
     }
+    for (const s of sortedWithdrawn) {
+      if (selectedWithdrawnParentIds.has(s.id) && (s.parentPhone ?? '').trim()) {
+        list.push({ name: `${s.name} 학부모님 (퇴원)`, phone: s.parentPhone });
+      }
+      if (selectedWithdrawnStudentIds.has(s.id) && (s.studentPhone ?? '').trim()) {
+        list.push({ name: `${s.name} (퇴원)`, phone: s.studentPhone ?? '' });
+      }
+    }
     return list;
-  }, [sortedStudents, selectedParentIds, selectedStudentIds]);
+  }, [
+    sortedStudents,
+    sortedWithdrawn,
+    selectedParentIds,
+    selectedStudentIds,
+    selectedWithdrawnParentIds,
+    selectedWithdrawnStudentIds,
+  ]);
 
   const byteLength = estimateSmsBytes(messageText);
   const msgType = byteLength === 0 ? '' : byteLength <= SMS_BYTE_LIMIT ? '단문(SMS)' : '장문(LMS)';
@@ -150,6 +212,8 @@ export function SmsSend() {
   function resetSelection() {
     setSelectedParentIds(new Set());
     setSelectedStudentIds(new Set());
+    setSelectedWithdrawnParentIds(new Set());
+    setSelectedWithdrawnStudentIds(new Set());
   }
 
   async function handleSend() {
@@ -187,11 +251,27 @@ export function SmsSend() {
     }
   }
 
+  const SECTION_LABELS: Record<SectionKind, { title: string; hint: string; empty: string }> = {
+    parent: { title: '학부모에게 보내기', hint: '체크한 학생의 학부모 번호로 전송됩니다.', empty: '등록된 학생이 없습니다.' },
+    student: { title: '학생에게 보내기', hint: '체크한 학생 본인 번호로 전송됩니다.', empty: '등록된 학생이 없습니다.' },
+    'withdrawn-parent': {
+      title: '퇴원생 학부모에게 보내기',
+      hint: '체크한 퇴원생의 학부모 번호로 전송됩니다. (재등록 안내 등에 활용)',
+      empty: '퇴원 처리된 학생이 없습니다.',
+    },
+    'withdrawn-student': {
+      title: '퇴원생 본인에게 보내기',
+      hint: '체크한 퇴원생 본인 번호로 전송됩니다.',
+      empty: '퇴원 처리된 학생이 없습니다.',
+    },
+  };
+
   function renderSection(kind: SectionKind) {
-    const title = kind === 'parent' ? '학부모에게 보내기' : '학생에게 보내기';
-    const hint = kind === 'parent' ? '체크한 학생의 학부모 번호로 전송됩니다.' : '체크한 학생 본인 번호로 전송됩니다.';
-    const selected = kind === 'parent' ? selectedParentIds : selectedStudentIds;
-    const phoneOf = (s: StudentProfile) => (kind === 'parent' ? s.parentPhone : s.studentPhone) ?? '';
+    const isParentKind = kind === 'parent' || kind === 'withdrawn-parent';
+    const { title, hint, empty } = SECTION_LABELS[kind];
+    const list = listFor(kind);
+    const [selected] = selectedSetFor(kind);
+    const phoneOf = (s: StudentProfile) => (isParentKind ? s.parentPhone : s.studentPhone) ?? '';
 
     return (
       <div className={styles.section}>
@@ -205,7 +285,8 @@ export function SmsSend() {
           </button>
         </div>
         <div className={styles.studentList}>
-          {sortedStudents.map((s) => {
+          {list.length === 0 && <div className={styles.sectionHint}>{empty}</div>}
+          {list.map((s) => {
             const phone = phoneOf(s);
             const disabled = !phone.trim();
             const checked = selected.has(s.id);
@@ -247,6 +328,15 @@ export function SmsSend() {
             {renderSection('parent')}
             <div className={styles.sectionDivider} />
             {renderSection('student')}
+
+            {!withdrawnLoading && sortedWithdrawn.length > 0 && (
+              <>
+                <div className={styles.sectionDivider} />
+                {renderSection('withdrawn-parent')}
+                <div className={styles.sectionDivider} />
+                {renderSection('withdrawn-student')}
+              </>
+            )}
 
             <div className={styles.selectionSummary}>
               <span>

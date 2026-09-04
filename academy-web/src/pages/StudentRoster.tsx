@@ -16,6 +16,9 @@ import {
   addStudentIntake,
   updateStudentProfile,
   setStudentPaused,
+  fetchWithdrawnStudents,
+  withdrawStudent,
+  restoreStudent,
 } from '../lib/students';
 import type { ClassOption, NewStudentInput, UpdateStudentInput } from '../lib/students';
 import { fetchConsultationLogs } from '../lib/consultation';
@@ -59,6 +62,15 @@ export function StudentRoster() {
   // 2026-09-02 추가: 수업중지(휴원) / 재개 처리 상태.
   const [pauseNotice, setPauseNotice] = useState('');
   const [pausing, setPausing] = useState(false);
+
+  // 2026-09-04 추가: 퇴원 처리 + 퇴원생 목록 상태. 퇴원 처리된 학생은 roster에서
+  // 빠지므로(fetchStudents가 기본 제외) 별도로 withdrawnList를 조회해서 보여준다.
+  const [withdrawNotice, setWithdrawNotice] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawnList, setWithdrawnList] = useState<StudentProfile[]>([]);
+  const [withdrawnLoading, setWithdrawnLoading] = useState(true);
+  const [restoreNotice, setRestoreNotice] = useState('');
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   // 2026-08-27: 신규 학생 등록 폼. 대시보드의 "+ 신규 학생 등록" 버튼이
   // `/students?new=1`로 이동시키면 이 폼을 자동으로 펼침(아래 useEffect).
@@ -105,6 +117,25 @@ export function StudentRoster() {
     return () => {
       cancelled = true;
     };
+  }, [scopeTeacherId]);
+
+  /** 퇴원생 목록 조회. 퇴원 처리/복귀 후에도 다시 불러서 최신 상태로 갱신한다. */
+  async function loadWithdrawnList() {
+    setWithdrawnLoading(true);
+    try {
+      const data = await fetchWithdrawnStudents(scopeTeacherId);
+      setWithdrawnList(data);
+    } catch {
+      // 퇴원생 목록 조회 실패는 화면 전체를 막지 않고 조용히 넘어간다(재원생
+      // 명부가 더 중요한 정보라서). 아래 섹션에서 목록이 비어 보일 뿐이다.
+    } finally {
+      setWithdrawnLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadWithdrawnList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeTeacherId]);
 
   // 대시보드에서 `/students?new=1`로 넘어온 경우 등록 폼을 자동으로 펼치고,
@@ -240,6 +271,58 @@ export function StudentRoster() {
       );
     } finally {
       setPausing(false);
+    }
+  }
+
+  /**
+   * 퇴원 처리. 삭제와 달리 데이터는 지우지 않고 withdrawn_at만 기록한다.
+   * 처리 후에는 명부(roster)에서 빠지고 '퇴원생 목록'에 나타나므로, 로컬
+   * 상태에서도 roster에서 제거하고 withdrawnList를 다시 불러온다.
+   * 2026-09-04 추가.
+   */
+  async function handleWithdraw() {
+    if (!selected) return;
+    const name = selected.name;
+    if (
+      !window.confirm(
+        `${name} 학생을 퇴원 처리하시겠습니까?\n모든 반/출석·과제 대상에서 제외되고 '퇴원생 목록'으로 옮겨집니다.\n(데이터는 삭제되지 않으며, 나중에 '퇴원생 목록'에서 복귀시킬 수 있습니다.)`,
+      )
+    ) {
+      return;
+    }
+    setWithdrawing(true);
+    setWithdrawNotice('');
+    try {
+      await withdrawStudent(selected.id);
+      setRoster((prev) => prev.filter((s) => s.id !== selected.id));
+      setSelectedId(undefined);
+      setWithdrawNotice(`${name} 학생을 퇴원 처리했습니다.`);
+      loadWithdrawnList();
+    } catch (err) {
+      setWithdrawNotice(
+        err instanceof Error ? `저장 실패: ${err.message}` : '퇴원 처리에 실패했습니다.',
+      );
+    } finally {
+      setWithdrawing(false);
+    }
+  }
+
+  /** 퇴원생 복귀(재등록). 퇴원생 목록에서 다시 학생 명부/반으로 되돌린다. */
+  async function handleRestore(studentId: string, name: string) {
+    setRestoringId(studentId);
+    setRestoreNotice('');
+    try {
+      await restoreStudent(studentId);
+      setWithdrawnList((prev) => prev.filter((s) => s.id !== studentId));
+      setRestoreNotice(`${name} 학생을 복귀 처리했습니다.`);
+      const refreshed = await fetchStudents(scopeTeacherId);
+      setRoster(refreshed);
+    } catch (err) {
+      setRestoreNotice(
+        err instanceof Error ? `저장 실패: ${err.message}` : '복귀 처리에 실패했습니다.',
+      );
+    } finally {
+      setRestoringId(null);
     }
   }
 
@@ -576,6 +659,27 @@ export function StudentRoster() {
                 {pauseNotice && <p className={styles.inlineNotice}>{pauseNotice}</p>}
               </ExpandableSection>
 
+              <ExpandableSection title="퇴원 처리">
+                <p className={styles.pageSub}>
+                  더 이상 다니지 않는 학생을 삭제하지 않고 '퇴원생 목록'으로 옮겨 보관합니다.
+                  모든 반·출석·과제 대상에서 자동으로 제외되고, 성적·상담 등 과거 기록과
+                  연락처는 그대로 남아 나중에 재등록 안내 문자를 보낼 때 활용할 수 있습니다.
+                  아래 '퇴원생 목록'에서 언제든 복귀시킬 수 있습니다.
+                </p>
+                <div className={styles.inlineForm}>
+                  <span>{selected.name} 학생을 퇴원 처리합니다.</span>
+                  <button
+                    type="button"
+                    className={styles.dangerButton}
+                    onClick={handleWithdraw}
+                    disabled={withdrawing}
+                  >
+                    {withdrawing ? '처리 중...' : '퇴원 처리'}
+                  </button>
+                </div>
+                {withdrawNotice && <p className={styles.inlineNotice}>{withdrawNotice}</p>}
+              </ExpandableSection>
+
               <ExpandableSection title="학생 삭제">
                 <div className={styles.inlineForm}>
                   <span>{selected.name} 학생을 명부에서 삭제합니다.</span>
@@ -598,6 +702,58 @@ export function StudentRoster() {
         ) : (
           <div className={styles.detailCard}>
             <p>왼쪽 목록에서 학생을 선택해주세요.</p>
+          </div>
+        )}
+      </div>
+
+      {/* 2026-09-04 추가: 퇴원생 목록 — 학생 명부 화면 안의 별도 섹션(사용자 요청:
+          "퇴원생 목록은 학생명부에서 확인 가능하게 메뉴 하나 더 추가"). 퇴원 처리된
+          학생은 위 목록에서는 빠지므로(fetchStudents가 기본 제외), 여기서
+          fetchWithdrawnStudents()로 따로 조회해서 보여준다. 나중에 다시 오라고
+          안내 문자를 보낼 때 참고할 연락처가 목적이라, SMS발송 화면에서도 이
+          목록을 그대로 수신자로 고를 수 있게 했다(SmsSend.tsx). */}
+      <div className={styles.detailCard} style={{ marginTop: 20 }}>
+        <h2 className={styles.detailName} style={{ marginBottom: 4 }}>
+          퇴원생 목록
+        </h2>
+        <p className={styles.pageSub}>
+          퇴원 처리된 학생 명단입니다. 데이터는 삭제되지 않고 보존되며, 필요하면 복귀시킬 수 있습니다.
+        </p>
+        {restoreNotice && <p className={styles.inlineNotice}>{restoreNotice}</p>}
+        {withdrawnLoading ? (
+          <p className={styles.inlineNotice}>불러오는 중...</p>
+        ) : withdrawnList.length === 0 ? (
+          <p className={styles.pageSub}>퇴원 처리된 학생이 없습니다.</p>
+        ) : (
+          <div className={styles.list}>
+            {withdrawnList.map((s) => (
+              <div
+                key={s.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  padding: '10px 4px',
+                  borderBottom: '1px solid var(--border-color, #e5e5e5)',
+                }}
+              >
+                <div>
+                  <strong>{s.name}</strong>
+                  <span style={{ marginLeft: 8, color: 'var(--text-muted, #888)' }}>
+                    {s.className} · {s.parentPhone || '연락처 없음'} · 퇴원일 {s.withdrawnAt || '—'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  onClick={() => handleRestore(s.id, s.name)}
+                  disabled={restoringId === s.id}
+                >
+                  {restoringId === s.id ? '처리 중...' : '복귀 처리'}
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>

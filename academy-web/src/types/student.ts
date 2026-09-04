@@ -44,4 +44,9 @@ export interface StudentProfile {
   // (students.is_paused/paused_at)를 그대로 반영.
   isPaused: boolean;
   pausedAt?: string;
+  // 2026-09-04 추가: 퇴원 상태. 빈 문자열이면 재원, 값이 있으면(YYYY-MM-DD)
+  // 그 날짜에 퇴원 처리됨(students.withdrawn_at). 휴원과 달리 퇴원 학생은
+  // fetchStudents()에서 기본적으로 제외되고, fetchWithdrawnStudents()로만
+  // 별도 조회됨(학생 명부 화면의 '퇴원생 목록' 섹션 전용).
+  withdrawnAt: string;
 }
