@@ -24,7 +24,7 @@ Public API:
   - get_student_homework_performance(class_id, session_date) -> dict[int, str]
   - get_student_homework_performance_stats(student_id, from_date, to_date) -> dict
   - search_homework_history(...) -> pandas.DataFrame
-  - render_homework_section(class_id, class_name, session_date_str, students_df)
+  - render_homework_section(class_id, class_name, session_date_str, students_df, absent_student_ids=None)
   - render_homework_history_section(classes_df)
 """
 
@@ -319,13 +319,25 @@ def get_student_homework_performance_stats(
 
     반환: {"high": 상 횟수, "mid": 중 횟수, "low": 하 횟수, "total": 전체 횟수,
            "rate": 수행률(%) | None(기록 없음)}
+
+    [2026-09-05] 결석한 날의 기록은 제외한다 — 출석부(attendance)에 그 학생의
+    그 날짜 상태가 'absent'로 남아있으면 셈에서 빼고 계산한다. 입력 단계
+    (render_homework_section)에서도 결석생은 체크 자체를 막지만, 그 전에 저장된
+    기록이 있거나 나중에 출결이 바뀐 경우까지 대비해 여기서도 한 번 더 거른다.
+    출결 기록이 아예 없는 날(LEFT JOIN이라 attendance 행이 없으면)은 그대로 포함한다
+    — "결석이 확인된 경우"만 제외하는 게 안전하다.
     """
     ensure_homework_tables()
     conn = get_conn()
     rows = conn.execute(
         """
-        SELECT level FROM student_homework_performance
-        WHERE student_id = ? AND session_date BETWEEN ? AND ?
+        SELECT shp.level
+        FROM   student_homework_performance shp
+        LEFT JOIN attendance a
+               ON a.student_id = shp.student_id
+              AND a.session_date = shp.session_date
+        WHERE  shp.student_id = ? AND shp.session_date BETWEEN ? AND ?
+          AND  COALESCE(a.status, '') != 'absent'
         """,
         (student_id, from_date, to_date),
     ).fetchall()
@@ -455,7 +467,11 @@ def search_homework_history(
 
 
 def render_homework_section(
-    class_id: int, class_name: str, session_date_str: str, students_df: pd.DataFrame
+    class_id: int,
+    class_name: str,
+    session_date_str: str,
+    students_df: pd.DataFrame,
+    absent_student_ids: set[int] | None = None,
 ) -> None:
     """출석 체크 탭 맨 아래에 붙이는 '오늘 과제' 입력 영역.
 
@@ -463,7 +479,13 @@ def render_homework_section(
     - 오늘 날짜의 반 공통 과제를 입력/수정할 수 있다.
     - 학생별로 "과제 수행도(상/중/하)"를 체크할 수 있다. (2026-08-06 추가)
     - 필요할 때만 펼쳐서 학생별 개별 추가 과제를 넣을 수 있다.
+
+    absent_student_ids: [2026-09-05 추가] 오늘 '결석'으로 저장된 학생 id 집합.
+    이 학생들은 애초에 수업에 없었으므로 과제 수행도 체크 자체를 비활성화하고
+    저장 대상에서도 뺀다(출석 체크를 먼저 하고 저장해야 이 목록이 채워짐 —
+    아직 출석을 안 저장했으면 전원 활성 상태로 보인다).
     """
+    absent_ids = absent_student_ids or set()
     ensure_homework_tables()
 
     with st.container(border=True):
@@ -522,25 +544,30 @@ def render_homework_section(
                 )
 
             st.markdown("##### 과제 수행도 체크 (직전 과제 기준, 상/중/하)")
+            st.caption("결석 처리된 학생은 체크할 수 없습니다 — 출석 체크를 먼저 저장해주세요.")
             perf_inputs: dict[int, str] = {}
             if students_df.empty:
                 st.caption("배정된 학생이 없습니다.")
             else:
                 for _, student in students_df.iterrows():
                     sid = int(student["id"])
+                    is_absent = sid in absent_ids
                     current_level = current_perf.get(sid, "중")
                     if current_level not in HOMEWORK_PERFORMANCE_LEVELS:
                         current_level = "중"
                     prc = st.columns([2, 3])
-                    prc[0].markdown(f"**{student['name']}**")
-                    perf_inputs[sid] = prc[1].radio(
+                    prc[0].markdown(f"**{student['name']}**" + (" (결석)" if is_absent else ""))
+                    level_val = prc[1].radio(
                         "과제 수행도",
                         HOMEWORK_PERFORMANCE_LEVELS,
                         index=HOMEWORK_PERFORMANCE_LEVELS.index(current_level),
                         horizontal=True,
                         key=f"hw_perf_{class_id}_{session_date_str}_{sid}",
                         label_visibility="collapsed",
+                        disabled=is_absent,
                     )
+                    if not is_absent:
+                        perf_inputs[sid] = level_val
 
             indiv_inputs: dict[int, str] = {}
             with st.expander("학생별 개별 추가 과제 (필요한 학생만 작성)"):

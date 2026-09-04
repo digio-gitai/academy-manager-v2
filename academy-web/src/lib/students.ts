@@ -315,19 +315,33 @@ export interface HomeworkPerformanceSummary {
  * 학생 한 명의 과제 수행도(상/중/하) 이력 + 수행률.
  * app.py의 get_student_homework_performance_stats()와 동일한 계산식(상=100/중=50/하=0
  * 으로 환산한 평균)을 그대로 재현.
+ *
+ * [2026-09-05] 결석으로 저장된 날짜의 기록은 제외한다(스트림릿 쪽과 동일한
+ * 규칙) — 출결과 과제 수행도를 별도 쿼리로 조회한 뒤 여기서 걸러낸다.
  */
 export async function fetchHomeworkPerformance(studentId: string): Promise<HomeworkPerformanceSummary> {
-  const { data, error } = await supabase
-    .from('student_homework_performance')
-    .select('session_date, level')
-    .eq('student_id', Number(studentId))
-    .order('session_date', { ascending: false });
+  const [{ data, error }, { data: absentData, error: absentError }] = await Promise.all([
+    supabase
+      .from('student_homework_performance')
+      .select('session_date, level')
+      .eq('student_id', Number(studentId))
+      .order('session_date', { ascending: false }),
+    supabase
+      .from('attendance')
+      .select('session_date')
+      .eq('student_id', Number(studentId))
+      .eq('status', 'absent'),
+  ]);
 
   if (error) {
     throw error;
   }
+  if (absentError) {
+    throw absentError;
+  }
 
-  const rows = (data as HomeworkPerformanceRow[]) ?? [];
+  const absentDates = new Set(((absentData as { session_date: string }[]) ?? []).map((r) => r.session_date));
+  const rows = ((data as HomeworkPerformanceRow[]) ?? []).filter((r) => !absentDates.has(r.session_date));
   const high = rows.filter((r) => r.level === '상').length;
   const mid = rows.filter((r) => r.level === '중').length;
   const total = rows.length;

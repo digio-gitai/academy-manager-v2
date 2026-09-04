@@ -7133,6 +7133,7 @@ def page_attendance(classes_df: pd.DataFrame):
             with sheet_col:
                 st.markdown("##### 학생별 상태")
                 students = get_students_by_class(sel_cls_id)
+                status_map: dict[int, str] = {}  # students.empty면 아래서 채워지지 않음 — 기본값
                 if students.empty:
                     st.warning(f"**{sel_cls_name}** 수업에 배정된 학생이 없습니다.")
                 else:
@@ -7206,7 +7207,13 @@ def page_attendance(classes_df: pd.DataFrame):
 
         # ── [신규 추가] 오늘 과제 입력 — 기존 출석 저장 로직과는 완전히 분리된
         #    별도 기능이며, homework.py 신규 모듈에서만 동작한다. ──
-        render_homework_section(sel_cls_id, sel_cls_name, session_date_str, students)
+        # [2026-09-05] 오늘 결석으로 저장된 학생은 과제 수행도 체크에서 제외.
+        _today_absent_ids = {
+            sid for sid, status in status_map.items() if status == "absent"
+        }
+        render_homework_section(
+            sel_cls_id, sel_cls_name, session_date_str, students, _today_absent_ids
+        )
 
     with sub_history:
         with st.container(border=True):

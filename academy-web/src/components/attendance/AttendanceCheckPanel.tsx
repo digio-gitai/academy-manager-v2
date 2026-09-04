@@ -163,7 +163,11 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
 
   async function handleSavePerf() {
     if (!selectedClass) return;
-    const recs = selectedClass.students.map((s) => ({ studentId: s.id, level: getPerf(s.id) }));
+    // 2026-09-05: 결석 처리된 학생은 애초에 그날 수업이 없었으므로 과제
+    // 수행도 저장 대상에서 제외한다(출결이 저장되어 있어야 걸러짐).
+    const recs = selectedClass.students
+      .filter((s) => getStatus(s.id) !== 'absent')
+      .map((s) => ({ studentId: s.id, level: getPerf(s.id) }));
     setPerfSaving(true);
     setPerfMessage('');
     try {
@@ -321,6 +325,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
           월간 보고서에도 이 기록이 쓰인다. */}
       <div className={styles.card}>
         <h3 className={styles.cardTitle}>과제 수행도 체크 (직전 과제 기준, 상/중/하)</h3>
+        <p className={styles.emptyText}>결석 처리된 학생은 체크할 수 없습니다 — 출석 체크를 먼저 저장해주세요.</p>
         {perfLoading && <p className={styles.emptyText}>불러오는 중입니다...</p>}
         {perfError && !perfLoading && <p className={styles.emptyText}>불러오지 못했습니다: {perfError}</p>}
         {!perfLoading && (!selectedClass || selectedClass.students.length === 0) ? (
@@ -331,9 +336,15 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
             <>
               {selectedClass.students.map((s) => {
                 const level = getPerf(s.id);
+                // 2026-09-05: 오늘 결석 처리된 학생은 체크 자체를 막는다 —
+                // 출석체크를 먼저 저장해야 반영됨(안 저장했으면 전원 활성 상태).
+                const isAbsent = getStatus(s.id) === 'absent';
                 return (
                   <div key={s.id} className={styles.studentRow}>
-                    <span className={styles.studentName}>{s.name}</span>
+                    <span className={styles.studentName}>
+                      {s.name}
+                      {isAbsent && ' (결석)'}
+                    </span>
                     <div className={styles.radioGroup}>
                       {(['상', '중', '하'] as HomeworkPerformanceLevel[]).map((opt) => (
                         <button
@@ -342,7 +353,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
                           className={styles.radioBtn}
                           data-status={opt}
                           data-active={level === opt}
-                          disabled={perfSaving}
+                          disabled={perfSaving || isAbsent}
                           onClick={() => updatePerf(s.id, opt)}
                         >
                           {opt}
