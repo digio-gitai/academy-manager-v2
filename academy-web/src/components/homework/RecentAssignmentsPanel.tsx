@@ -65,6 +65,11 @@ export function RecentAssignmentsPanel({
   const [photoOpenFor, setPhotoOpenFor] = useState<string | null>(null);
   const [linkMessage, setLinkMessage] = useState<Record<string, string>>({});
   const [linkSendingFor, setLinkSendingFor] = useState<string | null>(null);
+  // [2026-09-04] 제출 사진 확대 보기 — 스트림릿 st.image()가 기본 제공하던
+  // "클릭하면 원본 크기로 확대" 기능이 리액트 포팅 때 빠져있었음(작은
+  // 썸네일만 3:4로 잘려서 보이고 확대가 안 됨 — 실사용 중 발견). 클릭하면
+  // 화면 전체 오버레이로 원본 이미지를 보여주는 라이트박스 추가.
+  const [zoomedPhotoUrl, setZoomedPhotoUrl] = useState<string | null>(null);
   const [bulkMessage, setBulkMessage] = useState<Record<string, string>>({});
   const [bulkSendingFor, setBulkSendingFor] = useState<string | null>(null);
 
@@ -183,6 +188,21 @@ export function RecentAssignmentsPanel({
     <div className={styles.card}>
       <h3 className={styles.cardTitle}>최근 부여한 과제</h3>
 
+      {zoomedPhotoUrl && (
+        <div
+          className={styles.zoomOverlay}
+          role="button"
+          tabIndex={0}
+          onClick={() => setZoomedPhotoUrl(null)}
+          onKeyDown={(e) => e.key === 'Escape' && setZoomedPhotoUrl(null)}
+        >
+          <img src={zoomedPhotoUrl} alt="제출 사진 확대" className={styles.zoomImg} />
+          <button type="button" className={styles.zoomCloseButton} onClick={() => setZoomedPhotoUrl(null)}>
+            닫기 ✕
+          </button>
+        </div>
+      )}
+
       {sorted.map((assignment) => {
         const isOpen = openAssignmentId === assignment.id;
         const assignmentItems = items.filter((it) => it.assignmentId === assignment.id);
@@ -299,7 +319,14 @@ export function RecentAssignmentsPanel({
                                       group.itemType === 'page_range' && group.pageStart != null && group.pageEnd != null;
                                     return (
                                       <div key={photo.id} className={styles.photoCard}>
-                                        <img src={photo.photoUrl} alt="제출 사진" className={styles.photoImg} />
+                                        <button
+                                          type="button"
+                                          className={styles.photoImgButton}
+                                          onClick={() => setZoomedPhotoUrl(photo.photoUrl)}
+                                          aria-label="사진 확대 보기"
+                                        >
+                                          <img src={photo.photoUrl} alt="제출 사진" className={styles.photoImg} />
+                                        </button>
                                         {photo.aiFlag ? (
                                           <p className={styles.aiNote}>
                                             {AI_FLAG_LABELS[photo.aiFlag] ?? photo.aiFlag}
