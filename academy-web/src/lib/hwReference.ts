@@ -9,6 +9,25 @@ import { uploadReferencePdf, deleteReferencePdf } from './hwStorage';
 // PDF → 이미지 렌더링은 브라우저에서 pdf.js로 직접 하고(visionOcr.ts와 동일
 // 패턴), 실제 GPT-4o Vision 판독만 Edge Function(hw-detect-page-offset)에
 // 맡긴다 — OpenAI 키를 브라우저에 노출하지 않기 위함(기존 원칙과 동일).
+// [2026-09-04] PDF 재다운로드 방지 캐시 - Supabase Egress(전송량) 절감.
+// getReferencePageImages()/detectPageOffsetFromUrl()가 학생 사진 대조나 오프셋
+// 재감지를 할 때마다 참조 PDF 전체(수 MB~수십 MB)를 매번 새로 fetch하던 것이
+// 원인이 되어 Supabase 무료 전송량 한도(5GB)를 초과했음(2026-09-04 확인).
+// 같은 파일 URL은 같은 브라우저 세션(탭을 새로고침하기 전까지) 안에서 한 번만
+// 받아서 메모리에 들고 있다가 재사용하도록 수정 - 문제집을 교체하면 URL 자체가
+// 바뀌므로(safeStorageFileName의 해시) 자동으로 새로 받아온다.
+const _pdfBufferCache = new Map<string, ArrayBuffer>();
+
+async function fetchPdfBufferCached(url: string): Promise<ArrayBuffer> {
+  const cached = _pdfBufferCache.get(url);
+  if (cached) return cached;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('PDF 파일을 불러오지 못했습니다.');
+  const buffer = await resp.arrayBuffer();
+  _pdfBufferCache.set(url, buffer);
+  return buffer;
+}
+
 async function renderPdfPagesToImages(buffer: ArrayBuffer, maxPages: number, scale: number): Promise<string[]> {
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
   const pageCount = Math.min(pdf.numPages, maxPages);
@@ -48,10 +67,8 @@ export async function detectPageOffsetFromFile(file: File): Promise<{ offset: nu
 
 /** 이미 등록된 참조 자료(공개 URL)의 페이지 오프셋을 다시 감지한다("자동 재감지"). */
 export async function detectPageOffsetFromUrl(fileUrl: string): Promise<{ offset: number | null; detail: string }> {
-  const resp = await fetch(fileUrl);
-  if (!resp.ok) throw new Error('PDF 파일을 불러오지 못했습니다.');
-  const buffer = await resp.arrayBuffer();
-  const images = await renderPdfPagesToImages(buffer, 15, 1.3);
+  const buffer = await fetchPdfBufferCached(fileUrl);
+  const images = await renderPdfPagesToImages(buffer.slice(0), 15, 1.3);
   return invokeDetectOffset(images);
 }
 
@@ -233,16 +250,14 @@ export async function getReferencePageImages(
 
   let buffer: ArrayBuffer;
   try {
-    const resp = await fetch(material.fileUrl);
-    if (!resp.ok) return [];
-    buffer = await resp.arrayBuffer();
+    buffer = await fetchPdfBufferCached(material.fileUrl);
   } catch {
     return [];
   }
 
   let pdf;
   try {
-    pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
   } catch {
     return [];
   }
