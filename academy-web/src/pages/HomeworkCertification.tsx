@@ -8,9 +8,11 @@ import {
   deleteHwItem as deleteHwItemDb,
   deleteAssignment as deleteAssignmentDb,
   buildHwSmsText,
+  buildHwUploadLinkText,
   markNotified,
 } from '../lib/homework';
 import { sendBulkSms } from '../lib/smsSend';
+import { HW_UPLOAD_BASE_URL } from '../data/mockHomework';
 import type { ClassInfo } from '../types/classManagement';
 import type { HwAssignment, HwItem, HwSubmission } from '../types/homework';
 import { AssignmentForm, type CommonSavePayload } from '../components/homework/AssignmentForm';
@@ -48,9 +50,9 @@ function draftToItemInput(d: ItemRowDraft) {
  * [2026-09-03] "완료·미완료 일괄 발송"은 실제 문자 발송으로 전환함 — 아래
  * handleBulkSms 참고(lib/homework.ts의 buildHwSmsText/markNotified,
  * lib/smsSend.ts의 sendBulkSms — 이미 배포된 send-sms Edge Function 재사용).
- * "업로드 링크 개별 발송"은 여전히 데모임 — academy-web이 아직 공개 배포되지
- * 않아서 실제 링크를 보내면 학부모가 못 여는 깨진 링크가 되기 때문(배포 후
- * 재검토 예정).
+ * [2026-09-04] "업로드 링크 개별 발송"도 실제 발송으로 전환함 — academy-web이
+ * Vercel에 공개 배포되어(https://academy-manager-v2.vercel.app) 더 이상 깨진
+ * 링크가 아님. 아래 handleSendUploadLink 참고.
  *
  * 선생님 사진 확인(✅ 선생님 확인 버튼)은 외부 API 호출이 없는 단순 DB
  * 갱신이라 실제로 반영됨 — lib/homework.ts의 setPhotoTeacherVerified() 참고
@@ -163,10 +165,36 @@ export function HomeworkCertification() {
     reload();
   }
 
-  function handleSendUploadLink(_studentId: string) {
-    // 실제 문자 발송(Solapi)은 브라우저에서 직접 호출하지 않음 — 데모로만 동작
-    // (RecentAssignmentsPanel이 자체적으로 "(데모)" 안내 문구를 보여줌). 이유는
-    // 위 컴포넌트 설명 주석 참고(academy-web 미배포).
+  /**
+   * [2026-09-04] "업로드 링크 개별 발송" 실제 발송 — 운영 스트림릿 hw_assign.py와
+   * 동일한 규칙: 학생 본인 연락처(studentPhone)가 있으면 그쪽으로, 없으면 보호자
+   * 번호로 대체 발송(둘 다 없으면 에러를 던져서 RecentAssignmentsPanel이 실패
+   * 메시지로 보여줌).
+   */
+  async function handleSendUploadLink(submissionId: string): Promise<{ via: 'student' | 'parent' }> {
+    const sub = submissions.find((s) => s.id === submissionId);
+    if (!sub) throw new Error('제출 정보를 찾을 수 없습니다.');
+    const assignment = assignments.find((a) => a.id === sub.assignmentId);
+    const student = classInfo?.students.find((st) => st.id === sub.studentId);
+    if (!student) throw new Error('학생 정보를 찾을 수 없습니다.');
+
+    const studentPhone = student.studentPhone?.trim();
+    const parentPhone = student.parentPhone?.trim();
+    const targetPhone = studentPhone || parentPhone;
+    if (!targetPhone) {
+      throw new Error('학생·보호자 연락처가 모두 없어 링크 문자를 보낼 수 없습니다.');
+    }
+
+    const link = `${HW_UPLOAD_BASE_URL}?hw=${sub.uploadToken}`;
+    const text = buildHwUploadLinkText({
+      studentName: student.name,
+      assignedDate: assignment?.assignedDate ?? todayStr(),
+      title: assignment?.title ?? '과제',
+      link,
+    });
+
+    await sendBulkSms([{ name: student.name, phone: targetPhone }], text);
+    return { via: studentPhone ? 'student' : 'parent' };
   }
 
   /**

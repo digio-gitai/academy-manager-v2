@@ -29,7 +29,7 @@ interface RecentAssignmentsPanelProps {
   submissions: HwSubmission[];
   onDeleteItem: (itemId: string) => void;
   onDeleteAssignment: (assignmentId: string) => void;
-  onSendUploadLink: (studentId: string) => void;
+  onSendUploadLink: (submissionId: string) => Promise<{ via: 'student' | 'parent' }>;
   onPhotosChanged: () => void;
   onBulkSms: (assignmentId: string) => Promise<{ sentNames: string[]; skippedNames: string[]; failedNames: string[] }>;
 }
@@ -64,6 +64,7 @@ export function RecentAssignmentsPanel({
   const [openAssignmentId, setOpenAssignmentId] = useState<string | null>(null);
   const [photoOpenFor, setPhotoOpenFor] = useState<string | null>(null);
   const [linkMessage, setLinkMessage] = useState<Record<string, string>>({});
+  const [linkSendingFor, setLinkSendingFor] = useState<string | null>(null);
   const [bulkMessage, setBulkMessage] = useState<Record<string, string>>({});
   const [bulkSendingFor, setBulkSendingFor] = useState<string | null>(null);
 
@@ -85,9 +86,24 @@ export function RecentAssignmentsPanel({
     );
   }
 
-  function handleSendLink(studentId: string, studentName: string) {
-    onSendUploadLink(studentId);
-    setLinkMessage((prev) => ({ ...prev, [studentId]: `${studentName} 학생에게 업로드 링크 문자를 발송했습니다. (데모)` }));
+  async function handleSendLink(submissionId: string, studentId: string, studentName: string) {
+    setLinkSendingFor(submissionId);
+    setLinkMessage((prev) => ({ ...prev, [studentId]: '문자 발송 중입니다...' }));
+    try {
+      const { via } = await onSendUploadLink(submissionId);
+      const viaLabel = via === 'student' ? '학생 번호' : '보호자 번호';
+      setLinkMessage((prev) => ({
+        ...prev,
+        [studentId]: `${studentName} 학생에게 업로드 링크 문자를 발송했습니다 (${viaLabel}).`,
+      }));
+    } catch (err) {
+      setLinkMessage((prev) => ({
+        ...prev,
+        [studentId]: `발송 실패: ${err instanceof Error ? err.message : String(err)}`,
+      }));
+    } finally {
+      setLinkSendingFor(null);
+    }
   }
 
   async function loadPhotoDetails(submissionId: string) {
@@ -242,14 +258,15 @@ export function RecentAssignmentsPanel({
 
                       <div className={styles.linkRow}>
                         <span className={styles.linkText}>
-                          {HW_UPLOAD_BASE_URL}/?hw={sub.id}
+                          {HW_UPLOAD_BASE_URL}?hw={sub.uploadToken}
                         </span>
                         <button
                           type="button"
                           className={styles.smallButton}
-                          onClick={() => handleSendLink(sub.studentId, student?.name ?? '')}
+                          disabled={linkSendingFor === sub.id}
+                          onClick={() => handleSendLink(sub.id, sub.studentId, student?.name ?? '')}
                         >
-                          업로드 링크 문자 발송
+                          {linkSendingFor === sub.id ? '발송 중...' : '업로드 링크 문자 발송'}
                         </button>
                         <button
                           type="button"

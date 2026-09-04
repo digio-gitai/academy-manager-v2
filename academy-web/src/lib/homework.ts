@@ -42,9 +42,9 @@ import type {
 // sendBulkSms, "SMS발송" 메뉴가 쓰던 것과 동일)을 학생 1명씩 재사용한다 —
 // send-sms가 "여러 명에게 같은 문구"만 지원해서, 학생마다 다른 완료/미완료
 // 문구를 보내려면 1명씩 호출해야 함(Edge Function 새로 안 만들어도 됨).
-// "업로드 링크 개별 발송"은 여전히 데모임 — academy-web이 아직 공개 배포되지
-// 않아서(로컬 개발 서버뿐) 실제 링크를 보내면 학부모가 못 여는 깨진 링크가
-// 되므로, 배포 전까지는 의도적으로 보류함(2026-09-03 사용자에게 설명함).
+// [2026-09-04] "업로드 링크 개별 발송"도 실제 발송으로 전환함 — academy-web이
+// Vercel에 공개 배포되어(https://academy-manager-v2.vercel.app) 더 이상 깨진
+// 링크가 아님. buildHwUploadLinkText() 참고.
 //
 // 선생님 사진 확인(hw_photos.teacher_verified)은 외부 API 호출이 아니라 단순
 // DB 값 갱신이라 실제로 씀 — toggleTeacherVerified() 참고.
@@ -91,6 +91,7 @@ interface RawSubmission {
   id: number;
   student_id: number;
   status: 'pending' | 'partial' | 'done';
+  upload_token: string;
   viewed_at: string | null;
   notified_at: string | null;
   hw_item_submissions: RawItemSubmission[] | null;
@@ -154,6 +155,21 @@ export function buildHwSmsText(params: {
   const overall = allDone ? '완료' : '미완료';
   const text = `${HW_SMS_GREETING}\n${studentName} 학생 ${assignedDate} 과제(${title}) 현황 — ${overall}\n${lines.join('\n')}`;
   return { text, allDone };
+}
+
+/**
+ * 업로드 링크 문자 문구 — 운영 스트림릿 hw_assign.py의 "업로드 링크 문자
+ * 발송" 버튼이 쓰는 link_text와 동일한 형식(완료/미완료 요약이 아니라 링크
+ * 자체를 전달).
+ */
+export function buildHwUploadLinkText(params: {
+  studentName: string;
+  assignedDate: string;
+  title: string;
+  link: string;
+}): string {
+  const { studentName, assignedDate, title, link } = params;
+  return `${HW_SMS_GREETING}\n${studentName} 학생, ${assignedDate} 과제(${title}) 업로드 링크입니다.\n${link}`;
 }
 
 /**
@@ -258,6 +274,7 @@ function mapAssignment(row: RawAssignment): { assignment: HwAssignment; items: H
     const allPhotos = (s.hw_item_submissions ?? []).flatMap((isub) => isub.hw_photos ?? []);
     return {
       id: String(s.id),
+      uploadToken: s.upload_token,
       assignmentId,
       studentId: String(s.student_id),
       status: mapSubmissionStatus(s.status, s.viewed_at),
@@ -281,7 +298,7 @@ export async function fetchHomeworkForClass(classId: string): Promise<HwClassDat
         hw_assignment_targets ( student_id, requires_certification, include_common ),
         hw_items ( id, item_type, material_name, page_start, page_end, description, student_id, sort_order ),
         hw_submissions (
-          id, student_id, status, viewed_at, notified_at,
+          id, student_id, status, upload_token, viewed_at, notified_at,
           hw_item_submissions (
             id, item_id, status, completed_pages,
             hw_photos ( id, teacher_verified )

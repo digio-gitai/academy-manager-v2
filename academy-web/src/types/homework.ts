@@ -61,6 +61,7 @@ export interface HwItemPhotoGroup {
 
 export interface HwSubmission {
   id: string;
+  uploadToken: string;
   assignmentId: string;
   studentId: string;
   status: HwSubmissionStatus;

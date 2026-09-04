@@ -1,7 +1,8 @@
 import type { HwAssignment, HwItem, HwSubmission } from '../types/homework';
 
 // 실제 앱의 학생용 업로드 페이지(과제 인증) 링크 베이스 주소 — 문자로 전송되는 링크의 원본.
-export const HW_UPLOAD_BASE_URL = 'https://academy-app.example.com/upload';
+// [2026-09-04] Vercel 공개 배포 완료 후 실제 주소로 교체.
+export const HW_UPLOAD_BASE_URL = 'https://academy-manager-v2.vercel.app/upload';
 
 // 중2 심화반(c1)에 이미 부여된 과제 예시 — 학생 s1(김지우), s4(최민서) 대상.
 export const initialAssignments: HwAssignment[] = [
@@ -39,6 +40,7 @@ export const initialHwItems: HwItem[] = [
 export const initialSubmissions: HwSubmission[] = [
   {
     id: 'hs1',
+    uploadToken: 'demo-token-1',
     assignmentId: 'hw1',
     studentId: 's1',
     status: 'done',
@@ -52,6 +54,7 @@ export const initialSubmissions: HwSubmission[] = [
   },
   {
     id: 'hs2',
+    uploadToken: 'demo-token-2',
     assignmentId: 'hw1',
     studentId: 's4',
     status: 'viewed',
