@@ -558,8 +558,10 @@ def get_class_exam_scores(
         ).fetchone()
         class_name = str(class_row[0]) if class_row else "—"
 
+        # [2026-09-04] 퇴원 처리된 학생은 제외한다.
         students = conn.execute(
-            "SELECT id, name FROM students WHERE class_id = ? ORDER BY name",
+            "SELECT id, name FROM students WHERE class_id = ? "
+            "AND COALESCE(withdrawn_at, '') = '' ORDER BY name",
             (int(class_id),),
         ).fetchall()
     finally:

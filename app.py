@@ -636,6 +636,10 @@ def init_db():
         # paused_at은 휴원 처리한 날짜(YYYY-MM-DD) 기록용, 해제 시 빈 문자열로 되돌림.
         "is_paused": "BOOLEAN DEFAULT FALSE",
         "paused_at": "TEXT DEFAULT ''",
+        # [2026-09-04 추가] 퇴원 처리용 — 빈 문자열이면 재원, 값이 있으면(YYYY-MM-DD)
+        # 그 날짜에 퇴원 처리됨. 삭제(delete_student)와 달리 데이터는 그대로 보존하고,
+        # class_id도 그대로 남겨(마지막 소속 반 표시용) 조회 시점에서만 제외한다.
+        "withdrawn_at": "TEXT DEFAULT ''",
     }
     for col_name, col_def in _student_intake_cols.items():
         if col_name not in cols:
@@ -855,6 +859,64 @@ def set_student_paused(student_id: int, paused: bool) -> None:
     conn.close()
 
 
+def withdraw_student(student_id: int) -> None:
+    """퇴원 처리. 삭제(delete_student)와 달리 학생 데이터는 전혀 지우지 않고
+    withdrawn_at에 처리 날짜만 기록한다. class_id 등은 그대로 남겨두고,
+    get_all_students()/get_students_by_class() 등 '현재 재원생' 조회 지점에서
+    자동으로 제외되게 해서 — 출석·과제 인증·성적 입력 등 모든 활성 기능에서
+    자연히 빠지고, 과거 성적·상담 기록은 그대로 보존된다(나중에 다시 등록 안내
+    문자를 보낼 때 참고할 수 있도록)."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE students SET withdrawn_at = ? WHERE id = ?",
+        (datetime.now().strftime("%Y-%m-%d"), student_id),
+    )
+    _commit(conn)
+    conn.close()
+
+
+def restore_student(student_id: int) -> None:
+    """퇴원 취소(복귀). withdrawn_at을 비워 다시 재원생 목록/반에 나타나게 한다."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE students SET withdrawn_at = '' WHERE id = ?",
+        (student_id,),
+    )
+    _commit(conn)
+    conn.close()
+
+
+def get_withdrawn_students(teacher_id: int | None = None) -> pd.DataFrame:
+    """퇴원생 목록. 마지막으로 속했던 반/담당강사/퇴원일/연락처를 함께 보여준다."""
+    conn = get_conn()
+    where_clauses = ["COALESCE(s.withdrawn_at, '') != ''"]
+    params: list = []
+    if teacher_id is not None:
+        where_clauses.append("c.teacher_id = ?")
+        params.append(teacher_id)
+    where_sql = "WHERE " + " AND ".join(where_clauses)
+    df = pd.read_sql_query(
+        f"""
+        SELECT s.id, s.name, s.parent_phone,
+               COALESCE(c.name, '—') AS class_name,
+               s.class_id, c.teacher_id,
+               COALESCE(t.name, '—') AS teacher_name,
+               s.registered_at,
+               s.school, s.grade, s.student_phone,
+               s.withdrawn_at
+        FROM   students s
+        LEFT JOIN classes  c ON c.id = s.class_id
+        LEFT JOIN teachers t ON t.id = c.teacher_id
+        {where_sql}
+        ORDER  BY s.withdrawn_at DESC
+        """,
+        conn,
+        params=tuple(params),
+    )
+    conn.close()
+    return df
+
+
 def assign_class(student_id: int, class_id: int | None):
     conn = get_conn()
     conn.execute(
@@ -864,50 +926,45 @@ def assign_class(student_id: int, class_id: int | None):
     conn.close()
 
 
-def get_all_students(teacher_id: int | None = None) -> pd.DataFrame:
+def get_all_students(teacher_id: int | None = None, include_withdrawn: bool = False) -> pd.DataFrame:
     """Return students with class info; if teacher_id is given, only
-    students whose class is taught by that teacher."""
+    students whose class is taught by that teacher.
+
+    [2026-09-04] 퇴원 처리된 학생은 기본적으로 제외한다 — 이 함수가 학생명부·
+    대시보드·성적 입력·과제 배정 등 '현재 재원생 목록'을 뜻하는 거의 모든
+    화면에서 쓰이기 때문에, 여기서 한 번만 제외하면 자연히 전체에 반영된다.
+    퇴원생 목록 화면에서만 get_withdrawn_students()를 따로 쓴다
+    (include_withdrawn=True는 필요할 때를 위해 남겨둔 탈출구)."""
     conn = get_conn()
-    if teacher_id is None:
-        df = pd.read_sql_query(
-            """
-            SELECT s.id, s.name, s.parent_phone,
-                   COALESCE(c.name, '—') AS class_name,
-                   s.class_id, c.teacher_id,
-                   COALESCE(t.name, '—') AS teacher_name,
-                   s.registered_at,
-                   s.school, s.grade, s.student_phone,
-                   s.pre_visit_progress, s.expectations, s.notes,
-                   COALESCE(s.is_paused, FALSE) AS is_paused,
-                   COALESCE(s.paused_at, '') AS paused_at
-            FROM   students s
-            LEFT JOIN classes  c ON c.id = s.class_id
-            LEFT JOIN teachers t ON t.id = c.teacher_id
-            ORDER  BY s.registered_at DESC
-            """,
-            conn,
-        )
-    else:
-        df = pd.read_sql_query(
-            """
-            SELECT s.id, s.name, s.parent_phone,
-                   COALESCE(c.name, '—') AS class_name,
-                   s.class_id, c.teacher_id,
-                   COALESCE(t.name, '—') AS teacher_name,
-                   s.registered_at,
-                   s.school, s.grade, s.student_phone,
-                   s.pre_visit_progress, s.expectations, s.notes,
-                   COALESCE(s.is_paused, FALSE) AS is_paused,
-                   COALESCE(s.paused_at, '') AS paused_at
-            FROM   students s
-            LEFT JOIN classes  c ON c.id = s.class_id
-            LEFT JOIN teachers t ON t.id = c.teacher_id
-            WHERE  c.teacher_id = ?
-            ORDER  BY s.registered_at DESC
-            """,
-            conn,
-            params=(teacher_id,),
-        )
+    where_clauses: list[str] = []
+    params: list = []
+    if teacher_id is not None:
+        where_clauses.append("c.teacher_id = ?")
+        params.append(teacher_id)
+    if not include_withdrawn:
+        where_clauses.append("COALESCE(s.withdrawn_at, '') = ''")
+    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    df = pd.read_sql_query(
+        f"""
+        SELECT s.id, s.name, s.parent_phone,
+               COALESCE(c.name, '—') AS class_name,
+               s.class_id, c.teacher_id,
+               COALESCE(t.name, '—') AS teacher_name,
+               s.registered_at,
+               s.school, s.grade, s.student_phone,
+               s.pre_visit_progress, s.expectations, s.notes,
+               COALESCE(s.is_paused, FALSE) AS is_paused,
+               COALESCE(s.paused_at, '') AS paused_at,
+               COALESCE(s.withdrawn_at, '') AS withdrawn_at
+        FROM   students s
+        LEFT JOIN classes  c ON c.id = s.class_id
+        LEFT JOIN teachers t ON t.id = c.teacher_id
+        {where_sql}
+        ORDER  BY s.registered_at DESC
+        """,
+        conn,
+        params=tuple(params),
+    )
     conn.close()
     return df
 
@@ -922,7 +979,8 @@ def get_students_by_class(class_id: int) -> pd.DataFrame:
     conn = get_conn()
     df = pd.read_sql_query(
         "SELECT id, name, grade, school, parent_phone, COALESCE(student_phone,'') AS student_phone "
-        "FROM students WHERE class_id = ? AND COALESCE(is_paused, FALSE) = FALSE ORDER BY name",
+        "FROM students WHERE class_id = ? AND COALESCE(is_paused, FALSE) = FALSE "
+        "AND COALESCE(withdrawn_at, '') = '' ORDER BY name",
         conn,
         params=(class_id,),
     )
@@ -5509,15 +5567,18 @@ def page_students():
         int(df_scope["is_paused"].fillna(False).astype(bool).sum())
         if not df_scope.empty else 0
     )
+    withdrawn_count = len(get_withdrawn_students(teacher_id))
     with st.container(border=True):
         st.markdown("#### 명부 요약")
         m1, m2 = st.columns(2)
-        m1.metric("학생 수", total)
+        m1.metric("학생 수 (재원)", total)
         m2.metric("수업 수", len(classes_df))
         if total > 0:
             st.caption(f"반 미배정 학생 {unassigned}명")
         if paused_count > 0:
             st.caption(f"⏸ 휴원중인 학생 {paused_count}명")
+        if withdrawn_count > 0:
+            st.caption(f"🚪 퇴원생 {withdrawn_count}명 (아래 '퇴원생 목록'에서 확인)")
         if teacher_id is not None:
             st.caption(f"강사 **{_current_teacher_name()}** 기준 통계")
 
@@ -5722,6 +5783,32 @@ def page_students():
                             )
                             st.rerun()
 
+            # [신규 추가 2026-09-04] 퇴원 처리. 삭제(아래)와 달리 데이터를 지우지
+            # 않고 '퇴원생 목록'으로 옮겨서 보존한다 — 나중에 재등록 안내 문자를
+            # 보낼 때 쓸 수 있도록. 퇴원 처리하면 소속 반/출석/과제 인증 등
+            # '현재 재원생' 대상 기능에서 자동으로 제외된다(성적·상담 등 과거
+            # 기록은 그대로 남음).
+            with st.expander("퇴원 처리"):
+                st.caption(
+                    "퇴원 처리하면 모든 반/출석·과제 대상에서 제외되고, "
+                    "'퇴원생 목록'에 이름·연락처·마지막 소속 반이 보존됩니다. "
+                    "학생 삭제와 달리 데이터는 지워지지 않으며, 언제든 '퇴원생 목록'에서 복귀시킬 수 있습니다."
+                )
+                withdraw_options = {
+                    f"{r['name']} ({r['class_name']})": int(r["id"])
+                    for _, r in df.iterrows()
+                }
+                if withdraw_options:
+                    sel_w = st.selectbox(
+                        "퇴원 처리할 학생 선택",
+                        list(withdraw_options.keys()),
+                        key="withdraw_student_sel",
+                    )
+                    if st.button("퇴원 처리", key="withdraw_student_btn", type="primary"):
+                        withdraw_student(withdraw_options[sel_w])
+                        st.warning(f"**{sel_w.split(' (')[0]}** 학생을 퇴원 처리했습니다.")
+                        st.rerun()
+
             with st.expander("학생 삭제"):
                 remove_options = {
                     f"{r['name']} (ID: {r['id']})": int(r["id"])
@@ -5739,6 +5826,41 @@ def page_students():
                             f"**{sel_r.split('(ID')[0]}** 학생이 삭제되었습니다."
                         )
                         st.rerun()
+
+    # [신규 추가 2026-09-04] 퇴원생 목록 — 학생명부 안의 별도 섹션(사용자 요청:
+    # "퇴원생 목록은 학생명부에서 확인 가능하게 메뉴 하나 더 추가"). 퇴원 처리된
+    # 학생은 위 '등록된 학생' 목록에서는 빠지므로(get_all_students가 기본 제외),
+    # 여기서 get_withdrawn_students()로 따로 조회해서 보여준다. 나중에 다시 오라고
+    # 안내 문자를 보낼 때 참고할 연락처가 목적이라 SMS전송 화면에서도 이 목록을
+    # 그대로 수신자로 고를 수 있게 했다(리액트 SmsSend.tsx).
+    with st.container(border=True):
+        st.markdown("#### 퇴원생 목록")
+        st.caption("퇴원 처리된 학생 명단입니다. 데이터는 삭제되지 않고 보존되며, 필요하면 복귀시킬 수 있습니다.")
+        withdrawn_df = get_withdrawn_students(teacher_id)
+        if withdrawn_df.empty:
+            st.info("퇴원 처리된 학생이 없습니다.")
+        else:
+            wd_display = withdrawn_df[
+                ["name", "class_name", "parent_phone", "withdrawn_at"]
+            ].copy()
+            wd_display.columns = ["학생 이름", "마지막 소속 반", "학부모 연락처", "퇴원일"]
+            wd_display = wd_display.reset_index(drop=True)
+            wd_display.index += 1
+            st.dataframe(wd_display, width="stretch", hide_index=False)
+
+            restore_options = {
+                f"{r['name']} (퇴원일: {r['withdrawn_at']})": int(r["id"])
+                for _, r in withdrawn_df.iterrows()
+            }
+            sel_restore = st.selectbox(
+                "복귀(재등록) 처리할 학생 선택",
+                list(restore_options.keys()),
+                key="restore_student_sel",
+            )
+            if st.button("복귀 처리 (퇴원 취소)", key="restore_student_btn", type="primary"):
+                restore_student(restore_options[sel_restore])
+                st.success(f"**{sel_restore.split(' (퇴원일')[0]}** 학생을 복귀 처리했습니다.")
+                st.rerun()
 
     st.markdown("---")
     with st.container(border=True):
