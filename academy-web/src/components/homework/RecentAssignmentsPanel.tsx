@@ -31,13 +31,20 @@ interface RecentAssignmentsPanelProps {
   onDeleteAssignment: (assignmentId: string) => void;
   onSendUploadLink: (submissionId: string) => Promise<{ via: 'student' | 'parent' }>;
   onPhotosChanged: () => void;
-  onBulkSms: (assignmentId: string) => Promise<{ sentNames: string[]; skippedNames: string[]; failedNames: string[] }>;
+  onSendCompletionSms: (submissionId: string) => Promise<{ status: 'sent' | 'skipped'; reason?: string }>;
 }
 
 /**
  * 스트림릿 render_hw_assign_page()의 "최근 부여한 과제" 재현: 과제별 항목
  * 표(삭제 가능) + 학생별 제출 현황(업로드 링크 문자 발송, 사진 확인, 완료/미완료
- * 일괄 문자 발송) + 과제 삭제.
+ * 문자 발송) + 과제 삭제.
+ *
+ * [2026-09-04] "완료/미완료 문자 발송"을 과제 단위 일괄 버튼에서 학생별
+ * 개별 버튼으로 변경 — 기존엔 버튼 하나로 그 과제의 대상 학생 전원에게
+ * 한 번에 나갔는데, 실사용 테스트 중 사용자가 특정 학생 1명만 테스트하려던
+ * 의도와 다르게 같은 과제의 다른 학생들에게도 문자가 나가서 혼란이 있었음
+ * (사용자 요청 — "체크하면서 클릭을 개별적으로 하는 방법이 좋을 것 같아").
+ * "업로드 링크 문자 발송"과 같은 자리에 학생별 버튼으로 둠.
  *
  * 2026-08-26 수정: "제출 사진 보기" 버튼이 원래 sub.hasPhoto가 true일 때만
  * 보이게 되어있었는데, 실제 스트림릿 화면은 사진이 없어도(아직 학생이 안
@@ -59,7 +66,7 @@ export function RecentAssignmentsPanel({
   onDeleteAssignment,
   onSendUploadLink,
   onPhotosChanged,
-  onBulkSms,
+  onSendCompletionSms,
 }: RecentAssignmentsPanelProps) {
   const [openAssignmentId, setOpenAssignmentId] = useState<string | null>(null);
   const [photoOpenFor, setPhotoOpenFor] = useState<string | null>(null);
@@ -70,8 +77,8 @@ export function RecentAssignmentsPanel({
   // 썸네일만 3:4로 잘려서 보이고 확대가 안 됨 — 실사용 중 발견). 클릭하면
   // 화면 전체 오버레이로 원본 이미지를 보여주는 라이트박스 추가.
   const [zoomedPhotoUrl, setZoomedPhotoUrl] = useState<string | null>(null);
-  const [bulkMessage, setBulkMessage] = useState<Record<string, string>>({});
-  const [bulkSendingFor, setBulkSendingFor] = useState<string | null>(null);
+  const [completionMessage, setCompletionMessage] = useState<Record<string, string>>({});
+  const [completionSendingFor, setCompletionSendingFor] = useState<string | null>(null);
 
   // [2026-09-01] 과제인증 4단계(3/3): 사진별 AI 검증 결과 표시용 상태.
   const [photoDetails, setPhotoDetails] = useState<Record<string, HwItemPhotoGroup[]>>({});
@@ -164,23 +171,26 @@ export function RecentAssignmentsPanel({
     }
   }
 
-  async function handleBulk(assignmentId: string) {
-    setBulkSendingFor(assignmentId);
-    setBulkMessage((prev) => ({ ...prev, [assignmentId]: '문자 발송 중입니다...' }));
+  async function handleSendCompletion(submissionId: string, studentName: string) {
+    setCompletionSendingFor(submissionId);
+    setCompletionMessage((prev) => ({ ...prev, [submissionId]: '문자 발송 중입니다...' }));
     try {
-      const result = await onBulkSms(assignmentId);
-      const parts: string[] = [];
-      if (result.sentNames.length > 0) parts.push(`발송 완료: ${result.sentNames.join(', ')}`);
-      if (result.skippedNames.length > 0) parts.push(`건너뜀: ${result.skippedNames.join(', ')}`);
-      if (result.failedNames.length > 0) parts.push(`발송 실패: ${result.failedNames.join(', ')}`);
-      setBulkMessage((prev) => ({ ...prev, [assignmentId]: parts.join(' / ') || '발송 대상이 없습니다.' }));
+      const result = await onSendCompletionSms(submissionId);
+      if (result.status === 'sent') {
+        setCompletionMessage((prev) => ({
+          ...prev,
+          [submissionId]: `${studentName} 학부모에게 완료/미완료 문자를 발송했습니다.`,
+        }));
+      } else {
+        setCompletionMessage((prev) => ({ ...prev, [submissionId]: result.reason ?? '건너뛰었습니다.' }));
+      }
     } catch (err) {
-      setBulkMessage((prev) => ({
+      setCompletionMessage((prev) => ({
         ...prev,
-        [assignmentId]: `발송 중 오류가 발생했습니다: ${err instanceof Error ? err.message : String(err)}`,
+        [submissionId]: `발송 실패: ${err instanceof Error ? err.message : String(err)}`,
       }));
     } finally {
-      setBulkSendingFor(null);
+      setCompletionSendingFor(null);
     }
   }
 
@@ -291,6 +301,14 @@ export function RecentAssignmentsPanel({
                         <button
                           type="button"
                           className={styles.smallButton}
+                          disabled={completionSendingFor === sub.id}
+                          onClick={() => handleSendCompletion(sub.id, student?.name ?? '')}
+                        >
+                          {completionSendingFor === sub.id ? '발송 중...' : '완료/미완료 문자 발송'}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.smallButton}
                           onClick={() => handleTogglePhotos(sub.id)}
                         >
                           제출 사진 보기
@@ -298,6 +316,7 @@ export function RecentAssignmentsPanel({
                       </div>
 
                       {linkMessage[sub.studentId] && <p className={styles.successText}>{linkMessage[sub.studentId]}</p>}
+                      {completionMessage[sub.id] && <p className={styles.successText}>{completionMessage[sub.id]}</p>}
 
                       {showPhoto && (
                         <div className={styles.photoReviewBox}>
@@ -384,18 +403,6 @@ export function RecentAssignmentsPanel({
                     </div>
                   );
                 })}
-
-                <div className={styles.bulkRow}>
-                  <button
-                    type="button"
-                    className={styles.bulkButton}
-                    disabled={bulkSendingFor === assignment.id}
-                    onClick={() => handleBulk(assignment.id)}
-                  >
-                    {bulkSendingFor === assignment.id ? '발송 중...' : '학부모에게 완료/미완료 문자 발송'}
-                  </button>
-                  {bulkMessage[assignment.id] && <p className={styles.successText}>{bulkMessage[assignment.id]}</p>}
-                </div>
 
                 <button type="button" className={styles.deleteButton} onClick={() => onDeleteAssignment(assignment.id)}>
                   🗑️ 이 과제 삭제

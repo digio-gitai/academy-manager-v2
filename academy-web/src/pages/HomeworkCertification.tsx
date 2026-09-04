@@ -198,59 +198,46 @@ export function HomeworkCertification() {
   }
 
   /**
-   * [2026-09-03] "학부모에게 완료/미완료 문자 발송" 실제 발송.
-   * 학생마다 문구가 달라서(각자 완료/미완료 현황) send-sms Edge Function을
-   * 1명씩 호출한다 — 운영 스트림릿 send_hw_nightly_sms.py의 수동 발송 버튼과
-   * 같은 조건으로 건너뜀: (1) 선생님이 아직 확인 안 한 제출 사진이 있으면
-   * 건너뜀 (2) 오늘 이미 발송됐으면(수동이든 야간자동이든) 중복 발송 방지로
-   * 건너뜀. 성공한 건만 markNotified()로 기록.
+   * [2026-09-04] "완료/미완료 문자 발송" — 학생 1명 단위로 전환(사용자 요청).
+   * 기존엔 과제 단위로 한 번에 전원에게 나가서, 특정 학생 1명만 테스트하려던
+   * 의도와 다르게 같은 과제의 다른 학생에게도 문자가 나가는 문제가 있었음.
+   * 건너뛰는 조건은 기존과 동일(운영 스트림릿 send_hw_nightly_sms.py 기준):
+   * (1) 선생님이 아직 확인 안 한 제출 사진이 있으면 건너뜀 (2) 오늘 이미
+   * 발송됐으면(수동이든 야간자동이든) 중복 발송 방지로 건너뜀. 성공하면
+   * markNotified()로 기록.
    */
-  async function handleBulkSms(
-    assignmentId: string,
-  ): Promise<{ sentNames: string[]; skippedNames: string[]; failedNames: string[] }> {
-    const assignment = assignments.find((a) => a.id === assignmentId);
-    const relevant = submissions.filter((s) => s.assignmentId === assignmentId);
-    const sentNames: string[] = [];
-    const skippedNames: string[] = [];
-    const failedNames: string[] = [];
+  async function handleSendCompletionSms(
+    submissionId: string,
+  ): Promise<{ status: 'sent' | 'skipped'; reason?: string }> {
+    const sub = submissions.find((s) => s.id === submissionId);
+    if (!sub) throw new Error('제출 정보를 찾을 수 없습니다.');
+    const assignment = assignments.find((a) => a.id === sub.assignmentId);
+    const student = classInfo?.students.find((st) => st.id === sub.studentId);
+    if (!student) throw new Error('학생 정보를 찾을 수 없습니다.');
 
-    for (const s of relevant) {
-      const student = classInfo?.students.find((st) => st.id === s.studentId);
-      const name = student?.name ?? s.studentId;
-
-      if (s.hasPhoto && !s.teacherVerified) {
-        skippedNames.push(`${name}(선생님 확인 대기)`);
-        continue;
-      }
-      if (s.notifiedToday) {
-        skippedNames.push(`${name}(오늘 이미 발송됨)`);
-        continue;
-      }
-      const phone = student?.parentPhone?.trim();
-      if (!phone) {
-        skippedNames.push(`${name}(보호자 연락처 없음)`);
-        continue;
-      }
-
-      const { text } = buildHwSmsText({
-        studentName: name,
-        assignedDate: assignment?.assignedDate ?? todayStr(),
-        title: assignment?.title ?? '과제',
-        itemStates: s.itemStates,
-        items,
-      });
-
-      try {
-        await sendBulkSms([{ name, phone }], text);
-        await markNotified(s.id);
-        sentNames.push(name);
-      } catch (err) {
-        failedNames.push(`${name}(${err instanceof Error ? err.message : String(err)})`);
-      }
+    if (sub.hasPhoto && !sub.teacherVerified) {
+      return { status: 'skipped', reason: '선생님 확인 대기 중이라 건너뛰었습니다. 사진 확인 후 다시 시도해주세요.' };
+    }
+    if (sub.notifiedToday) {
+      return { status: 'skipped', reason: '오늘 이미 문자를 발송했습니다.' };
+    }
+    const phone = student.parentPhone?.trim();
+    if (!phone) {
+      throw new Error('보호자 연락처가 없어 문자를 보낼 수 없습니다.');
     }
 
+    const { text } = buildHwSmsText({
+      studentName: student.name,
+      assignedDate: assignment?.assignedDate ?? todayStr(),
+      title: assignment?.title ?? '과제',
+      itemStates: sub.itemStates,
+      items,
+    });
+
+    await sendBulkSms([{ name: student.name, phone }], text);
+    await markNotified(sub.id);
     reload();
-    return { sentNames, skippedNames, failedNames };
+    return { status: 'sent' };
   }
 
   if (classesLoading) {
@@ -321,7 +308,7 @@ export function HomeworkCertification() {
         onDeleteAssignment={handleDeleteAssignment}
         onSendUploadLink={handleSendUploadLink}
         onPhotosChanged={reload}
-        onBulkSms={handleBulkSms}
+        onSendCompletionSms={handleSendCompletionSms}
       />
     </>
   );
