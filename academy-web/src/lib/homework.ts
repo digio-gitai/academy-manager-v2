@@ -266,17 +266,36 @@ function mapAssignment(row: RawAssignment): { assignment: HwAssignment; items: H
   }));
 
   const submissions: HwSubmission[] = (row.hw_submissions ?? []).map((s) => {
-    const itemStates = (s.hw_item_submissions ?? []).map((isub) => ({
-      itemId: String(isub.item_id),
-      completedPages: parseCompletedPages(isub.completed_pages),
-      status: (isub.status === 'done' ? 'done' : 'incomplete') as HwItemStatus,
-    }));
+    const studentIdStr = String(s.student_id);
+    const includeCommon = includeCommonByStudent[studentIdStr] ?? true;
+    // [2026-09-05 버그 수정] 예전엔 itemStates를 hw_item_submissions(학생이
+    // 실제로 건드린 항목)에서만 만들어서, 학생이 항목을 하나도 안 건드리면
+    // itemStates가 빈 배열이 되고 buildHwSmsText()의 allDone 초기값(true)이
+    // 그대로 살아남아 "미완료"가 아니라 "완료"로 잘못 판정되는 버그가 있었음
+    // (화면 상태 배지는 status/hasPhoto로 따로 표시되니 정상으로 보였지만,
+    // 문자 문구 생성에서만 터지는 문제라 안 보이고 있었음). 이 과제에
+    // 적용되는 전체 항목(공통 항목 중 이 학생이 포함된 것 + 개별 항목)을
+    // 기준으로 먼저 "미완료" 상태를 깔아두고, 실제 제출 기록이 있으면
+    // 그 값으로 덮어쓰는 방식으로 변경 — hw_upload.ts의 fetchUploadItems()
+    // (get_items_with_state 대응)와 동일한 패턴.
+    const applicableItems = items.filter(
+      (it) => (it.studentId === undefined && includeCommon) || it.studentId === studentIdStr,
+    );
+    const subByItemId = new Map((s.hw_item_submissions ?? []).map((isub) => [String(isub.item_id), isub]));
+    const itemStates = applicableItems.map((it) => {
+      const isub = subByItemId.get(it.id);
+      return {
+        itemId: it.id,
+        completedPages: parseCompletedPages(isub?.completed_pages ?? null),
+        status: (isub?.status === 'done' ? 'done' : 'incomplete') as HwItemStatus,
+      };
+    });
     const allPhotos = (s.hw_item_submissions ?? []).flatMap((isub) => isub.hw_photos ?? []);
     return {
       id: String(s.id),
       uploadToken: s.upload_token,
       assignmentId,
-      studentId: String(s.student_id),
+      studentId: studentIdStr,
       status: mapSubmissionStatus(s.status, s.viewed_at),
       teacherVerified: allPhotos.length > 0 && allPhotos.every((p) => p.teacher_verified),
       hasPhoto: allPhotos.length > 0,

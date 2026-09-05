@@ -110,6 +110,24 @@ function jsonResponse(obj: unknown, status = 200): Response {
   });
 }
 
+/** Supabase 클라이언트가 던지는 에러는 진짜 Error 객체가 아니라
+ * {message, details, hint, code} 모양의 평범한 객체라 String(e)로는
+ * "[object Object]"만 나온다 — 실제 내용을 최대한 뽑아서 문자열로 만든다. */
+function errText(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === 'object') {
+    const anyE = e as Record<string, unknown>;
+    const parts = [anyE.message, anyE.details, anyE.hint, anyE.code].filter((v) => v != null && v !== '');
+    if (parts.length > 0) return parts.join(' | ');
+    try {
+      return JSON.stringify(e);
+    } catch {
+      return String(e);
+    }
+  }
+  return String(e);
+}
+
 const HW_SMS_GREETING = '안녕하세요, 수학 정재훈T입니다.';
 const KOR_DAYS_BY_JS_DAY = ['일', '월', '화', '수', '목', '금', '토']; // index = getUTCDay() (0=일요일)
 
@@ -215,7 +233,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    let body: { dryRun?: boolean } = {};
+    let body: { dryRun?: boolean; targetDateOverride?: string } = {};
     try {
       body = await req.json();
     } catch {
@@ -223,6 +241,10 @@ Deno.serve(async (req: Request) => {
     }
     const url = new URL(req.url);
     const forcedDryRun = body?.dryRun === true || url.searchParams.get('dryRun') === 'true';
+    // 테스트 전용: targetDateOverride(YYYY-MM-DD)를 주면 "내일" 대신 그 날짜를
+    // 대상으로 미리보기 — 예: 오늘(토) 미리 월요일 밤에 나갈 목록을 확인할 때.
+    // 안전을 위해 override를 쓰면 무조건 dry-run으로 강제(실제 발송 금지).
+    const overrideDate = (body?.targetDateOverride ?? url.searchParams.get('targetDateOverride')) || null;
 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -231,7 +253,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const enabled = Deno.env.get('HW_NIGHTLY_SMS_ENABLED') === 'true';
-    const dryRun = forcedDryRun || !enabled;
+    const dryRun = forcedDryRun || !enabled || !!overrideDate;
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -239,8 +261,10 @@ Deno.serve(async (req: Request) => {
     const kstNow = kstShifted(now);
     const todayStr = dateStr(kstNow);
     const tomorrow = new Date(kstNow.getTime() + 24 * 60 * 60 * 1000);
-    const targetDate = dateStr(tomorrow);
-    const dayKr = KOR_DAYS_BY_JS_DAY[tomorrow.getUTCDay()];
+    const targetDate = overrideDate ?? dateStr(tomorrow);
+    const dayKr = overrideDate
+      ? KOR_DAYS_BY_JS_DAY[new Date(`${overrideDate}T00:00:00Z`).getUTCDay()]
+      : KOR_DAYS_BY_JS_DAY[tomorrow.getUTCDay()];
 
     // ── [트리거 A] 시간표 기반 ──
     const { data: classRows, error: classErr } = await supabase.from('classes').select('id, name, schedule');
@@ -363,7 +387,7 @@ Deno.serve(async (req: Request) => {
     let skippedNotified = 0;
     let skippedUnverified = 0;
     let failed = 0;
-    const details: { name: string; className: string; status: string; reason?: string }[] = [];
+    const details: { name: string; className: string; status: string; reason?: string; text?: string }[] = [];
 
     for (const t of finalTargets) {
       if (t.notifiedAt && t.notifiedAt.slice(0, 10) === todayStr) {
@@ -389,28 +413,54 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
+      // [2026-09-05] itemStates를 "학생이 실제로 건드린 항목"에서만 만들면,
+      // 학생이 아무것도 안 건드렸을 때 itemStates가 빈 배열이 되어
+      // buildHwSmsText()의 allDone 초기값(true)이 그대로 살아남아 "완료"로
+      // 잘못 판정되는 버그가 있었다(src/lib/homework.ts의 mapAssignment()와
+      // 동일한 버그, 같은 날 같이 수정). 이 학생에게 적용되는 전체 항목
+      // (공통 항목 중 이 학생이 포함된 것 + 이 학생 개별 항목)을 먼저
+      // "미완료"로 깔아두고, 실제 제출 기록이 있으면 그 값으로 덮어쓴다 —
+      // hw_upload.ts의 fetchUploadItems()와 동일한 패턴.
+      const { data: targetRow } = await supabase
+        .from('hw_assignment_targets')
+        .select('include_common')
+        .eq('assignment_id', t.assignmentId)
+        .eq('student_id', t.studentId)
+        .maybeSingle();
+      const includeCommon = (targetRow as { include_common: boolean | null } | null)?.include_common ?? true;
+
       const { data: itemRows, error: itErr } = await supabase
         .from('hw_items')
-        .select('id, item_type, material_name, page_start, page_end')
-        .eq('assignment_id', t.assignmentId);
+        .select('id, item_type, material_name, page_start, page_end, student_id')
+        .eq('assignment_id', t.assignmentId)
+        .or(`student_id.is.null,student_id.eq.${t.studentId}`);
       if (itErr) throw itErr;
 
-      const itemStates: ItemStateLite[] = itemSubs.map((r) => ({
-        itemId: r.item_id,
-        completedPages: parseCompletedPages(r.completed_pages),
-        status: r.status === 'done' ? 'done' : 'incomplete',
-      }));
+      let applicableItems = (itemRows as (ItemLite & { student_id: number | null })[]) ?? [];
+      if (!includeCommon) {
+        applicableItems = applicableItems.filter((it) => it.student_id != null);
+      }
+
+      const subByItemId = new Map(itemSubs.map((r) => [r.item_id, r]));
+      const itemStates: ItemStateLite[] = applicableItems.map((it) => {
+        const sub = subByItemId.get(it.id);
+        return {
+          itemId: it.id,
+          completedPages: parseCompletedPages(sub?.completed_pages ?? null),
+          status: sub?.status === 'done' ? 'done' : 'incomplete',
+        };
+      });
 
       const { text, allDone } = buildHwSmsText({
         studentName: t.name,
         assignedDate: t.assignedDate,
         title: t.title,
         itemStates,
-        items: (itemRows as ItemLite[]) ?? [],
+        items: applicableItems,
       });
 
       if (dryRun) {
-        details.push({ name: t.name, className: t.className, status: 'would_send', reason: allDone ? '완료' : '미완료' });
+        details.push({ name: t.name, className: t.className, status: 'would_send', reason: allDone ? '완료' : '미완료', text });
         continue;
       }
 
@@ -455,13 +505,14 @@ Deno.serve(async (req: Request) => {
         }
       } catch (e) {
         failed += 1;
-        details.push({ name: t.name, className: t.className, status: 'failed', reason: e instanceof Error ? e.message : String(e) });
+        details.push({ name: t.name, className: t.className, status: 'failed', reason: errText(e) });
       }
     }
 
     return jsonResponse({
       dryRun,
       enabledSecretSet: enabled,
+      previewOverride: !!overrideDate,
       targetDate,
       dayKr,
       totalTargets: finalTargets.length,
@@ -472,6 +523,6 @@ Deno.serve(async (req: Request) => {
       details,
     });
   } catch (e) {
-    return jsonResponse({ error: e instanceof Error ? e.message : String(e) }, 500);
+    return jsonResponse({ error: errText(e) }, 500);
   }
 });
