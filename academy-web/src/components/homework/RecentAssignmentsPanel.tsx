@@ -233,7 +233,8 @@ export function RecentAssignmentsPanel({
                 {assignmentItems.length === 0 ? (
                   <p className={styles.emptyText}>등록된 항목이 없습니다.</p>
                 ) : (
-                  <table className={styles.table}>
+                  <div className={styles.tableWrap}>
+              <table className={styles.table}>
                     <thead>
                       <tr>
                         <th>유형</th>
@@ -268,6 +269,7 @@ export function RecentAssignmentsPanel({
                       })}
                     </tbody>
                   </table>
+            </div>
                 )}
 
                 <h4 className={styles.subTitle}>학생별 제출 현황</h4>

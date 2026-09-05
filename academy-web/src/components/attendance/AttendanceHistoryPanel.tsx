@@ -108,6 +108,7 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
             {stats.length === 0 ? (
               <p className={styles.emptyText}>해당 기간에 출결 기록이 없습니다.</p>
             ) : (
+              <div className={styles.tableWrap}>
               <table className={styles.table}>
                 <thead>
                   <tr>
@@ -132,6 +133,7 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
                   ))}
                 </tbody>
               </table>
+            </div>
             )}
           </div>
 
@@ -140,6 +142,7 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
             {log.length === 0 ? (
               <p className={styles.emptyText}>해당 기간에 출결 기록이 없습니다.</p>
             ) : (
+              <div className={styles.tableWrap}>
               <table className={styles.table}>
                 <thead>
                   <tr>
@@ -174,6 +177,7 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
                   })}
                 </tbody>
               </table>
+            </div>
             )}
           </div>
         </>

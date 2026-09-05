@@ -197,7 +197,8 @@ export function MockGradeTab() {
           <p className={styles.emptyText}>저장된 모의고사 성적이 없습니다.</p>
         )}
         {!historyLoading && !historyError && historyRows.length > 0 && (
-          <table className={styles.table}>
+          <div className={styles.tableWrap}>
+              <table className={styles.table}>
             <thead>
               <tr>
                 <th>연도</th>
@@ -219,6 +220,7 @@ export function MockGradeTab() {
               ))}
             </tbody>
           </table>
+            </div>
         )}
       </div>
     </>

@@ -26,7 +26,8 @@ function CategoryTable({ title, rows }: { title: string; rows: CategoryStat[] })
   return (
     <div className={styles.subBlock}>
       <div className={styles.subBlockTitle}>{title}</div>
-      <table className={styles.table}>
+      <div className={styles.tableWrap}>
+              <table className={styles.table}>
         <thead>
           <tr>
             <th>항목</th>
@@ -48,6 +49,7 @@ function CategoryTable({ title, rows }: { title: string; rows: CategoryStat[] })
           ))}
         </tbody>
       </table>
+            </div>
     </div>
   );
 }
@@ -255,7 +257,8 @@ export function IntegratedTestReportSection({
 
           <div className={styles.subBlock}>
             <div className={styles.subBlockTitle}>시험별 상세 (같은 반 기준 백분위·등급)</div>
-            <table className={styles.table}>
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
               <thead>
                 <tr>
                   <th>시험명</th>
@@ -279,6 +282,7 @@ export function IntegratedTestReportSection({
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           <CategoryTable title="단원별 분석" rows={reportData.unitAnalysis} />

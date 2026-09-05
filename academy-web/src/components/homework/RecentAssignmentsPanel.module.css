@@ -325,3 +325,9 @@
   cursor: pointer;
   font-size: 14px;
 }
+
+/* 2026-09-05: 폰 화면에서 표가 화면 밖으로 넘칠 때 잘리지 않고 가로로만 스크롤되게 함 */
+.tableWrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}

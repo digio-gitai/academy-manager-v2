@@ -23,6 +23,7 @@ export function UnifiedGradeTables({ records }: UnifiedGradeTablesProps) {
             {rows.length === 0 ? (
               <p className={styles.emptyText}>등록된 성적 기록이 없습니다.</p>
             ) : (
+              <div className={styles.tableWrap}>
               <table className={styles.table}>
                 <thead>
                   <tr>
@@ -43,6 +44,7 @@ export function UnifiedGradeTables({ records }: UnifiedGradeTablesProps) {
                   ))}
                 </tbody>
               </table>
+            </div>
             )}
           </div>
         );
