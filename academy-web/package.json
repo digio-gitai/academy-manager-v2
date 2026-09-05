@@ -4,10 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode production",
+    "dev:test": "vite --mode devtest --port 5175",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:prod": "vite --mode production --port 5174"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
