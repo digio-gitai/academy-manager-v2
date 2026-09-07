@@ -173,6 +173,19 @@ export function IntegratedTestReportSection({
     URL.revokeObjectURL(url);
   }
 
+  // 2026-09-07 추가: 보고서를 인쇄용 팝업이 아니라 그냥 새 탭에서 편하게
+  // 볼 수 있게 하는 버튼. handlePrint()는 열자마자 인쇄 대화상자를 띄우는
+  // 반면, 이 함수는 그냥 페이지로만 열어서 사용자가 여유롭게 보거나
+  // 필요하면 그 탭에서 직접 인쇄/저장하게 둔다.
+  function handleOpenInNewTab() {
+    if (!reportHtml) return;
+    const newTab = window.open('', '_blank');
+    if (!newTab) return;
+    newTab.document.open();
+    newTab.document.write(reportHtml);
+    newTab.document.close();
+  }
+
   function handlePrint() {
     if (!reportHtml) return;
     const printWindow = window.open('', '_blank');
@@ -354,6 +367,9 @@ export function IntegratedTestReportSection({
           {reportHtml && (
             <div className={styles.reportPreviewBlock}>
               <div className={styles.reportPreviewActions}>
+                <button type="button" className={styles.secondaryButton} onClick={handleOpenInNewTab}>
+                  🔗 새 창에서 보기
+                </button>
                 <button type="button" className={styles.secondaryButton} onClick={handleDownload}>
                   ⬇️ HTML 파일로 다운로드
                 </button>
