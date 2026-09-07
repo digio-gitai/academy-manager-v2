@@ -10,6 +10,7 @@ import {
   buildHwSmsText,
   buildHwUploadLinkText,
   markNotified,
+  cleanExcludedPages,
 } from '../lib/homework';
 import { sendBulkSms } from '../lib/smsSend';
 import { HW_UPLOAD_BASE_URL } from '../data/mockHomework';
@@ -29,11 +30,16 @@ function todayStr() {
 }
 
 function draftToItemInput(d: ItemRowDraft) {
+  const pageStart = d.itemType === 'page_range' && d.pageStart !== '' ? Number(d.pageStart) : undefined;
+  const pageEnd = d.itemType === 'page_range' && d.pageEnd !== '' ? Number(d.pageEnd) : undefined;
   return {
     itemType: d.itemType,
     materialName: d.materialName.trim(),
-    pageStart: d.itemType === 'page_range' && d.pageStart !== '' ? Number(d.pageStart) : undefined,
-    pageEnd: d.itemType === 'page_range' && d.pageEnd !== '' ? Number(d.pageEnd) : undefined,
+    pageStart,
+    pageEnd,
+    // [2026-09-07 추가] 화면(HwItemRows)에서 이미 형식 검증하지만, 저장 직전
+    // 한 번 더 정리해서 범위 밖 숫자 등을 걸러낸 깨끗한 문자열만 DB에 넣는다.
+    excludedPages: d.itemType === 'page_range' ? cleanExcludedPages(d.excludedPages, pageStart, pageEnd).clean : '',
     description: d.description.trim() || undefined,
   };
 }

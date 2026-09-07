@@ -75,8 +75,17 @@ export function UploadItemCard({
               <p className={styles.photoNeedCaption}>
                 📷 오늘 {derived.newPageCount}쪽 인증 → 사진 {derived.newPageCount}장이 필요해요.
               </p>
+            ) : derived.skippedPages.length > 0 ? (
+              <p className={styles.mutedCaption}>
+                선택한 페이지가 전부 문제없는 페이지라 오늘은 이 항목 진행 안 함으로 처리됩니다.
+              </p>
             ) : (
               <p className={styles.mutedCaption}>오늘은 이 항목 진행 안 함으로 처리됩니다.</p>
+            )}
+            {derived.skippedPages.length > 0 && (
+              <p className={styles.mutedCaption}>
+                ⏭ {formatPageRanges(derived.skippedPages)}은(는) 문제없는 페이지라 자동으로 제외했어요.
+              </p>
             )}
             {!derived.done && derived.remainingPages.length > 0 && (
               <p className={styles.remainingCaption}>⏳ 남은 페이지: {formatPageRanges(derived.remainingPages)}</p>

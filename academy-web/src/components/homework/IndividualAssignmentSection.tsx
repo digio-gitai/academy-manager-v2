@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ClassInfo } from '../../types/classManagement';
 import type { HwAssignment, HwItem } from '../../types/homework';
 import { HwItemRows, newItemRowDraft, type ItemRowDraft } from './HwItemRows';
+import { cleanExcludedPages } from '../../lib/homework';
 import styles from './IndividualAssignmentSection.module.css';
 
 function draftFromItem(item: HwItem): ItemRowDraft {
@@ -11,6 +12,7 @@ function draftFromItem(item: HwItem): ItemRowDraft {
     materialName: item.materialName,
     pageStart: item.pageStart != null ? String(item.pageStart) : '',
     pageEnd: item.pageEnd != null ? String(item.pageEnd) : '',
+    excludedPages: item.excludedPages && item.excludedPages.length > 0 ? item.excludedPages.join(',') : '',
     description: item.description ?? '',
   };
 }
@@ -47,6 +49,7 @@ export function IndividualAssignmentSection({
   const [rowOverrides, setRowOverrides] = useState<Record<string, ItemRowDraft[]>>({});
   const [includeCommonOverrides, setIncludeCommonOverrides] = useState<Record<string, boolean>>({});
   const [savedMessage, setSavedMessage] = useState<Record<string, string>>({});
+  const [errorMessage, setErrorMessage] = useState<Record<string, string>>({});
 
   const namespace = `${classInfo.id}_${assignedDate}`;
   // 공통 과제 저장 여부와 무관하게, 이 반의 전체 학생이 항상 개별 과제 후보다.
@@ -75,7 +78,19 @@ export function IndividualAssignmentSection({
   }
 
   function handleSave(studentId: string) {
-    onSave(studentId, rowsFor(studentId), includeCommonFor(studentId));
+    const rows = rowsFor(studentId);
+    // [2026-09-07 추가] AssignmentForm.tsx와 동일한 이유로 저장 전 동기 검증.
+    for (const row of rows) {
+      if (row.itemType !== 'page_range') continue;
+      const ps = row.pageStart !== '' ? Number(row.pageStart) : undefined;
+      const pe = row.pageEnd !== '' ? Number(row.pageEnd) : undefined;
+      if (cleanExcludedPages(row.excludedPages, ps, pe).invalid) {
+        setErrorMessage((prev) => ({ ...prev, [studentId]: '문제없는 페이지 입력을 확인해주세요. (숫자와 콤마만 가능)' }));
+        return;
+      }
+    }
+    setErrorMessage((prev) => ({ ...prev, [studentId]: '' }));
+    onSave(studentId, rows, includeCommonFor(studentId));
     setSavedMessage((prev) => ({ ...prev, [studentId]: `${classInfo.students.find((s) => s.id === studentId)?.name ?? ''} 학생 개별 과제가 저장되었습니다.` }));
   }
 
@@ -121,6 +136,7 @@ export function IndividualAssignmentSection({
                   {s.name} 학생 개별 과제 저장
                 </button>
 
+                {errorMessage[s.id] && <p style={{ color: '#c0392b' }}>{errorMessage[s.id]}</p>}
                 {savedMessage[s.id] && <p className={styles.successText}>{savedMessage[s.id]}</p>}
               </div>
             )}

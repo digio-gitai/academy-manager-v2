@@ -4,6 +4,7 @@ import {
   deriveItemState,
   fetchUploadItems,
   fetchUploadMeta,
+  getSolvablePages,
   isItemDisplayDone,
   markViewed,
   submitUpload,
@@ -24,8 +25,12 @@ function seedRawInput(item: HwUploadItem): RawItemInput {
     item.itemType === 'page_range' && item.pageStart != null && item.pageEnd != null && item.pageStart <= item.pageEnd;
   let suggestedStart = item.pageStart ?? 0;
   if (isPageRange) {
-    const prevMax = item.prevCompletedPages.length ? Math.max(...item.prevCompletedPages) : item.pageStart! - 1;
-    suggestedStart = Math.min(Math.max(item.pageStart!, prevMax + 1), item.pageEnd!);
+    // [2026-09-07 수정] 문제없는 페이지(제외페이지)는 건너뛰고, 아직 안 한
+    // 페이지 중 실제로 풀어야 하는 첫 페이지를 추천 시작 페이지로 잡는다.
+    const solvable = getSolvablePages(item.pageStart!, item.pageEnd!, item.excludedPages);
+    const doneSet = new Set(item.prevCompletedPages);
+    const nextPage = solvable.find((p) => !doneSet.has(p));
+    suggestedStart = nextPage ?? item.pageEnd!;
   }
   return { startPage: suggestedStart, endPage: suggestedStart, done: item.prevDone, note: item.prevNote, photos: [] };
 }

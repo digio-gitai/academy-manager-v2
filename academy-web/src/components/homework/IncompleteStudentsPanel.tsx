@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ClassInfo } from '../../types/classManagement';
 import type { HwAssignment, HwItem, HwSubmission } from '../../types/homework';
+import { getSolvablePages } from '../../lib/hwUpload';
 import styles from './IncompleteStudentsPanel.module.css';
 
 interface IncompleteStudentsPanelProps {
@@ -55,7 +56,7 @@ export function IncompleteStudentsPanel({ classInfo, assignments, items, submiss
                         if (item.itemType === 'page_range') {
                           const start = item.pageStart ?? 0;
                           const end = item.pageEnd ?? 0;
-                          const total = Math.max(end - start + 1, 1);
+                          const total = Math.max(getSolvablePages(start, end, item.excludedPages ?? []).length, 1);
                           const done = state?.completedPages.length ?? 0;
                           const percent = Math.min(100, Math.round((done / total) * 100));
                           return (

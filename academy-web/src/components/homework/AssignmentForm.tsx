@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ClassInfo } from '../../types/classManagement';
 import type { HwAssignment, HwItem } from '../../types/homework';
 import { HwItemRows, newItemRowDraft, type ItemRowDraft } from './HwItemRows';
+import { cleanExcludedPages } from '../../lib/homework';
 import styles from './AssignmentForm.module.css';
 
 function draftFromItem(item: HwItem): ItemRowDraft {
@@ -11,6 +12,7 @@ function draftFromItem(item: HwItem): ItemRowDraft {
     materialName: item.materialName,
     pageStart: item.pageStart != null ? String(item.pageStart) : '',
     pageEnd: item.pageEnd != null ? String(item.pageEnd) : '',
+    excludedPages: item.excludedPages && item.excludedPages.length > 0 ? item.excludedPages.join(',') : '',
     description: item.description ?? '',
   };
 }
@@ -55,6 +57,7 @@ export function AssignmentForm({
   const formKey = `${classInfo.id}_${assignedDate}`;
   const [overrides, setOverrides] = useState<Record<string, FormState>>({});
   const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
 
   function defaultForm(): FormState {
     if (existingAssignment) {
@@ -93,6 +96,20 @@ export function AssignmentForm({
   }
 
   function handleSave() {
+    // [2026-09-07 추가] onSave가 비동기 함수를 await 없이 호출하는 구조라
+    // (HomeworkCertification.tsx의 handleSaveCommon), 잘못된 "문제없는 페이지"
+    // 입력은 저장을 시도하기 전에 여기서 동기적으로 먼저 걸러내야 한다.
+    for (const row of form.commonItems) {
+      if (row.itemType !== 'page_range') continue;
+      const ps = row.pageStart !== '' ? Number(row.pageStart) : undefined;
+      const pe = row.pageEnd !== '' ? Number(row.pageEnd) : undefined;
+      if (cleanExcludedPages(row.excludedPages, ps, pe).invalid) {
+        setError(`"${row.materialName || '이름없음'}" 항목의 문제없는 페이지 입력을 확인해주세요. (숫자와 콤마만 가능)`);
+        setSuccess('');
+        return;
+      }
+    }
+    setError('');
     onSave(form);
     setSuccess(existingAssignment ? '과제가 수정되었습니다.' : '과제가 저장되었습니다.');
   }
@@ -173,6 +190,7 @@ export function AssignmentForm({
         {existingAssignment ? '과제 수정' : '과제 저장'}
       </button>
 
+      {error && <p style={{ color: '#c0392b', marginTop: 8 }}>{error}</p>}
       {success && <p className={styles.successText}>{success}</p>}
     </div>
   );

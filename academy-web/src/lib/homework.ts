@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { getSolvablePages } from './hwUpload';
 import type {
   HwAssignment,
   HwItem,
@@ -54,6 +55,7 @@ interface ItemDraftInput {
   materialName: string;
   pageStart?: number;
   pageEnd?: number;
+  excludedPages?: string;
   description?: string;
 }
 
@@ -69,6 +71,7 @@ interface RawItem {
   material_name: string;
   page_start: number | null;
   page_end: number | null;
+  excluded_pages: string | null;
   description: string | null;
   student_id: number | null;
   sort_order: number;
@@ -134,9 +137,9 @@ export function buildHwSmsText(params: {
     if (hasPages) {
       const pageStart = item.pageStart as number;
       const pageEnd = item.pageEnd as number;
-      const totalPages = pageEnd - pageStart + 1;
-      const fullRange = new Set<number>();
-      for (let p = pageStart; p <= pageEnd; p += 1) fullRange.add(p);
+      const solvablePages = getSolvablePages(pageStart, pageEnd, item.excludedPages ?? []);
+      const totalPages = solvablePages.length;
+      const fullRange = new Set<number>(solvablePages);
       const donePages = state.completedPages.filter((p) => fullRange.has(p));
       if (totalPages > 0 && donePages.length >= totalPages) {
         lines.push(`- ${item.materialName}: 완료`);
@@ -261,6 +264,7 @@ function mapAssignment(row: RawAssignment): { assignment: HwAssignment; items: H
     materialName: it.material_name,
     pageStart: it.page_start ?? undefined,
     pageEnd: it.page_end ?? undefined,
+    excludedPages: parseCompletedPages(it.excluded_pages),
     description: it.description || undefined,
     studentId: it.student_id != null ? String(it.student_id) : undefined,
   }));
@@ -315,7 +319,7 @@ export async function fetchHomeworkForClass(classId: string): Promise<HwClassDat
       `
         id, class_id, title, assigned_date, due_date,
         hw_assignment_targets ( student_id, requires_certification, include_common ),
-        hw_items ( id, item_type, material_name, page_start, page_end, description, student_id, sort_order ),
+        hw_items ( id, item_type, material_name, page_start, page_end, excluded_pages, description, student_id, sort_order ),
         hw_submissions (
           id, student_id, status, upload_token, viewed_at, notified_at,
           hw_item_submissions (
@@ -384,6 +388,7 @@ async function syncItems(assignmentId: number, studentId: number | null, drafts:
         .update({
           page_start: pageStart,
           page_end: pageEnd,
+          excluded_pages: d.itemType === 'page_range' ? d.excludedPages ?? '' : '',
           description: d.description ?? '',
           sort_order: i,
         })
@@ -396,6 +401,7 @@ async function syncItems(assignmentId: number, studentId: number | null, drafts:
         material_name: d.materialName.trim(),
         page_start: pageStart,
         page_end: pageEnd,
+        excluded_pages: d.itemType === 'page_range' ? d.excludedPages ?? '' : '',
         description: d.description ?? '',
         student_id: studentId,
         sort_order: i,
@@ -410,6 +416,39 @@ async function syncItems(assignmentId: number, studentId: number | null, drafts:
     const { error } = await supabase.from('hw_items').delete().in('id', leftoverIds);
     if (error) throw error;
   }
+}
+
+/**
+ * [2026-09-07 추가] 선생님이 입력한 "문제없는 페이지" 문자열을 검증·정리 —
+ * hw_assign.py _clean_excluded_pages() 포팅. 숫자/콤마/공백 외 문자가 섞여
+ * 있으면 invalid:true(저장 막기), 범위 밖 숫자는 ignored로 따로 돌려줘서
+ * 호출부가 경고만 띄우고 저장은 계속 진행할 수 있게 한다.
+ */
+export function cleanExcludedPages(
+  raw: string,
+  pageStart?: number,
+  pageEnd?: number,
+): { clean: string; ignored: number[]; invalid: boolean } {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return { clean: '', ignored: [], invalid: false };
+  if (!/^[0-9,\s]+$/.test(trimmed)) {
+    return { clean: '', ignored: [], invalid: true };
+  }
+  const nums = trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')
+    .map(Number);
+  let inRange = nums;
+  let ignored: number[] = [];
+  if (pageStart != null && pageEnd != null) {
+    inRange = nums.filter((n) => n >= pageStart && n <= pageEnd);
+    ignored = nums.filter((n) => !(n >= pageStart && n <= pageEnd));
+  }
+  const clean = Array.from(new Set(inRange))
+    .sort((a, b) => a - b)
+    .join(',');
+  return { clean, ignored, invalid: false };
 }
 
 function buildItemSummaryText(

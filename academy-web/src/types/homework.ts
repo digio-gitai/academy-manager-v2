@@ -12,6 +12,7 @@ export interface HwItem {
   materialName: string;
   pageStart?: number;
   pageEnd?: number;
+  excludedPages?: number[]; // [2026-09-07 추가] "문제없는 페이지"(개념 설명·표지 등)
   description?: string;
   studentId?: string; // 없으면 공통 항목, 있으면 그 학생 전용 개별 항목
 }

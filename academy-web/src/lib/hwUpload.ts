@@ -40,6 +40,7 @@ export interface HwUploadItem {
   description: string;
   pageStart?: number;
   pageEnd?: number;
+  excludedPages: number[]; // [2026-09-07 추가] "문제없는 페이지" — get_solvable_pages 계산용
   prevCompletedPages: number[];
   prevDone: boolean;
   prevNote: string;
@@ -64,6 +65,7 @@ export interface ItemFormState {
   alreadyFull: boolean;
   remainingPages: number[];
   newPageCount: number;
+  skippedPages: number[]; // [2026-09-07 추가] 오늘 범위 입력 중 문제없는 페이지라 자동 제외된 쪽
 }
 
 export interface HwUploadItemPayload {
@@ -119,6 +121,28 @@ export function formatPageRanges(pages: number[]): string {
   }
   const parts = groups.map((g) => (g.length > 1 ? `${g[0]}~${g[g.length - 1]}` : `${g[0]}`));
   return `${parts.join(', ')}쪽`;
+}
+
+/** "13,15,16" → [13,15,16] (excluded_pages 컬럼 파싱 — parseCompletedPages와 형식 동일). */
+export function parseExcludedPages(raw: string | null | undefined): number[] {
+  return parseCompletedPages(raw);
+}
+
+/**
+ * [2026-09-07 추가] 페이지 범위에서 "문제없는 페이지(제외페이지)"를 뺀 실제로
+ * 풀어야 하는 페이지 목록 — database.py get_solvable_pages() 포팅. 진도율
+ * 계산·체크리스트·완료 판정 전부 이 함수 기준으로 통일한다.
+ */
+export function getSolvablePages(pageStart: number, pageEnd: number, excludedPages: number[]): number[] {
+  if (!excludedPages || excludedPages.length === 0) {
+    return Array.from({ length: pageEnd - pageStart + 1 }, (_, i) => pageStart + i);
+  }
+  const excluded = new Set(excludedPages);
+  const pages: number[] = [];
+  for (let p = pageStart; p <= pageEnd; p++) {
+    if (!excluded.has(p)) pages.push(p);
+  }
+  return pages;
 }
 
 /** 업로드 토큰으로 과제·학생·반 정보를 조회 — hw_upload.py get_submission_by_token() 대응. */
@@ -184,7 +208,7 @@ export async function fetchUploadItems(meta: HwUploadMeta): Promise<HwUploadItem
 
   const { data: itemRows, error: itemErr } = await supabase
     .from('hw_items')
-    .select('id, item_type, material_name, page_start, page_end, description, student_id, sort_order')
+    .select('id, item_type, material_name, page_start, page_end, excluded_pages, description, student_id, sort_order')
     .eq('assignment_id', assignmentId)
     .or(`student_id.is.null,student_id.eq.${studentId}`)
     .order('sort_order', { ascending: true });
@@ -215,6 +239,7 @@ export async function fetchUploadItems(meta: HwUploadMeta): Promise<HwUploadItem
       description: it.description || '',
       pageStart: it.page_start ?? undefined,
       pageEnd: it.page_end ?? undefined,
+      excludedPages: parseExcludedPages(it.excluded_pages),
       prevCompletedPages: parseCompletedPages(sub?.completed_pages),
       prevDone: sub?.status === 'done',
       prevNote: sub?.student_note || '',
@@ -229,10 +254,8 @@ export function isItemDisplayDone(item: HwUploadItem): boolean {
     return item.prevDone;
   }
   const set = new Set(item.prevCompletedPages);
-  for (let p = item.pageStart; p <= item.pageEnd; p++) {
-    if (!set.has(p)) return false;
-  }
-  return true;
+  const solvable = getSolvablePages(item.pageStart, item.pageEnd, item.excludedPages);
+  return solvable.every((p) => set.has(p));
 }
 
 /**
@@ -256,13 +279,14 @@ export function deriveItemState(item: HwUploadItem, raw: RawItemInput): ItemForm
       alreadyFull: false,
       remainingPages: [],
       newPageCount: 0,
+      skippedPages: [],
     };
   }
 
   const pageStart = item.pageStart!;
   const pageEnd = item.pageEnd!;
-  const fullRange: number[] = [];
-  for (let p = pageStart; p <= pageEnd; p++) fullRange.push(p);
+  const fullRange: number[] = getSolvablePages(pageStart, pageEnd, item.excludedPages);
+  const fullRangeSet = new Set(fullRange);
   const prevSet = new Set(item.prevCompletedPages);
   const alreadyFull = fullRange.every((p) => prevSet.has(p));
 
@@ -277,11 +301,17 @@ export function deriveItemState(item: HwUploadItem, raw: RawItemInput): ItemForm
       alreadyFull: true,
       remainingPages: [],
       newPageCount: 0,
+      skippedPages: [],
     };
   }
 
-  const newRange: number[] =
+  // [2026-09-07 추가] "오늘 시작~마지막" 연속 범위 입력 안에 문제없는 페이지
+  // (제외페이지)가 섞여 있으면 자동으로 빼고, 뺀 목록은 skippedPages로 돌려줘서
+  // 화면에 안내 문구를 띄운다(hw_upload.py 이식과 동일한 정책).
+  const rawRange: number[] =
     raw.endPage >= raw.startPage ? Array.from({ length: raw.endPage - raw.startPage + 1 }, (_, i) => raw.startPage + i) : [];
+  const newRange = rawRange.filter((p) => fullRangeSet.has(p));
+  const skippedPages = rawRange.filter((p) => !fullRangeSet.has(p));
   const mergedSet = new Set<number>([...item.prevCompletedPages, ...newRange]);
   const done = fullRange.every((p) => mergedSet.has(p));
   const remainingPages = fullRange.filter((p) => !mergedSet.has(p));
@@ -296,6 +326,7 @@ export function deriveItemState(item: HwUploadItem, raw: RawItemInput): ItemForm
     alreadyFull: false,
     remainingPages,
     newPageCount: newRange.length,
+    skippedPages,
   };
 }
 

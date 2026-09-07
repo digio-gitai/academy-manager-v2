@@ -241,6 +241,7 @@ export function RecentAssignmentsPanel({
                         <th>문제집 · 프린트</th>
                         <th>시작p</th>
                         <th>끝p</th>
+                        <th>제외p</th>
                         <th>설명</th>
                         <th>대상</th>
                         <th></th>
@@ -257,6 +258,7 @@ export function RecentAssignmentsPanel({
                             <td>{item.materialName}</td>
                             <td>{item.pageStart ?? '—'}</td>
                             <td>{item.pageEnd ?? '—'}</td>
+                            <td>{item.excludedPages && item.excludedPages.length > 0 ? item.excludedPages.join(', ') : '—'}</td>
                             <td>{item.description || '—'}</td>
                             <td>{targetLabel}</td>
                             <td>
