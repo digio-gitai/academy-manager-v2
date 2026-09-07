@@ -52,6 +52,7 @@ Public API:
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, datetime
 
@@ -60,7 +61,7 @@ import streamlit as st
 
 import homework
 from branding import SMS_GREETING
-from database import ensure_hw_tables
+from database import ensure_hw_tables, get_solvable_pages
 from db_connect import get_conn
 from hw_photo_review import has_unverified_photos, render_photo_review
 from hw_reference import render_reference_upload_section
@@ -120,6 +121,33 @@ def _read_sql_df(query: str, params: tuple | list = ()) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=cols, dtype=object)
 
 
+def _clean_excluded_pages(
+    raw: str | None, page_start: int | None, page_end: int | None
+) -> tuple[str, list[int]]:
+    """선생님이 입력한 "문제없는 페이지" 문자열을 검증·정리한다.
+
+    "13, 15, 16" 같은 입력에서 숫자만 뽑아 "13,15,16" 형태로 정리해서
+    반환하고, 페이지 범위(start~end) 밖의 숫자는 무시하고 두 번째 값으로
+    돌려준다(호출부에서 경고만 띄우고 저장은 계속 진행). 숫자/콤마/공백
+    외의 문자가 섞여 있으면 ValueError를 내서 저장 자체를 막는다(오타를
+    조용히 무시하면 나중에 확인하기 어려우므로).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return "", []
+    if not re.fullmatch(r"[0-9,\s]+", raw):
+        raise ValueError(
+            "문제없는 페이지에는 숫자와 콤마만 입력할 수 있습니다. (예: 13,15,16)"
+        )
+    nums = [int(p) for p in raw.split(",") if p.strip()]
+    if page_start is not None and page_end is not None:
+        in_range = sorted({n for n in nums if page_start <= n <= page_end})
+        out_of_range = sorted({n for n in nums if not (page_start <= n <= page_end)})
+    else:
+        in_range, out_of_range = sorted(set(nums)), []
+    return ",".join(str(n) for n in in_range), out_of_range
+
+
 def _build_class_homework_summary(items: list[dict]) -> str:
     """과제 항목 목록을 출석부 "오늘 과제" 메모칸에 넣을 한 줄 요약으로 바꾼다.
 
@@ -167,9 +195,11 @@ def _build_hw_sms_text(
         )
         if has_pages:
             page_start, page_end = int(irow["page_start"]), int(irow["page_end"])
-            total_pages = page_end - page_start + 1
+            full_range = set(
+                get_solvable_pages(page_start, page_end, irow.get("excluded_pages") or "")
+            )
+            total_pages = len(full_range)
             completed = parse_completed_pages(irow["completed_pages"])
-            full_range = set(range(page_start, page_end + 1))
             done_pages = completed & full_range
             if len(done_pages) >= total_pages and total_pages > 0:
                 lines.append(f"- {name}: 완료")
@@ -228,7 +258,7 @@ def get_items_for_assignment(assignment_id: int) -> pd.DataFrame:
     ensure_hw_tables()
     return _read_sql_df(
         """
-        SELECT item_type, material_name, page_start, page_end, description
+        SELECT item_type, material_name, page_start, page_end, excluded_pages, description
         FROM hw_items WHERE assignment_id = %s ORDER BY sort_order, id
         """,
         (assignment_id,),
@@ -491,12 +521,13 @@ def save_assignment(
                 conn.execute(
                     """
                     UPDATE hw_items
-                    SET page_start = ?, page_end = ?, description = ?, sort_order = ?
+                    SET page_start = ?, page_end = ?, excluded_pages = ?, description = ?, sort_order = ?
                     WHERE id = ?
                     """,
                     (
                         item.get("page_start"),
                         item.get("page_end"),
+                        item.get("excluded_pages", "") or "",
                         item.get("description", "").strip(),
                         idx,
                         existing_id,
@@ -506,8 +537,8 @@ def save_assignment(
                 conn.execute(
                     """
                     INSERT INTO hw_items
-                        (assignment_id, item_type, material_name, page_start, page_end, description, sort_order, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        (assignment_id, item_type, material_name, page_start, page_end, excluded_pages, description, sort_order, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         assignment_id,
@@ -515,6 +546,7 @@ def save_assignment(
                         name,
                         item.get("page_start"),
                         item.get("page_end"),
+                        item.get("excluded_pages", "") or "",
                         item.get("description", "").strip(),
                         idx,
                         ts,
@@ -595,8 +627,10 @@ def render_incomplete_students_section(class_id: int) -> None:
                     )
                     if has_pages:
                         page_start, page_end = int(irow["page_start"]), int(irow["page_end"])
-                        total_pages = page_end - page_start + 1
-                        full_range = set(range(page_start, page_end + 1))
+                        full_range = set(
+                            get_solvable_pages(page_start, page_end, irow.get("excluded_pages") or "")
+                        )
+                        total_pages = len(full_range)
                         completed = parse_completed_pages(irow["completed_pages"])
                         done_pages = completed & full_range
                         remaining = sorted(full_range - completed)
@@ -783,12 +817,28 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
                 description = st.text_input(
                     desc_label, value=prev_desc, key=f"hw_item_desc_{ctx}_{i}", placeholder=desc_ph
                 )
+
+                excluded_input = ""
+                if item_type == "page_range":
+                    prev_excluded = (
+                        str(prev["excluded_pages"])
+                        if prev is not None and pd.notna(prev.get("excluded_pages"))
+                        else ""
+                    )
+                    excluded_input = st.text_input(
+                        "문제없는 페이지 (콤마로 구분, 예: 13,15,16)",
+                        value=prev_excluded,
+                        key=f"hw_item_excluded_{ctx}_{i}",
+                        help="개념 설명만 있거나 단원 표지처럼 풀 문제가 없는 페이지가 있으면 입력하세요. 없으면 비워두세요.",
+                    )
+
                 item_inputs.append(
                     {
                         "item_type": item_type,
                         "material_name": material_name,
                         "page_start": int(page_start) or None,
                         "page_end": int(page_end) or None,
+                        "excluded_pages": excluded_input,
                         "description": description,
                     }
                 )
@@ -806,6 +856,21 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
         valid_items = [it for it in item_inputs if it["material_name"].strip()]
         if not valid_items:
             st.error("문제집/프린트 항목을 최소 1개 입력해주세요.")
+            return
+
+        try:
+            for it in valid_items:
+                clean_excluded, ignored = _clean_excluded_pages(
+                    it.get("excluded_pages", ""), it.get("page_start"), it.get("page_end")
+                )
+                it["excluded_pages"] = clean_excluded
+                if ignored:
+                    st.warning(
+                        f"{it['material_name']}: {', '.join(str(n) for n in ignored)}쪽은 "
+                        "페이지 범위 밖이라 무시했습니다."
+                    )
+        except ValueError as e:
+            st.error(str(e))
             return
 
         name_to_id = {r["name"]: int(r["id"]) for _, r in students_df.iterrows()}
@@ -852,7 +917,7 @@ def render_hw_assign_page(classes_df: pd.DataFrame, teacher_id: int | None) -> N
             else:
                 disp = items_df.copy()
                 disp["item_type"] = disp["item_type"].map(_ITEM_TYPE_LABELS)
-                disp.columns = ["유형", "문제집/프린트", "시작p", "끝p", "설명"]
+                disp.columns = ["유형", "문제집/프린트", "시작p", "끝p", "제외p", "설명"]
                 st.dataframe(disp, width="stretch", hide_index=True)
 
             subs_df = get_submissions_for_assignment(int(row["id"]))

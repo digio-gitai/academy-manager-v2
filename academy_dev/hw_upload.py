@@ -51,7 +51,7 @@ import pandas as pd
 import streamlit as st
 
 from branding import ACADEMY_NAME
-from database import ensure_hw_tables
+from database import ensure_hw_tables, get_solvable_pages
 from db_connect import get_conn
 
 _STATUS_LABELS = {"pending": "⏳ 미완료", "partial": "🟡 일부완료", "done": "✅ 완료"}
@@ -215,7 +215,7 @@ def get_items_with_state(assignment_id: int, submission_id: int) -> pd.DataFrame
     return _read_sql_df(
         """
         SELECT i.id AS item_id, i.item_type, i.material_name, i.page_start, i.page_end,
-               i.description, i.sort_order,
+               i.excluded_pages, i.description, i.sort_order,
                isub.id AS item_submission_id, isub.status AS sub_status,
                isub.completed_pages, isub.student_note
         FROM hw_items i
@@ -413,8 +413,12 @@ def _render_page_range_item(row: pd.Series, prev_completed: set[int]) -> dict[st
     item_id = int(row["item_id"])
     range_gen = st.session_state.get(f"hw_up_pgrange_gen_{item_id}", 0)
     page_start, page_end = int(row["page_start"]), int(row["page_end"])
-    total_pages = page_end - page_start + 1
-    full_range = set(range(page_start, page_end + 1))
+    # [2026-09-07 추가] "문제없는 페이지"(개념 설명·단원 표지 등)는 실제로
+    # 풀어야 하는 페이지 목록(full_range)에서 아예 빠진다 — 체크리스트 표시,
+    # 진도율 계산, 완료 판정이 전부 이 solvable_pages 기준으로 이뤄진다.
+    solvable_pages = get_solvable_pages(page_start, page_end, row.get("excluded_pages") or "")
+    full_range = set(solvable_pages)
+    total_pages = len(full_range)
 
     st.markdown(f"**{row['material_name']} ({page_start}\\~{page_end}쪽)**")
     if row["description"]:
@@ -438,11 +442,14 @@ def _render_page_range_item(row: pd.Series, prev_completed: set[int]) -> dict[st
             "range_gen_key": f"hw_up_pgrange_gen_{item_id}",
         }
 
-    # 오늘 시작 페이지 = 지금까지 완료한 다음 쪽부터(이어하기 기본값).
-    suggested_start = min(
-        max(page_start, (max(prev_completed) + 1) if prev_completed else page_start),
-        page_end,
-    )
+    # 오늘 시작 페이지 = 지금까지 완료한 다음 "풀어야 하는" 쪽부터(이어하기
+    # 기본값). 제외페이지 바로 다음이 시작점으로 잡히지 않도록 solvable_pages
+    # 안에서만 고른다.
+    if prev_completed:
+        _upcoming = [p for p in solvable_pages if p > max(prev_completed)]
+    else:
+        _upcoming = solvable_pages
+    suggested_start = _upcoming[0] if _upcoming else page_end
     c1, c2 = st.columns(2)
     with c1:
         start_val = st.number_input(
@@ -467,8 +474,18 @@ def _render_page_range_item(row: pd.Series, prev_completed: set[int]) -> dict[st
         )
 
     if int(end_val) >= int(start_val):
-        new_range = list(range(int(start_val), int(end_val) + 1))
-        st.caption(f"📷 오늘 {len(new_range)}쪽 인증 → 사진 {len(new_range)}장이 필요해요.")
+        raw_range = list(range(int(start_val), int(end_val) + 1))
+        new_range = [p for p in raw_range if p in full_range]
+        skipped = [p for p in raw_range if p not in full_range]
+        if not new_range and skipped:
+            st.caption(f"선택한 {format_page_ranges(skipped)}쪽은 문제없는 페이지라 인증이 필요 없어요.")
+        elif skipped:
+            st.caption(
+                f"📷 오늘 {len(new_range)}쪽 인증 → 사진 {len(new_range)}장이 필요해요. "
+                f"(문제없는 페이지 {format_page_ranges(skipped)}쪽 제외)"
+            )
+        else:
+            st.caption(f"📷 오늘 {len(new_range)}쪽 인증 → 사진 {len(new_range)}장이 필요해요.")
     else:
         new_range = []
         st.caption("오늘은 이 항목 진행 안 함으로 처리됩니다.")

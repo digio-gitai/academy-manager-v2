@@ -189,6 +189,7 @@ CREATE TABLE IF NOT EXISTS hw_items (
     material_name  TEXT NOT NULL,
     page_start     INTEGER,
     page_end       INTEGER,
+    excluded_pages TEXT DEFAULT '',
     description    TEXT DEFAULT '',
     sort_order     INTEGER DEFAULT 0,
     created_at     TEXT NOT NULL
@@ -719,6 +720,21 @@ def ensure_hw_tables(conn: sqlite3.Connection | None = None) -> None:
                 "ALTER TABLE hw_item_submissions ADD COLUMN completed_pages TEXT DEFAULT ''"
             )
 
+        # 마이그레이션 [2026-09-07 추가]: 페이지 범위 중 "문제없는 페이지"
+        # (개념 설명·단원 표지 등 풀 문제가 없는 페이지)를 제외하는 기능.
+        # 콤마로 구분한 페이지 번호 문자열(예: "13,15,16")을 저장 — 비어있으면
+        # 기존과 동일하게 전체 범위를 그대로 쓴다(하위 호환).
+        hw_items_cols = [
+            row[1] for row in conn.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns "
+                "WHERE table_name = 'hw_items'"
+            ).fetchall()
+        ]
+        if "excluded_pages" not in hw_items_cols:
+            conn.execute(
+                "ALTER TABLE hw_items ADD COLUMN excluded_pages TEXT DEFAULT ''"
+            )
+
         # 마이그레이션: 4단계에서 추가된 컬럼 2개 — 학생이 링크를 열어봤는지
         # 추적(viewed_at), 학생별 인증 필요 여부(requires_certification).
         # 동일한 "컬럼 존재 확인 후 ALTER" 패턴.
@@ -772,6 +788,33 @@ def ensure_hw_tables(conn: sqlite3.Connection | None = None) -> None:
     finally:
         if own_conn:
             conn.close()
+
+
+def get_solvable_pages(start_page: int, end_page: int, excluded_pages_str: str = "") -> list[int]:
+    """[2026-09-07 추가] 페이지 범위에서 '문제없는 페이지(제외페이지)'를 뺀
+
+    실제로 풀어야 하는 페이지 목록을 반환한다. 진도율 계산, 학생
+    체크리스트 표시, 완료/미완료 판정 등 페이지 범위형 항목을 다루는
+    모든 곳에서 (end_page - start_page + 1) 대신 이 함수의 길이/목록을
+    쓴다.
+
+    Args:
+        start_page: 과제 시작 페이지
+        end_page: 과제 끝 페이지
+        excluded_pages_str: "13,15,16" 형태의 제외 페이지 문자열 (콤마 구분)
+
+    Returns:
+        풀어야 할 페이지 번호 리스트 (오름차순)
+    """
+    all_pages = list(range(start_page, end_page + 1))
+    if not excluded_pages_str or not excluded_pages_str.strip():
+        return all_pages
+    excluded = {
+        int(p.strip())
+        for p in excluded_pages_str.split(",")
+        if p.strip().isdigit()
+    }
+    return [p for p in all_pages if p not in excluded]
 
 
 def ensure_hw_reference_table(conn: sqlite3.Connection | None = None) -> None:
