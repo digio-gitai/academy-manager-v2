@@ -26,6 +26,12 @@
   margin: 6px 0;
 }
 
+.successText {
+  font-size: 12.5px;
+  color: var(--color-primary);
+  margin: 6px 0;
+}
+
 .infoBanner {
   font-size: 12.5px;
   background: rgba(201, 169, 97, 0.14);

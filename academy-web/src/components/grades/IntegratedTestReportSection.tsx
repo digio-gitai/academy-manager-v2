@@ -7,6 +7,9 @@ import {
 import type { AcademyTestOption, IntegratedReportData, CategoryStat } from '../../lib/integratedReport';
 import { buildWebReportHtml } from '../../lib/webReportHtml';
 import { generateParentComment } from '../../lib/parentComment';
+import { createReportLink, markReportSent, buildParentReportLinkText } from '../../lib/reportLinks';
+import { fetchStudentContact } from '../../lib/students';
+import { sendBulkSms } from '../../lib/smsSend';
 import styles from './IntegratedTestReportSection.module.css';
 
 function describeError(err: unknown): string {
@@ -86,6 +89,9 @@ export function IntegratedTestReportSection({
   const [reportComment, setReportComment] = useState('');
   const [commentGenerating, setCommentGenerating] = useState(false);
   const [commentError, setCommentError] = useState('');
+  const [sendingToParent, setSendingToParent] = useState(false);
+  const [sendResultMessage, setSendResultMessage] = useState('');
+  const [sendError, setSendError] = useState('');
 
   useEffect(() => {
     if (!studentId) return;
@@ -197,6 +203,43 @@ export function IntegratedTestReportSection({
       printWindow.focus();
       printWindow.print();
     };
+  }
+
+  /**
+   * [2026-09-08] "학부모에게 문자로 보내기" — report_links(token/html_content)에
+   * 보고서를 저장하고, 학부모 열람 페이지(ParentReport.tsx, /parent-report?token=)
+   * 링크를 문자로 발송한다. 학생 인증 업로드 링크 발송(RecentAssignmentsPanel의
+   * handleSendLink)과 같은 구조 — 다만 여기는 항상 보호자 번호로만 보낸다(성적은
+   * 학생이 아니라 학부모에게 보여주는 정보라 학생 번호 대체 발송을 하지 않음).
+   */
+  async function handleSendToParent() {
+    if (!reportHtml || !reportData) return;
+    setSendingToParent(true);
+    setSendError('');
+    setSendResultMessage('');
+    try {
+      const contact = await fetchStudentContact(studentId);
+      const phone = contact?.parentPhone?.trim();
+      if (!phone) {
+        throw new Error('보호자 연락처가 없어 문자를 보낼 수 없습니다.');
+      }
+      const token = await createReportLink({
+        html: reportHtml,
+        studentName: reportData.studentName,
+        studentId,
+        testType: '통합보고서',
+        testDate: reportData.generatedAt.slice(0, 10),
+        testName: `통합보고서(${reportData.tests.length}개 시험)`,
+      });
+      const text = buildParentReportLinkText({ studentName: reportData.studentName, token });
+      await sendBulkSms([{ name: reportData.studentName, phone }], text);
+      await markReportSent(token);
+      setSendResultMessage(`${reportData.studentName} 학부모님께 리포트 링크 문자를 발송했습니다.`);
+    } catch (err) {
+      setSendError(describeError(err));
+    } finally {
+      setSendingToParent(false);
+    }
   }
 
   return (
@@ -376,7 +419,17 @@ export function IntegratedTestReportSection({
                 <button type="button" className={styles.secondaryButton} onClick={handlePrint}>
                   🖨️ 인쇄 / PDF로 저장
                 </button>
+                <button
+                  type="button"
+                  className={styles.generateButton}
+                  onClick={handleSendToParent}
+                  disabled={sendingToParent}
+                >
+                  {sendingToParent ? '발송 중...' : '📱 학부모에게 문자로 보내기'}
+                </button>
               </div>
+              {sendResultMessage && <p className={styles.successText}>{sendResultMessage}</p>}
+              {sendError && <p className={styles.errorText}>{sendError}</p>}
               <iframe
                 title="통합보고서 미리보기"
                 srcDoc={reportHtml}

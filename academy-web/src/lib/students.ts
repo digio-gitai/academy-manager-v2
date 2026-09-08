@@ -268,6 +268,21 @@ export async function fetchWithdrawnStudents(teacherId?: number | null): Promise
   return rows.filter((row) => (row.withdrawn_at ?? '').trim()).map(mapStudentRow);
 }
 
+/** 이름 + 연락처만 필요한 화면(성적 리포트 문자 발송 등)용 경량 조회. */
+export async function fetchStudentContact(
+  studentId: string,
+): Promise<{ name: string; studentPhone: string; parentPhone: string } | null> {
+  const { data, error } = await supabase
+    .from('students')
+    .select('name, student_phone, parent_phone')
+    .eq('id', Number(studentId))
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const row = data as { name: string; student_phone: string | null; parent_phone: string | null };
+  return { name: row.name, studentPhone: row.student_phone ?? '', parentPhone: row.parent_phone ?? '' };
+}
+
 /**
  * 학생 삭제 (app.py의 delete_student 대응). 2026-08-27: 화면에서만 지워지던 걸
  * 실제 DB 삭제로 연결. 상담일지/출결/성적 등 이 학생을 참조하는 다른 테이블에
