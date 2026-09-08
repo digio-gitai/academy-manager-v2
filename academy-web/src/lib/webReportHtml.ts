@@ -77,6 +77,163 @@ function barChartScript(canvasId: string, labels: string[], values: number[], co
 }`;
 }
 
+// A4(794×1123px) 리포트 공통 스타일. buildWebReportHtml()의 최종 <style> 태그와
+// paginateBlocks()의 숨김 측정용 컨테이너가 이 문자열을 그대로 공유한다 — 두 곳의
+// 스타일이 어긋나면 측정한 높이와 실제 렌더 높이가 달라져 페이지 배분이 틀어지므로
+// 반드시 하나의 소스만 쓴다.
+const REPORT_CSS = `
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --c-main:#1a5fd4; --c-accent:#e85d26; --c-positive:#1a7a4a; --c-negative:#cc2e2e;
+    --c-purple:#9b5de5; --c-teal:#1a9e75; --c-text:#1a1a1a; --c-muted:#666;
+    --c-border:#e2e2e2; --c-bg:#f7f8fc; --page-w:794px; --page-h:1123px; --pad:30px;
+  }
+  html, body { font-family:'Noto Sans KR',sans-serif; font-size:13px; color:var(--c-text); background:#e8eaef; }
+  .page {
+    width:var(--page-w); min-height:var(--page-h); background:#fff; margin:20px auto;
+    padding:var(--pad); border:0.5px solid #ccc; position:relative; page-break-after:always;
+  }
+  /* [2026-09-08] 표/카드/차트가 인쇄 페이지 경계에서 중간에 잘리는 걸 막는 안전망.
+     페이지 배분 자체는 아래 paginateBlocks()가 실제 렌더 높이를 미리 재서 A4 한
+     장에 맞게 계산하지만(그래서 평소엔 여기 걸릴 일이 거의 없음), 웹폰트 로딩
+     시점 차이 등으로 계산이 아주 살짝 어긋나는 경우에도 표 한 줄이 페이지 중간에서
+     반으로 잘리는 일은 없게 막아준다. */
+  table, tr, .s-card, .summary-row, .type-grid, .radar-grid, .weak-strong-grid,
+  .cog-item, .chart-wrap, .comment-section {
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .page-header {
+    display:flex; align-items:flex-start; justify-content:space-between;
+    margin-bottom:20px; padding-bottom:14px; border-bottom:2.5px solid var(--c-main);
+  }
+  .h-student-tag { font-size:11px; color:var(--c-muted); margin-bottom:3px; }
+  .h-student-name { font-size:16px; font-weight:700; }
+  .h-center { text-align:center; }
+  .h-report-type { font-size:10px; font-weight:700; letter-spacing:2.5px; color:var(--c-main); margin-bottom:5px; }
+  .h-exam-title { font-size:14px; font-weight:700; }
+  .h-logo { width:68px; height:44px; background:var(--c-main); border-radius:8px; display:flex; align-items:center; justify-content:center; }
+  .h-logo span { color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:1.4; }
+  .comment-section {
+    margin-bottom:20px; padding:14px 16px; background:var(--c-bg);
+    border:0.5px solid var(--c-border); border-left:3px solid var(--c-main); border-radius:8px;
+  }
+  .comment-title { font-size:12px; font-weight:700; color:var(--c-main); margin-bottom:8px; }
+  .comment-body { font-size:12px; line-height:1.8; color:var(--c-text); }
+  .sec-title { font-size:13px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:7px; }
+  .sec-title::before { content:''; display:inline-block; width:3px; height:14px; background:var(--c-main); border-radius:2px; }
+  .sec-sub { font-size:10px; font-weight:400; color:var(--c-muted); }
+  .summary-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:20px; }
+  .s-card { border:0.5px solid var(--c-border); border-radius:8px; padding:10px 12px; }
+  .s-card .lbl { font-size:10px; color:var(--c-muted); margin-bottom:3px; }
+  .s-card .val { font-size:22px; font-weight:700; color:var(--c-main); line-height:1.1; }
+  .s-card .val.orange { color:var(--c-accent); }
+  table { width:100%; border-collapse:collapse; font-size:11px; }
+  th { background:var(--c-bg); padding:6px 8px; border:0.5px solid var(--c-border); text-align:center; font-size:10px; color:var(--c-muted); font-weight:700; }
+  td { padding:7px 8px; border:0.5px solid var(--c-border); text-align:center; }
+  td.left { text-align:left; }
+  .blue { color:var(--c-main); font-weight:700; }
+  .orange { color:var(--c-accent); font-weight:700; }
+  .green { color:var(--c-positive); font-weight:700; }
+  .red { color:var(--c-negative); font-weight:700; }
+  .chart-wrap { position:relative; width:100%; }
+  .type-grid { display:grid; grid-template-columns:1fr 190px; gap:16px; margin-bottom:20px; }
+  .pie-side { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; }
+  .legend-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--c-muted); }
+  .legend-sq { width:10px; height:10px; border-radius:2px; }
+  .radar-grid { display:grid; grid-template-columns:170px 1fr; gap:16px; align-items:start; }
+  .cog-list { display:flex; flex-direction:column; gap:10px; padding-top:4px; }
+  .cog-item .cog-row { display:flex; justify-content:space-between; font-size:11px; }
+  .cog-track { height:4px; background:#eee; border-radius:4px; margin:3px 0 2px; }
+  .cog-fill { height:4px; border-radius:4px; }
+  .cog-note { font-size:9px; color:var(--c-muted); }
+  .weak-strong-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .wk-list { list-style:none; display:flex; flex-direction:column; gap:6px; font-size:11px; }
+  .wk-list li { padding:8px 10px; background:var(--c-bg); border-radius:6px; }
+  .wk-empty { font-size:11px; color:var(--c-muted); }
+  .page-footer {
+    position:absolute; bottom:18px; left:var(--pad); right:var(--pad);
+    display:flex; justify-content:space-between; font-size:10px; color:#bbb;
+    border-top:0.5px solid var(--c-border); padding-top:6px;
+  }
+  @media print {
+    body { background:#fff; }
+    .page { margin:0; border:none; box-shadow:none; }
+    /* 인쇄할 땐 화면용 축소를 무조건 끄고 항상 실제 A4 크기로 찍는다. */
+    #scale-outer { height:auto !important; }
+    #scale-inner { transform:none !important; width:auto !important; }
+  }
+  /* [2026-09-08] 핸드폰처럼 --page-w(794px)보다 좁은 화면에서 리포트가 잘리거나
+     가로 스크롤이 생기지 않도록, 화면 폭에 맞춰 전체를 축소해서 보여준다.
+     A4 레이아웃 자체(폭/글자 크기 등)는 그대로 두고 화면에 "보여지는 크기"만
+     transform:scale로 줄이는 방식이라, 인쇄용 레이아웃과 완전히 분리되어 있다. */
+  #scale-inner { transform-origin:top left; }
+`;
+
+/**
+ * [2026-09-08] 콘텐츠 블록들을 실제 렌더 높이 기준으로 A4 페이지에 채워 나눈다
+ * (사용자 피드백 — "카테고리=페이지 하나"로 고정하니 짧은 섹션 뒤에 빈 여백이
+ * 너무 많이 남는다는 지적, "다음 섹션 내용을 끌어와 채우고 넘치면 그때 넘기는"
+ * 방식으로 개선). 숨겨진 컨테이너에 각 블록을 실제로 그려서 높이를 잰 뒤(폭/폰트/
+ * 여백을 최종 문서와 동일하게 맞춘 REPORT_CSS 재사용), 한 페이지 예산(A4 높이 -
+ * 안팎 여백 - 헤더 - 푸터)을 넘기지 않는 선에서 그리디하게 채워 넣는다.
+ *
+ * 표/차트 등 블록 내부는 CSS break-inside:avoid가 이미 보장하므로, 여기서는
+ * "블록 하나를 통째로 이 페이지에 더 넣을지 다음 페이지로 넘길지"만 판단한다
+ * (블록 내부를 쪼개진 않음 — 각 블록은 실측상 A4 한 페이지에 충분히 들어가는
+ * 크기로 이미 나눠져 있음, buildWebReportHtml() 참고).
+ *
+ * document가 없는 환경(SSR/테스트)에서는 측정이 불가능하므로 블록 하나당
+ * 페이지 하나로 안전하게 폴백한다.
+ */
+function paginateBlocks(
+  blocks: string[],
+  headerOpts: { studentName: string; grade: string; className: string; examTitle: string },
+): string[][] {
+  if (typeof document === 'undefined' || blocks.length === 0) {
+    return blocks.map((b) => [b]);
+  }
+
+  const PAGE_H = 1123;
+  const PAD = 30;
+  const HEADER_MARGIN = 20; // .page-header margin-bottom
+  const FOOTER_RESERVE = 50; // .page-footer 높이 + bottom 오프셋(내용과 무관하게 거의 고정)
+  const SAFETY_MARGIN = 40; // 측정 시점엔 구글 폰트가 아직 안 실려 폴백 폰트로 재는 오차 대비 여유분
+
+  const root = document.createElement('div');
+  root.style.cssText = 'position:fixed;left:-99999px;top:0;visibility:hidden;pointer-events:none;';
+  root.innerHTML = `<style>${REPORT_CSS}</style><div id="measure-box" style="box-sizing:border-box;width:${PAGE_W}px;padding:0 ${PAD}px;font-family:'Noto Sans KR',sans-serif;font-size:13px;"></div>`;
+  document.body.appendChild(root);
+  const box = root.querySelector('#measure-box') as HTMLDivElement;
+
+  function measure(html: string): number {
+    box.innerHTML = html;
+    return box.getBoundingClientRect().height;
+  }
+
+  let usableH: number;
+  try {
+    const headerH = measure(pageHeader(headerOpts)) + HEADER_MARGIN;
+    usableH = PAGE_H - PAD * 2 - headerH - FOOTER_RESERVE - SAFETY_MARGIN;
+
+    const groups: string[][] = [[]];
+    let used = 0;
+    for (const block of blocks) {
+      const h = measure(block);
+      if (used > 0 && used + h > usableH) {
+        groups.push([]);
+        used = 0;
+      }
+      groups[groups.length - 1].push(block);
+      used += h;
+    }
+    return groups;
+  } finally {
+    document.body.removeChild(root);
+  }
+}
+
+const PAGE_W = 794;
+
 /**
  * "4단계: React용 A4 HTML 리포트 생성기" — 스트림릿 web_report_generator.py의
  * generate_html_report()를 참고해 같은 A4 인쇄용 레이아웃(Chart.js, 네이비/오렌지
@@ -92,6 +249,11 @@ function barChartScript(canvasId: string, labels: string[], values: number[], co
  *    저장된 시험만 골랐을 때) 빈 레이더 차트 대신 "데이터 준비 중" 안내문을 보여줌
  *    — 가짜 숫자를 채우지 않기로 한 방침(2026-08-29) 그대로 반영.
  *  - 유형별 분석은 정답률이 낮은 순으로 정렬해서 취약한 유형이 먼저 보이게 함.
+ *
+ * [2026-09-08] 페이지 구성을 "카테고리 하나 = 페이지 하나" 고정 방식에서
+ * paginateBlocks() 기반 자동 채우기로 변경 — 실제 콘텐츠 블록들을 만든 뒤 실측
+ * 높이 기준으로 A4 페이지에 최대한 채워 넣는다(사용자 피드백: 짧은 섹션 뒤에
+ * 페이지 하단이 텅 비어 보이는 문제). 페이지 헤더/번호("1/5")는 그대로 유지.
  */
 export function buildWebReportHtml(data: IntegratedReportData, parentComment: string): string {
   const dates = data.tests.map((t) => t.date).filter(Boolean).sort();
@@ -128,10 +290,8 @@ export function buildWebReportHtml(data: IntegratedReportData, parentComment: st
   </div>`
     : '';
 
-  // ── page 1 본문: 헤더 + 코멘트 + KPI + 문제 타입 분석 ──
-  const body1 = `${pageHeader(headerOpts)}
-  ${commentSection}
-  <div class="summary-row">
+  // ── 블록1: KPI 요약 + 문제 타입 분석 (원래도 같은 페이지였으니 하나로 묶어 배분) ──
+  const summaryAndTypeBlock = `<div class="summary-row">
     <div class="s-card"><div class="lbl">평균 점수</div><div class="val">${fmt1(data.averageScore)}</div></div>
     <div class="s-card"><div class="lbl">통합 정답률</div><div class="val orange">${fmt1(data.combinedAccuracy)}%</div></div>
     <div class="s-card"><div class="lbl">선택 시험 수</div><div class="val">${data.tests.length}개</div></div>
@@ -157,14 +317,13 @@ export function buildWebReportHtml(data: IntegratedReportData, parentComment: st
     </div>
   </div>`;
 
-  // ── page 2 본문: 난이도별 분석 (인지영역 데이터가 없으면 이 페이지에 안내문까지 같이 넣어서
-  //    거의 빈 페이지를 따로 만들지 않음 — "보고서가 빈약하다"는 실사용 피드백 반영, 2026-08-29) ──
+  // ── 블록2: 난이도별 분석 (인지영역 데이터가 없으면 안내문까지 같이 넣어서
+  //    거의 빈 블록을 따로 만들지 않음 — "보고서가 빈약하다"는 실사용 피드백 반영, 2026-08-29) ──
   const cogNotice = `<div style="padding:16px;background:var(--c-bg);border-radius:8px;font-size:11px;color:var(--c-muted);line-height:1.8">
     선택한 시험들에는 아직 인지영역(계산·이해·추론·해결) 데이터가 없습니다.<br>
     2026-08-29부터 새로 저장하는 시험부터 인지영역이 자동으로 분류되니, 이후 시험이 쌓이면 별도 페이지로 분석이 표시됩니다.
   </div>`;
-  const body2 = `${pageHeader(headerOpts)}
-  <div class="sec-title">난이도별 분석 <span class="sec-sub">본인 정답률</span></div>
+  const difficultyBlock = `<div class="sec-title">난이도별 분석 <span class="sec-sub">본인 정답률</span></div>
   <div class="chart-wrap" style="height:180px;margin-bottom:14px"><canvas id="diffChart"></canvas></div>
   <table${data.hasCognitiveData ? '' : ' style="margin-bottom:20px"'}>
     <thead><tr><th>난이도</th><th>문항</th><th>정답</th><th>오답</th><th>정답률</th></tr></thead>
@@ -172,8 +331,10 @@ export function buildWebReportHtml(data: IntegratedReportData, parentComment: st
   </table>
   ${data.hasCognitiveData ? '' : `<hr><div class="sec-title">인지영역 분석</div>${cogNotice}`}`;
 
-  // ── page 3 본문: 인지영역 분석 (실제 데이터가 있을 때만 별도 페이지로 생성) ──
-  const cogBody = `<div class="radar-grid">
+  // ── 블록3: 인지영역 분석 (실제 데이터가 있을 때만 만듦) ──
+  const cognitiveBlock = data.hasCognitiveData
+    ? `<div class="sec-title">인지영역 분석 <span class="sec-sub">계산 · 이해 · 추론 · 해결 영역별 성취도</span></div>
+  <div class="radar-grid">
     <canvas id="radarChart" width="170" height="170"></canvas>
     <div>
       <div class="cog-list">${cogRows
@@ -195,26 +356,20 @@ export function buildWebReportHtml(data: IntegratedReportData, parentComment: st
           : ''
       }
     </div>
-  </div>`;
-  const body3 = data.hasCognitiveData
-    ? `${pageHeader(headerOpts)}
-  <div class="sec-title">인지영역 분석 <span class="sec-sub">계산 · 이해 · 추론 · 해결 영역별 성취도</span></div>
-  ${cogBody}`
+  </div>`
     : null;
 
-  // ── page 4 본문: 단원별 분석 ──
-  const body4 = `${pageHeader(headerOpts)}
-  <div class="sec-title">단원별 분석 <span class="sec-sub">선택한 시험 전체를 합친 단원별 정답률</span></div>
+  // ── 블록4: 단원별 분석 ──
+  const unitBlock = `<div class="sec-title">단원별 분석 <span class="sec-sub">선택한 시험 전체를 합친 단원별 정답률</span></div>
   <div class="chart-wrap" style="height:200px;margin-bottom:16px"><canvas id="unitChart"></canvas></div>
   <table>
     <thead><tr><th>단원</th><th>문항</th><th>정답</th><th>오답</th><th>정답률</th></tr></thead>
     <tbody>${categoryTableRows(data.unitAnalysis)}</tbody>
   </table>`;
 
-  // ── page 5 본문: 유형별 분석(정답률 낮은 순) + 취약/강점 ──
+  // ── 블록5: 유형별 분석(정답률 낮은 순) + 취약/강점 ──
   const typeSorted = [...data.typeAnalysis].sort((a, b) => a.accuracy - b.accuracy);
-  const body5 = `${pageHeader(headerOpts)}
-  <div class="sec-title">유형별 분석 <span class="sec-sub">풀이유형별 정답률 — 취약한 유형이 위로 오도록 정렬</span></div>
+  const typeDetailBlock = `<div class="sec-title">유형별 분석 <span class="sec-sub">풀이유형별 정답률 — 취약한 유형이 위로 오도록 정렬</span></div>
   <div class="chart-wrap" style="height:200px;margin-bottom:16px"><canvas id="typeDetailChart"></canvas></div>
   <table style="font-size:10.5px;margin-bottom:18px">
     <thead><tr><th>유형</th><th>문항</th><th>정답</th><th>오답</th><th>정답률</th></tr></thead>
@@ -231,9 +386,8 @@ export function buildWebReportHtml(data: IntegratedReportData, parentComment: st
     </div>
   </div>`;
 
-  // ── page 6 본문: 시험별 종합 ──
-  const body6 = `${pageHeader(headerOpts)}
-  <div class="sec-title">시험별 종합 <span class="sec-sub">같은 반 학생 기준 백분위 · 석차 · 등급</span></div>
+  // ── 블록6: 시험별 종합 ──
+  const testSummaryBlock = `<div class="sec-title">시험별 종합 <span class="sec-sub">같은 반 학생 기준 백분위 · 석차 · 등급</span></div>
   <table style="margin-bottom:18px">
     <thead><tr><th>시험명</th><th>날짜</th><th>점수</th><th>백분위</th><th>석차</th><th>등급</th></tr></thead>
     <tbody>${testRows}</tbody>
@@ -245,12 +399,22 @@ export function buildWebReportHtml(data: IntegratedReportData, parentComment: st
     30~50%는 4등급, 30% 미만은 5등급으로 표시합니다.
   </div>`;
 
-  // 인지영역 실데이터가 없으면 그 페이지를 통째로 생략(난이도별 페이지 하단에 안내문만 넣음) —
-  // 있는 데이터만으로 페이지를 구성해서 "거의 빈 페이지"가 생기지 않도록 함.
-  const bodies = [body1, body2, body3, body4, body5, body6].filter((b): b is string => b !== null);
-  const totalPages = bodies.length;
-  const pagesHtml = bodies
-    .map((body, i) => `<div class="page">\n  ${body}\n  ${pageFooter(i + 1, totalPages)}\n</div>`)
+  const blocks: string[] = [];
+  if (commentSection) blocks.push(commentSection);
+  blocks.push(summaryAndTypeBlock);
+  blocks.push(difficultyBlock);
+  if (cognitiveBlock) blocks.push(cognitiveBlock);
+  blocks.push(unitBlock);
+  blocks.push(typeDetailBlock);
+  blocks.push(testSummaryBlock);
+
+  const pageGroups = paginateBlocks(blocks, headerOpts);
+  const totalPages = pageGroups.length;
+  const pagesHtml = pageGroups
+    .map(
+      (group, i) =>
+        `<div class="page">\n  ${pageHeader(headerOpts)}\n  ${group.join('\n  ')}\n  ${pageFooter(i + 1, totalPages)}\n</div>`,
+    )
     .join('\n');
 
   const diffColors = data.difficultyAnalysis.map((d) => (d.accuracy >= 70 ? '#1a5fd4' : d.accuracy < 50 ? '#cc2e2e' : '#e85d26'));
@@ -325,89 +489,7 @@ ${barChartScript('testChart', testChartLabels, testChartValues, testChartColors)
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --c-main:#1a5fd4; --c-accent:#e85d26; --c-positive:#1a7a4a; --c-negative:#cc2e2e;
-    --c-purple:#9b5de5; --c-teal:#1a9e75; --c-text:#1a1a1a; --c-muted:#666;
-    --c-border:#e2e2e2; --c-bg:#f7f8fc; --page-w:794px; --page-h:1123px; --pad:30px;
-  }
-  html, body { font-family:'Noto Sans KR',sans-serif; font-size:13px; color:var(--c-text); background:#e8eaef; }
-  .page {
-    width:var(--page-w); min-height:var(--page-h); background:#fff; margin:20px auto;
-    padding:var(--pad); border:0.5px solid #ccc; position:relative; page-break-after:always;
-  }
-  /* [2026-09-08] 인쇄 시 표/카드/차트 중간이 페이지 경계에서 잘리지 않게 함 —
-     항목 개수가 시험마다 달라 페이지가 넘칠 때, 넘친 내용은 다음 물리 페이지로
-     통째로 넘어가고(브라우저가 자동 처리) 표 한 줄이 반으로 잘리는 일은 없다. */
-  table, tr, .s-card, .summary-row, .type-grid, .radar-grid, .weak-strong-grid,
-  .cog-item, .chart-wrap, .comment-section {
-    break-inside: avoid; page-break-inside: avoid;
-  }
-  .page-header {
-    display:flex; align-items:flex-start; justify-content:space-between;
-    margin-bottom:20px; padding-bottom:14px; border-bottom:2.5px solid var(--c-main);
-  }
-  .h-student-tag { font-size:11px; color:var(--c-muted); margin-bottom:3px; }
-  .h-student-name { font-size:16px; font-weight:700; }
-  .h-center { text-align:center; }
-  .h-report-type { font-size:10px; font-weight:700; letter-spacing:2.5px; color:var(--c-main); margin-bottom:5px; }
-  .h-exam-title { font-size:14px; font-weight:700; }
-  .h-logo { width:68px; height:44px; background:var(--c-main); border-radius:8px; display:flex; align-items:center; justify-content:center; }
-  .h-logo span { color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:1.4; }
-  .comment-section {
-    margin-bottom:20px; padding:14px 16px; background:var(--c-bg);
-    border:0.5px solid var(--c-border); border-left:3px solid var(--c-main); border-radius:8px;
-  }
-  .comment-title { font-size:12px; font-weight:700; color:var(--c-main); margin-bottom:8px; }
-  .comment-body { font-size:12px; line-height:1.8; color:var(--c-text); }
-  .sec-title { font-size:13px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:7px; }
-  .sec-title::before { content:''; display:inline-block; width:3px; height:14px; background:var(--c-main); border-radius:2px; }
-  .sec-sub { font-size:10px; font-weight:400; color:var(--c-muted); }
-  .summary-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:20px; }
-  .s-card { border:0.5px solid var(--c-border); border-radius:8px; padding:10px 12px; }
-  .s-card .lbl { font-size:10px; color:var(--c-muted); margin-bottom:3px; }
-  .s-card .val { font-size:22px; font-weight:700; color:var(--c-main); line-height:1.1; }
-  .s-card .val.orange { color:var(--c-accent); }
-  table { width:100%; border-collapse:collapse; font-size:11px; }
-  th { background:var(--c-bg); padding:6px 8px; border:0.5px solid var(--c-border); text-align:center; font-size:10px; color:var(--c-muted); font-weight:700; }
-  td { padding:7px 8px; border:0.5px solid var(--c-border); text-align:center; }
-  td.left { text-align:left; }
-  .blue { color:var(--c-main); font-weight:700; }
-  .orange { color:var(--c-accent); font-weight:700; }
-  .green { color:var(--c-positive); font-weight:700; }
-  .red { color:var(--c-negative); font-weight:700; }
-  .chart-wrap { position:relative; width:100%; }
-  .type-grid { display:grid; grid-template-columns:1fr 190px; gap:16px; margin-bottom:20px; }
-  .pie-side { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; }
-  .legend-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--c-muted); }
-  .legend-sq { width:10px; height:10px; border-radius:2px; }
-  .radar-grid { display:grid; grid-template-columns:170px 1fr; gap:16px; align-items:start; }
-  .cog-list { display:flex; flex-direction:column; gap:10px; padding-top:4px; }
-  .cog-item .cog-row { display:flex; justify-content:space-between; font-size:11px; }
-  .cog-track { height:4px; background:#eee; border-radius:4px; margin:3px 0 2px; }
-  .cog-fill { height:4px; border-radius:4px; }
-  .cog-note { font-size:9px; color:var(--c-muted); }
-  .weak-strong-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .wk-list { list-style:none; display:flex; flex-direction:column; gap:6px; font-size:11px; }
-  .wk-list li { padding:8px 10px; background:var(--c-bg); border-radius:6px; }
-  .wk-empty { font-size:11px; color:var(--c-muted); }
-  .page-footer {
-    position:absolute; bottom:18px; left:var(--pad); right:var(--pad);
-    display:flex; justify-content:space-between; font-size:10px; color:#bbb;
-    border-top:0.5px solid var(--c-border); padding-top:6px;
-  }
-  @media print {
-    body { background:#fff; }
-    .page { margin:0; border:none; box-shadow:none; }
-    /* 인쇄할 땐 화면용 축소를 무조건 끄고 항상 실제 A4 크기로 찍는다. */
-    #scale-outer { height:auto !important; }
-    #scale-inner { transform:none !important; width:auto !important; }
-  }
-  /* [2026-09-08] 핸드폰처럼 --page-w(794px)보다 좁은 화면에서 리포트가 잘리거나
-     가로 스크롤이 생기지 않도록, 화면 폭에 맞춰 전체를 축소해서 보여준다.
-     A4 레이아웃 자체(폭/글자 크기 등)는 그대로 두고 화면에 "보여지는 크기"만
-     transform:scale로 줄이는 방식이라, 인쇄용 레이아웃과 완전히 분리되어 있다. */
-  #scale-inner { transform-origin:top left; }
+${REPORT_CSS}
 </style>
 </head>
 <body>
