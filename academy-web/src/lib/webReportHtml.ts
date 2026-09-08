@@ -336,6 +336,13 @@ ${barChartScript('testChart', testChartLabels, testChartValues, testChartColors)
     width:var(--page-w); min-height:var(--page-h); background:#fff; margin:20px auto;
     padding:var(--pad); border:0.5px solid #ccc; position:relative; page-break-after:always;
   }
+  /* [2026-09-08] 인쇄 시 표/카드/차트 중간이 페이지 경계에서 잘리지 않게 함 —
+     항목 개수가 시험마다 달라 페이지가 넘칠 때, 넘친 내용은 다음 물리 페이지로
+     통째로 넘어가고(브라우저가 자동 처리) 표 한 줄이 반으로 잘리는 일은 없다. */
+  table, tr, .s-card, .summary-row, .type-grid, .radar-grid, .weak-strong-grid,
+  .cog-item, .chart-wrap, .comment-section {
+    break-inside: avoid; page-break-inside: avoid;
+  }
   .page-header {
     display:flex; align-items:flex-start; justify-content:space-between;
     margin-bottom:20px; padding-bottom:14px; border-bottom:2.5px solid var(--c-main);
@@ -392,12 +399,52 @@ ${barChartScript('testChart', testChartLabels, testChartValues, testChartColors)
   @media print {
     body { background:#fff; }
     .page { margin:0; border:none; box-shadow:none; }
+    /* 인쇄할 땐 화면용 축소를 무조건 끄고 항상 실제 A4 크기로 찍는다. */
+    #scale-outer { height:auto !important; }
+    #scale-inner { transform:none !important; width:auto !important; }
   }
+  /* [2026-09-08] 핸드폰처럼 --page-w(794px)보다 좁은 화면에서 리포트가 잘리거나
+     가로 스크롤이 생기지 않도록, 화면 폭에 맞춰 전체를 축소해서 보여준다.
+     A4 레이아웃 자체(폭/글자 크기 등)는 그대로 두고 화면에 "보여지는 크기"만
+     transform:scale로 줄이는 방식이라, 인쇄용 레이아웃과 완전히 분리되어 있다. */
+  #scale-inner { transform-origin:top left; }
 </style>
 </head>
 <body>
+<div id="scale-outer"><div id="scale-inner">
 ${pagesHtml}
+</div></div>
 ${chartScript}
+<script>
+(function () {
+  var PAGE_W = 794;
+  var outer = document.getElementById('scale-outer');
+  var inner = document.getElementById('scale-inner');
+  function fit() {
+    var vw = window.innerWidth;
+    if (vw < PAGE_W) {
+      var scale = vw / PAGE_W;
+      inner.style.width = PAGE_W + 'px';
+      inner.style.transform = 'scale(' + scale + ')';
+      outer.style.height = (inner.scrollHeight * scale) + 'px';
+      outer.style.overflow = 'hidden';
+    } else {
+      inner.style.width = '';
+      inner.style.transform = '';
+      outer.style.height = '';
+      outer.style.overflow = '';
+    }
+  }
+  window.addEventListener('resize', fit);
+  window.addEventListener('load', fit);
+  fit();
+  // 웹폰트가 늦게 적용되며 실제 높이가 바뀔 수 있어(스크롤 높이 오차) 폰트 로딩
+  // 완료 후 한 번 더 재계산한다. 실패해도(구형 브라우저 등) 위 fit() 결과로 충분.
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(fit).catch(function () {});
+  }
+})();
+</script>
 </body>
 </html>`;
 }
