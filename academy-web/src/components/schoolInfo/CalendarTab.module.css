@@ -227,6 +227,34 @@
   margin-top: 2px;
 }
 
+.mathExamRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.mathExamSet {
+  font-size: 11.5px;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.mathExamMissing {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.mathDateInput {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 11.5px;
+  font-family: inherit;
+}
+
 .rowActions {
   display: flex;
   gap: 6px;

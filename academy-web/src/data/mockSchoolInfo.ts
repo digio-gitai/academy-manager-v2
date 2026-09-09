@@ -17,6 +17,8 @@ export const initialCalendarEvents: CalendarEvent[] = [
     startDate: '2026-04-20',
     endDate: '2026-04-22',
     note: '',
+    semester: 1,
+    mathExamDate: null,
   },
   {
     id: 'ce2',
@@ -28,6 +30,8 @@ export const initialCalendarEvents: CalendarEvent[] = [
     startDate: '2026-07-06',
     endDate: '2026-07-08',
     note: '',
+    semester: 1,
+    mathExamDate: null,
   },
 ];
 

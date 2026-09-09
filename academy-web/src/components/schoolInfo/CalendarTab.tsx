@@ -1,17 +1,36 @@
 import { useEffect, useState } from 'react';
 import { SchoolYearPicker } from './SchoolYearPicker';
-import { fetchCalendarEvents, insertCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '../../lib/schoolInfo';
-import { EVENT_TYPE_OPTIONS, GRADE_OPTIONS, type CalendarEvent, type EventType } from '../../types/schoolInfo';
+import {
+  fetchCalendarEvents,
+  insertCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
+  fetchExamScopesForYear,
+  updateMathExamDate,
+} from '../../lib/schoolInfo';
+import {
+  EVENT_TYPE_OPTIONS,
+  GRADE_OPTIONS,
+  SEMESTER_EVENT_TYPES,
+  type CalendarEvent,
+  type EventType,
+  type ExamScope,
+} from '../../types/schoolInfo';
 import styles from './CalendarTab.module.css';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function needsSemester(eventType: EventType): boolean {
+  return (SEMESTER_EVENT_TYPES as string[]).includes(eventType);
+}
+
 interface FormState {
   grades: string[];
   eventType: EventType;
   eventName: string;
+  semester: number;
   startDate: string;
   hasRange: boolean;
   endDate: string;
@@ -23,6 +42,7 @@ function emptyForm(): FormState {
     grades: [],
     eventType: EVENT_TYPE_OPTIONS[0],
     eventName: '',
+    semester: 1,
     startDate: todayStr(),
     hasRange: false,
     endDate: todayStr(),
@@ -42,6 +62,7 @@ export function CalendarTab() {
   const [school, setSchool] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
   const [scopedEvents, setScopedEvents] = useState<CalendarEvent[]>([]);
+  const [examScopes, setExamScopes] = useState<ExamScope[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
@@ -51,6 +72,12 @@ export function CalendarTab() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // "수학 시험 보는 날" 인라인 등록/수정 — 시험기간은 먼저 정해지고 과목별
+  // 세부시간표는 나중에 나오는 경우가 많아, 알게 된 시점에 따로 기록한다.
+  const [mathEditId, setMathEditId] = useState<string | null>(null);
+  const [mathDateInput, setMathDateInput] = useState('');
+  const [mathSavingId, setMathSavingId] = useState<string | null>(null);
+
   const editingEvent = editId ? scopedEvents.find((e) => e.id === editId) : undefined;
 
   function loadEvents(sch: string, yr: number) {
@@ -58,10 +85,11 @@ export function CalendarTab() {
     let cancelled = false;
     setEventsLoading(true);
     setEventsError('');
-    fetchCalendarEvents(sch, yr)
-      .then((data) => {
+    Promise.all([fetchCalendarEvents(sch, yr), fetchExamScopesForYear(sch, yr)])
+      .then(([events, scopes]) => {
         if (cancelled) return;
-        setScopedEvents(data);
+        setScopedEvents(events);
+        setExamScopes(scopes);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -96,6 +124,7 @@ export function CalendarTab() {
       grades: [ev.grade],
       eventType: ev.eventType,
       eventName: ev.eventName,
+      semester: ev.semester ?? 1,
       startDate: ev.startDate,
       hasRange: Boolean(ev.endDate),
       endDate: ev.endDate || ev.startDate,
@@ -131,6 +160,7 @@ export function CalendarTab() {
       return;
     }
     const endStr = form.hasRange ? form.endDate : '';
+    const semesterValue = needsSemester(form.eventType) ? form.semester : null;
 
     setSaving(true);
     try {
@@ -141,6 +171,7 @@ export function CalendarTab() {
           startDate: form.startDate,
           endDate: endStr,
           note: form.note,
+          semester: semesterValue,
         });
         setMessage('수정했습니다.');
         setEditId(null);
@@ -157,6 +188,7 @@ export function CalendarTab() {
               startDate: form.startDate,
               endDate: endStr,
               note: form.note,
+              semester: semesterValue,
             }),
           ),
         );
@@ -180,6 +212,30 @@ export function CalendarTab() {
       setEventsError(err instanceof Error ? err.message : '삭제 중 오류가 발생했습니다.');
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  function startMathEdit(ev: CalendarEvent) {
+    setMathEditId(ev.id);
+    setMathDateInput(ev.mathExamDate || ev.startDate);
+  }
+
+  function cancelMathEdit() {
+    setMathEditId(null);
+    setMathDateInput('');
+  }
+
+  async function saveMathDate(id: string) {
+    if (!mathDateInput) return;
+    setMathSavingId(id);
+    try {
+      await updateMathExamDate(id, mathDateInput);
+      setScopedEvents((prev) => prev.map((e) => (e.id === id ? { ...e, mathExamDate: mathDateInput } : e)));
+      setMathEditId(null);
+    } catch (err) {
+      setEventsError(err instanceof Error ? err.message : '수학 시험일 저장에 실패했습니다.');
+    } finally {
+      setMathSavingId(null);
     }
   }
 
@@ -238,6 +294,25 @@ export function CalendarTab() {
                 ))}
               </div>
             </div>
+
+            {needsSemester(form.eventType) && (
+              <div className={styles.field}>
+                <label className={styles.label}>학기</label>
+                <div className={styles.radioGroup}>
+                  {[1, 2].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className={styles.radioBtn}
+                      data-active={form.semester === s}
+                      onClick={() => setForm((prev) => ({ ...prev, semester: s }))}
+                    >
+                      {s}학기
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {form.eventType === '기타' && (
               <div className={styles.field}>
@@ -326,13 +401,58 @@ export function CalendarTab() {
                       {grade} ({rows.length}건)
                     </h5>
                     {rows.map((row) => {
-                      const label = row.eventType === '기타' && row.eventName ? row.eventName : row.eventType;
+                      const isExam = needsSemester(row.eventType);
+                      const label =
+                        row.eventType === '기타' && row.eventName
+                          ? row.eventName
+                          : isExam && row.semester
+                            ? `${row.semester}학기 ${row.eventType}`
+                            : row.eventType;
                       const dateRange = row.endDate ? `${row.startDate} ~ ${row.endDate}` : row.startDate;
+                      const scope = isExam
+                        ? examScopes.find(
+                            (s) => s.grade === row.grade && s.semester === row.semester && s.examType === row.eventType,
+                          )
+                        : undefined;
                       return (
                         <div key={row.id} className={styles.eventRow}>
                           <div className={styles.eventInfo}>
                             <strong>{label}</strong> · {dateRange}
                             {row.note && <div className={styles.eventNote}>💬 {row.note}</div>}
+                            {scope?.scope && <div className={styles.eventNote}>📖 범위: {scope.scope}</div>}
+                            {isExam &&
+                              (mathEditId === row.id ? (
+                                <div className={styles.mathExamRow}>
+                                  <input
+                                    type="date"
+                                    className={styles.mathDateInput}
+                                    value={mathDateInput}
+                                    onChange={(e) => setMathDateInput(e.target.value)}
+                                  />
+                                  <button
+                                    type="button"
+                                    className={styles.smallButton}
+                                    onClick={() => saveMathDate(row.id)}
+                                    disabled={mathSavingId === row.id}
+                                  >
+                                    {mathSavingId === row.id ? '저장 중...' : '저장'}
+                                  </button>
+                                  <button type="button" className={styles.smallButton} onClick={cancelMathEdit}>
+                                    취소
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className={styles.mathExamRow}>
+                                  {row.mathExamDate ? (
+                                    <span className={styles.mathExamSet}>🧮 수학 시험일: {row.mathExamDate}</span>
+                                  ) : (
+                                    <span className={styles.mathExamMissing}>🧮 수학 시험일 미정</span>
+                                  )}
+                                  <button type="button" className={styles.smallButton} onClick={() => startMathEdit(row)}>
+                                    {row.mathExamDate ? '수정' : '등록'}
+                                  </button>
+                                </div>
+                              ))}
                           </div>
                           <div className={styles.rowActions}>
                             <button type="button" className={styles.smallButton} onClick={() => startEdit(row)}>
