@@ -20,10 +20,11 @@ import styles from './AssignmentUpload.module.css';
 
 const STATUS_LABELS: Record<string, string> = { pending: '⏳ 미완료', partial: '🟡 일부완료', done: '✅ 완료' };
 
-function seedRawInput(item: HwUploadItem): RawItemInput {
+function seedRawInput(item: HwUploadItem, totalItemCount: number): RawItemInput {
   const isPageRange =
     item.itemType === 'page_range' && item.pageStart != null && item.pageEnd != null && item.pageStart <= item.pageEnd;
   let suggestedStart = item.pageStart ?? 0;
+  let suggestedEnd = suggestedStart;
   if (isPageRange) {
     // [2026-09-07 수정] 문제없는 페이지(제외페이지)는 건너뛰고, 아직 안 한
     // 페이지 중 실제로 풀어야 하는 첫 페이지를 추천 시작 페이지로 잡는다.
@@ -31,8 +32,17 @@ function seedRawInput(item: HwUploadItem): RawItemInput {
     const doneSet = new Set(item.prevCompletedPages);
     const nextPage = solvable.find((p) => !doneSet.has(p));
     suggestedStart = nextPage ?? item.pageEnd!;
+    // [2026-09-09 수정] 한 과제에 항목이 여러 개(예: 요일별로 나눠 보낸 경우)
+    // 있으면, 학생이 손대지 않은 나머지 항목까지 "오늘 1쪽 진행"이 기본값으로
+    // 잡혀서 사진을 요구했다 — 그래서 오늘 실제로 끝낸 항목만 제출하려 해도
+    // 나머지 항목들이 "사진 안 올렸다"는 오류를 내며 제출 자체를 막았다.
+    // 항목이 2개 이상이면 기본값을 "오늘 이 항목은 진행 안 함"으로 바꿔서,
+    // 학생이 실제로 버튼을 눌러 페이지를 늘린 항목만 사진을 요구하게 한다.
+    // 항목이 1개뿐인 과제는 기존 그대로(시작=끝) 유지 — "시작 10/마지막 9"처럼
+    // 거꾸로 된 숫자로 보이는 걸 막으려던 2026-08-14 결정을 그대로 둔다.
+    suggestedEnd = totalItemCount > 1 ? suggestedStart - 1 : suggestedStart;
   }
-  return { startPage: suggestedStart, endPage: suggestedStart, done: item.prevDone, note: item.prevNote, photos: [] };
+  return { startPage: suggestedStart, endPage: suggestedEnd, done: item.prevDone, note: item.prevNote, photos: [] };
 }
 
 /**
@@ -80,7 +90,7 @@ export function AssignmentUpload() {
         setRawInputs((prev) => {
           const next = { ...prev };
           for (const it of its) {
-            if (!next[it.itemId]) next[it.itemId] = seedRawInput(it);
+            if (!next[it.itemId]) next[it.itemId] = seedRawInput(it, its.length);
           }
           return next;
         });
