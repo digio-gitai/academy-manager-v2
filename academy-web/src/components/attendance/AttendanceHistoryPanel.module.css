@@ -113,3 +113,133 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* 인쇄(PDF)에서만 보이는 상단 제목 — 화면에서는 이미 위쪽에 같은 정보가
+   다른 형태로 나와 있어서 평소엔 감춰두고 인쇄할 때만 드러낸다. */
+.printOnly {
+  display: none;
+}
+
+@media print {
+  .printOnly {
+    display: block;
+  }
+}
+
+.printHeader {
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--color-accent);
+}
+
+.printTitle {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.printSubtitle {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* thead가 매 인쇄 페이지마다 다시 나오게 함(학생 수가 많아 표가 여러
+   페이지로 나뉘어도 컬럼명을 계속 확인할 수 있도록) */
+.table thead {
+  display: table-header-group;
+}
+
+/* 학생별 출석 캘린더 — 카드 하나당 학생 한 명, 그 달 달력에 출석 상태 표시 */
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.calendarCard {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.calendarCardHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.calendarCardHeader strong {
+  color: var(--color-primary);
+  font-size: 14px;
+}
+
+.calendarCardHeader span {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.calendarStatLine {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin: 4px 0 8px;
+}
+
+.calendarTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.calendarTable th {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-faint);
+  padding: 2px 0;
+  text-align: center;
+}
+
+.calendarTable td {
+  text-align: center;
+  padding: 2px 0;
+}
+
+.dayCell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  color: var(--color-text-faint);
+}
+
+.dayCell[data-status='present'] {
+  background: var(--color-accent);
+  color: var(--color-white);
+  font-weight: 700;
+}
+
+.dayCell[data-status='late'] {
+  background: #e08a3c;
+  color: var(--color-white);
+  font-weight: 700;
+}
+
+.dayCell[data-status='absent'] {
+  border: 1.5px solid #c94b3c;
+  color: #c94b3c;
+  font-weight: 700;
+}
+
+@media print {
+  .calendarGrid {
+    gap: 10px;
+  }
+}

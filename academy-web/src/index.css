@@ -38,6 +38,32 @@ body {
   min-height: 100vh;
 }
 
+/*
+ * 인쇄용 콘텐츠 격리 — [data-print-root]로 표시한 영역만 인쇄되고 나머지
+ * (사이드바, 탭 바, 필터 등 화면 UI 전부)는 자동으로 감춰진다. 화면마다
+ * 사이드바를 따로 숨기는 CSS를 추가할 필요 없이 이 한 규칙으로 전체 앱에
+ * 적용됨(2026-09-11, 출석 통계 PDF 출력 기능 추가하면서 도입).
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  [data-print-root],
+  [data-print-root] * {
+    visibility: visible;
+  }
+  [data-print-root] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+}
+
 button {
   font-family: inherit;
 }
