@@ -38,15 +38,41 @@
   width: 130px;
 }
 
-.summaryLine {
-  font-size: 13px;
-  color: var(--color-text);
-  margin: 4px 0;
+/* 인쇄 페이지 전체를 감싸는 flex column — 표는 필요한 만큼만 차지하고
+   비고가 나머지를 채우게 해서 인쇄가 항상 1장으로 끝나게 한다. */
+.printPage {
+  display: flex;
+  flex-direction: column;
 }
 
-.summaryCaption {
-  font-size: 12px;
-  color: var(--color-text-muted);
+@media print {
+  .printPage {
+    height: 100vh;
+  }
+}
+
+/* 인쇄 상단 배너 — 짙은 녹색 브랜드 컬러 + 골드 포인트 라인 (성적표 등
+   다른 인쇄물과 톤을 맞춤). 화면 미리보기에서도 그대로 보인다. */
+.printHeader {
+  background: var(--color-primary);
+  color: var(--color-white);
+  border-radius: 8px;
+  border-bottom: 3px solid var(--color-accent);
+  padding: 10px 16px;
+  margin-bottom: 10px;
+  flex: 0 0 auto;
+}
+
+.printHeaderTitle {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.printHeaderSub {
+  font-size: 11.5px;
+  color: var(--color-tint);
+  margin-top: 3px;
 }
 
 .warnText {
@@ -59,6 +85,7 @@
 
 .sheetWrap {
   overflow-x: auto;
+  flex: 0 0 auto;
 }
 
 .sheetTable {
@@ -86,14 +113,17 @@
   font-weight: 600;
 }
 
-/* 표 아래 "비고" — 칸을 나누지 않은 메모용 여백. 화면에서도 어느 정도
-   높이를 주고, 인쇄할 때는 남는 페이지 공간을 최대한 채우도록 늘어난다. */
+/* 표 아래 "비고" — 칸을 나누지 않은 메모용 여백. 화면에서는 최소 높이만
+   주고, 인쇄할 때는 printPage(flex column) 안에서 flex:1로 남는 페이지
+   공간을 정확히 채운다(넘치지 않도록 min-height는 0으로 둬서 필요하면
+   줄어들 수 있게 함 — 표가 이미 많은 공간을 썼다면 비고는 조금만 남음). */
 .noteBox {
   margin-top: 10px;
   min-height: 90px;
   border: 1px solid rgba(31, 61, 43, 0.15);
   border-radius: 4px;
   padding: 6px 10px;
+  flex: 0 0 auto;
 }
 
 .noteLabel {
@@ -103,15 +133,9 @@
 }
 
 @media print {
-  .sheetWrap {
-    display: flex;
-    flex-direction: column;
-    min-height: calc(100vh - 40px);
-  }
-
   .noteBox {
     flex: 1 1 auto;
-    min-height: 60mm;
+    min-height: 0;
   }
 }
 

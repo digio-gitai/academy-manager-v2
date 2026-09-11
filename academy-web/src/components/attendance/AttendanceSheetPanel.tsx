@@ -111,65 +111,72 @@ export function AttendanceSheetPanel({ classes }: AttendanceSheetPanelProps) {
       </div>
 
       {/* data-print-root: 인쇄 시 이 영역만 보이고 나머지(사이드바·반 선택
-          드롭다운 등)는 index.css 전역 규칙에 의해 자동으로 감춰진다. */}
+          드롭다운 등)는 index.css 전역 규칙에 의해 자동으로 감춰진다.
+          printPage 하나를 flex column(세로 한 장 분량)으로 잡고 그 안에서
+          표는 필요한 만큼만, 비고는 남는 공간을 다 채우도록 해서 인쇄가
+          항상 1장으로 끝나게 한다. */}
       <div data-print-root="true">
-        {selectedClass && (
-          <>
-            <p className={styles.summaryLine}>
-              <strong>{selectedClass.name}</strong> · {year}년 {month}월 · 담당강사: {selectedClass.teacherName}
-            </p>
-            {classWeekdays.length > 0 ? (
-              <p className={styles.summaryCaption}>
-                수업 요일: {classWeekdays.map((w) => WEEKDAY_KO[w]).join('·')} — {sessionDates.length}회 수업
-              </p>
-            ) : (
-              <p className={styles.warnText}>
-                이 반의 수업 요일이 설정되지 않았습니다. '내 수업 관리'에서 요일을 설정해주세요.
-              </p>
-            )}
-            <p className={styles.summaryCaption}>학생 수: {selectedClass.students.length}명</p>
-          </>
-        )}
-
-        {selectedClass && sessionDates.length > 0 && (
-          <div className={styles.sheetWrap}>
-            <table className={styles.sheetTable}>
-              <thead>
-                <tr>
-                  <th>번호</th>
-                  <th>이름</th>
-                  <th>학교/학년</th>
-                  <th>연락처</th>
-                  {sessionDates.map((d) => (
-                    <th key={d.day}>
-                      {d.day}({WEEKDAY_KO[d.weekday]})
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: rowCount }, (_, i) => selectedClass.students[i]).map((s, i) => (
-                  <tr key={s?.id ?? `blank-${i}`}>
-                    <td>{i + 1}</td>
-                    <td className={styles.nameCell}>{s?.name ?? ''}</td>
-                    <td>
-                      {s?.school || ''}
-                      {s?.school && s?.grade ? ' ' : ''}
-                      {s?.grade || ''}
-                    </td>
-                    <td>{s ? s.parentPhone || '—' : ''}</td>
-                    {sessionDates.map((d) => (
-                      <td key={d.day}></td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className={styles.noteBox}>
-              <span className={styles.noteLabel}>비고</span>
+        <div className={styles.printPage}>
+          {selectedClass && (
+            <div className={styles.printHeader}>
+              <div className={styles.printHeaderTitle}>{selectedClass.name} 출석부</div>
+              <div className={styles.printHeaderSub}>
+                {year}년 {month}월 · 담당강사 {selectedClass.teacherName}
+                {classWeekdays.length > 0 &&
+                  ` · 수업요일 ${classWeekdays.map((w) => WEEKDAY_KO[w]).join('·')} (${sessionDates.length}회 수업)`}
+                {` · 학생 수 ${selectedClass.students.length}명`}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {selectedClass && classWeekdays.length === 0 && (
+            <p className={styles.warnText}>
+              이 반의 수업 요일이 설정되지 않았습니다. '내 수업 관리'에서 요일을 설정해주세요.
+            </p>
+          )}
+
+          {selectedClass && sessionDates.length > 0 && (
+            <>
+              <div className={styles.sheetWrap}>
+                <table className={styles.sheetTable}>
+                  <thead>
+                    <tr>
+                      <th>번호</th>
+                      <th>이름</th>
+                      <th>학교/학년</th>
+                      <th>연락처</th>
+                      {sessionDates.map((d) => (
+                        <th key={d.day}>
+                          {d.day}({WEEKDAY_KO[d.weekday]})
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: rowCount }, (_, i) => selectedClass.students[i]).map((s, i) => (
+                      <tr key={s?.id ?? `blank-${i}`}>
+                        <td>{i + 1}</td>
+                        <td className={styles.nameCell}>{s?.name ?? ''}</td>
+                        <td>
+                          {s?.school || ''}
+                          {s?.school && s?.grade ? ' ' : ''}
+                          {s?.grade || ''}
+                        </td>
+                        <td>{s ? s.parentPhone || '—' : ''}</td>
+                        {sessionDates.map((d) => (
+                          <td key={d.day}></td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className={styles.noteBox}>
+                <span className={styles.noteLabel}>비고</span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {selectedClass && sessionDates.length > 0 && (
