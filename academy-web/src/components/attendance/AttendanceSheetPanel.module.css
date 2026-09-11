@@ -86,6 +86,35 @@
   font-weight: 600;
 }
 
+/* 표 아래 "비고" — 칸을 나누지 않은 메모용 여백. 화면에서도 어느 정도
+   높이를 주고, 인쇄할 때는 남는 페이지 공간을 최대한 채우도록 늘어난다. */
+.noteBox {
+  margin-top: 10px;
+  min-height: 90px;
+  border: 1px solid rgba(31, 61, 43, 0.15);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+
+.noteLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+@media print {
+  .sheetWrap {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 40px);
+  }
+
+  .noteBox {
+    flex: 1 1 auto;
+    min-height: 60mm;
+  }
+}
+
 .printButton {
   margin-top: 14px;
   height: 40px;

@@ -5,6 +5,12 @@ import styles from './AttendanceSheetPanel.module.css';
 const DAY_TO_WEEKDAY: Record<string, number> = { 일: 0, 월: 1, 화: 2, 수: 3, 목: 4, 금: 5, 토: 6 };
 const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'];
 
+// 출석부 표의 기본 인원(빈 칸 포함) — 반 인원이 이보다 적으면 나머지는 빈 줄로
+// 채워서 항상 같은 크기의 표가 나오게 하고, 더 많으면 실제 인원만큼 늘어난다.
+const DEFAULT_ROW_COUNT = 12;
+
+const PRINT_STYLE_ID = 'attendance-sheet-landscape-print';
+
 interface AttendanceSheetPanelProps {
   classes: ClassInfo[];
 }
@@ -42,7 +48,29 @@ export function AttendanceSheetPanel({ classes }: AttendanceSheetPanelProps) {
     return dates;
   }, [year, month, classWeekdays]);
 
+  const rowCount = Math.max(DEFAULT_ROW_COUNT, selectedClass?.students.length ?? 0);
+
+  /**
+   * 출석부는 가로(landscape)로 인쇄되어야 날짜 칸이 많아도 한 페이지에 들어간다.
+   * 다른 인쇄(출석 통계 PDF)는 세로(A4 기본)라서, index.css의 전역 @page 규칙을
+   * 그대로 바꾸지 않고 인쇄 직전에만 이 컴포넌트 전용 <style>을 넣었다가
+   * 인쇄가 끝나면(afterprint) 바로 제거한다.
+   */
   function handlePrint() {
+    let styleEl = document.getElementById(PRINT_STYLE_ID) as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = PRINT_STYLE_ID;
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = '@page { size: A4 landscape; margin: 10mm; }';
+
+    function cleanup() {
+      styleEl?.remove();
+      window.removeEventListener('afterprint', cleanup);
+    }
+    window.addEventListener('afterprint', cleanup);
+
     window.print();
   }
 
@@ -120,16 +148,16 @@ export function AttendanceSheetPanel({ classes }: AttendanceSheetPanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {selectedClass.students.map((s, i) => (
-                  <tr key={s.id}>
+                {Array.from({ length: rowCount }, (_, i) => selectedClass.students[i]).map((s, i) => (
+                  <tr key={s?.id ?? `blank-${i}`}>
                     <td>{i + 1}</td>
-                    <td className={styles.nameCell}>{s.name}</td>
+                    <td className={styles.nameCell}>{s?.name ?? ''}</td>
                     <td>
-                      {s.school || ''}
-                      {s.school && s.grade ? ' ' : ''}
-                      {s.grade || ''}
+                      {s?.school || ''}
+                      {s?.school && s?.grade ? ' ' : ''}
+                      {s?.grade || ''}
                     </td>
-                    <td>{s.parentPhone || '—'}</td>
+                    <td>{s ? s.parentPhone || '—' : ''}</td>
                     {sessionDates.map((d) => (
                       <td key={d.day}></td>
                     ))}
@@ -137,6 +165,9 @@ export function AttendanceSheetPanel({ classes }: AttendanceSheetPanelProps) {
                 ))}
               </tbody>
             </table>
+            <div className={styles.noteBox}>
+              <span className={styles.noteLabel}>비고</span>
+            </div>
           </div>
         )}
       </div>
