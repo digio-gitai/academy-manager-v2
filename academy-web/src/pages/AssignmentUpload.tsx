@@ -16,9 +16,18 @@ import {
 } from '../lib/hwUpload';
 import { StepHeader } from '../components/StepHeader';
 import { UploadItemCard } from '../components/homework-upload/UploadItemCard';
+import { sendBulkSms } from '../lib/smsSend';
 import styles from './AssignmentUpload.module.css';
 
 const STATUS_LABELS: Record<string, string> = { pending: '⏳ 미완료', partial: '🟡 일부완료', done: '✅ 완료' };
+
+// 2026-09-12 사용자 요청: 학생이 과제인증을 업로드(제출)할 때마다 원장님
+// 본인 번호로 "누가 올렸는지" 바로 알려주는 문자. 학생이 로그인 없이
+// 링크로 접속하는 화면이라 이 번호는 별도 설정 화면 없이 여기 고정값으로
+// 둔다(관리자 1명뿐인 소규모 운영 특성상 설정 테이블을 새로 만들 정도는
+// 아니라고 판단). 발송 실패해도 학생의 제출 자체는 이미 끝난 뒤라 절대
+// 막지 않음(fire-and-forget, 다른 부가 기능들과 동일한 원칙).
+const TEACHER_NOTIFY_PHONE = '010-9655-3089';
 
 function seedRawInput(item: HwUploadItem, totalItemCount: number): RawItemInput {
   const isPageRange =
@@ -157,6 +166,15 @@ export function AssignmentUpload() {
       const its = await fetchUploadItems(meta);
       setItems(its);
       setRawInputs({});
+
+      try {
+        const notifyText = `[과제인증] ${meta.studentName} 학생이 업로드했습니다.\n반: ${meta.className}${
+          meta.title ? ` · ${meta.title}` : ''
+        }\n항목 ${res.doneCount}/${res.total} 완료`;
+        await sendBulkSms([{ name: meta.studentName, phone: TEACHER_NOTIFY_PHONE }], notifyText);
+      } catch {
+        // 원장님 알림 문자는 부가 기능 — 실패해도 학생 제출 결과에는 영향 없음.
+      }
     } catch (err) {
       setSubmitErrors([err instanceof Error ? err.message : String(err)]);
     } finally {
