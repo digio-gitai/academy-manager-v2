@@ -82,26 +82,28 @@ export function AttendanceSheetPanel({ classes }: AttendanceSheetPanelProps) {
         </div>
       </div>
 
-      {selectedClass && (
-        <>
-          <p className={styles.summaryLine}>
-            <strong>{selectedClass.name}</strong> · {year}년 {month}월 · 담당강사: {selectedClass.teacherName}
-          </p>
-          {classWeekdays.length > 0 ? (
-            <p className={styles.summaryCaption}>
-              수업 요일: {classWeekdays.map((w) => WEEKDAY_KO[w]).join('·')} — {sessionDates.length}회 수업
+      {/* data-print-root: 인쇄 시 이 영역만 보이고 나머지(사이드바·반 선택
+          드롭다운 등)는 index.css 전역 규칙에 의해 자동으로 감춰진다. */}
+      <div data-print-root="true">
+        {selectedClass && (
+          <>
+            <p className={styles.summaryLine}>
+              <strong>{selectedClass.name}</strong> · {year}년 {month}월 · 담당강사: {selectedClass.teacherName}
             </p>
-          ) : (
-            <p className={styles.warnText}>
-              이 반의 수업 요일이 설정되지 않았습니다. '내 수업 관리'에서 요일을 설정해주세요.
-            </p>
-          )}
-          <p className={styles.summaryCaption}>학생 수: {selectedClass.students.length}명</p>
-        </>
-      )}
+            {classWeekdays.length > 0 ? (
+              <p className={styles.summaryCaption}>
+                수업 요일: {classWeekdays.map((w) => WEEKDAY_KO[w]).join('·')} — {sessionDates.length}회 수업
+              </p>
+            ) : (
+              <p className={styles.warnText}>
+                이 반의 수업 요일이 설정되지 않았습니다. '내 수업 관리'에서 요일을 설정해주세요.
+              </p>
+            )}
+            <p className={styles.summaryCaption}>학생 수: {selectedClass.students.length}명</p>
+          </>
+        )}
 
-      {selectedClass && sessionDates.length > 0 && (
-        <>
+        {selectedClass && sessionDates.length > 0 && (
           <div className={styles.sheetWrap}>
             <table className={styles.sheetTable}>
               <thead>
@@ -136,10 +138,13 @@ export function AttendanceSheetPanel({ classes }: AttendanceSheetPanelProps) {
               </tbody>
             </table>
           </div>
-          <button type="button" className={`${styles.printButton} ${styles.noPrint}`} onClick={handlePrint}>
-            출석부 인쇄
-          </button>
-        </>
+        )}
+      </div>
+
+      {selectedClass && sessionDates.length > 0 && (
+        <button type="button" className={styles.printButton} onClick={handlePrint}>
+          출석부 인쇄
+        </button>
       )}
     </div>
   );
