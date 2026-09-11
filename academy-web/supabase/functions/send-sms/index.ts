@@ -46,6 +46,15 @@
 // @ts-nocheck — Deno 런타임 전역(Deno.serve 등)은 이 프로젝트의 브라우저용
 // TypeScript 설정(tsconfig.app.json)에서 타입 정의가 없어 에디터에 빨간 줄이
 // 뜰 수 있음. 실제 실행은 Supabase의 Deno 서버에서 되므로 문제 없음.
+//
+// 2026-09-11: 발송 내역(sms_send_logs) 기록을 브라우저(smsSend.ts)에서 여기로
+// 옮김. 운영 프로젝트에서 anon/publishable 키로는 sms_send_logs에 INSERT가
+// 계속 거부되는 현상이 있었음(RLS 정책을 public 대상으로 최대한 풀어도,
+// legacy anon 키로 바꿔도 동일하게 실패 — Supabase 쪽 원인으로 추정, 계정
+// 사용량 초과 상태와 관련 가능성 있음). Edge Function은 SUPABASE_SERVICE_ROLE_KEY로
+// RLS를 우회해서 쓰기 때문에 이 문제와 무관하게 항상 기록된다.
+
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -200,6 +209,42 @@ Deno.serve(async (req: Request) => {
         status: failedTo.has(m.to) ? ('failed' as const) : ('success' as const),
       };
     });
+
+    // 발송 내역 기록 — 서비스 역할 키로 RLS 우회하여 기록(위 2026-09-11 메모 참고).
+    // 기록이 실패해도 문자는 이미 나갔으므로 응답 자체는 그대로 성공 처리.
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL');
+      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      if (supabaseUrl && serviceRoleKey) {
+        const supabase = createClient(supabaseUrl, serviceRoleKey);
+        const logRows = [
+          ...results.map((r) => ({
+            recipient_name: r.name ?? null,
+            recipient_phone: r.phone,
+            message: text,
+            status: r.status,
+            error_reason: null as string | null,
+          })),
+          ...skipped.map((s) => ({
+            recipient_name: s.name ?? null,
+            recipient_phone: s.phone,
+            message: text,
+            status: 'skipped',
+            error_reason: s.reason,
+          })),
+        ];
+        if (logRows.length > 0) {
+          const { error: logError } = await supabase.from('sms_send_logs').insert(logRows);
+          if (logError) {
+            console.warn('[send-sms] 발송 내역 기록 실패:', logError.message);
+          }
+        }
+      } else {
+        console.warn('[send-sms] SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 없음 — 발송 내역 기록 건너뜀.');
+      }
+    } catch (logErr) {
+      console.warn('[send-sms] 발송 내역 기록 중 예외:', logErr instanceof Error ? logErr.message : String(logErr));
+    }
 
     return jsonResponse({
       data: {
