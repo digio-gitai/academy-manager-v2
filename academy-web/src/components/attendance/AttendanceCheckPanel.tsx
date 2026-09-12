@@ -7,6 +7,7 @@ import {
   fetchHomeworkPerformanceForSession,
   saveHomeworkPerformanceForSession,
   type HomeworkPerformanceLevel,
+  type TodayHomeworkSummary,
 } from '../../lib/homework';
 import styles from './AttendanceCheckPanel.module.css';
 
@@ -56,7 +57,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
-  const [homework, setHomework] = useState<{ title: string; summary: string } | null>(null);
+  const [homework, setHomework] = useState<TodayHomeworkSummary | null>(null);
   const [homeworkLoading, setHomeworkLoading] = useState(true);
   const [homeworkError, setHomeworkError] = useState('');
 
@@ -334,6 +335,16 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
               <strong>{homework.title}</strong>
               <div>{homework.summary || '등록된 공통 항목이 없습니다.'}</div>
             </div>
+            {homework.individual.length > 0 && (
+              <div className={styles.refBox}>
+                <strong>개별 과제</strong>
+                {homework.individual.map((row) => (
+                  <div key={row.studentName}>
+                    {row.studentName}: {row.summary}
+                  </div>
+                ))}
+              </div>
+            )}
             <p className={styles.refCaption}>'과제 인증' 메뉴에서 등록·수정할 수 있습니다.</p>
           </>
         ) : (

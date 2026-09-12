@@ -766,15 +766,27 @@ export async function toggleTeacherVerified(submissionId: string): Promise<void>
   if (e3) throw e3;
 }
 
+export interface TodayHomeworkSummary {
+  title: string;
+  summary: string;
+  /** 이 반+날짜에 등록된 개별(학생별) 과제 — 공통 항목과 별개로 학생마다
+   * 다르게 나간 항목이 있으면 학생별로 한 줄씩 담긴다. */
+  individual: { studentName: string; summary: string }[];
+}
+
 /**
  * 출석 관리 화면의 "오늘 과제 (참고)" 카드용 — homework.py
  * get_hw_assignment_summary() 대응. 이 반+날짜에 과제 인증에서 등록한 과제가
- * 있으면 제목과 공통 항목 요약을 반환, 없으면 null.
+ * 있으면 제목·공통 항목 요약·학생별 개별 항목 요약을 반환, 없으면 null.
+ *
+ * [2026-09-12] 원래 공통 항목(student_id IS NULL)만 보여주고 개별로 나간
+ * 항목(student_id 지정된 hw_items)은 아예 빠져 있었음(사용자가 실사용 중
+ * 발견 — "확인만 하면 되는 수준"이라 텍스트로만 학생별 한 줄씩 추가).
  */
 export async function fetchTodayHomeworkSummary(
   classId: string,
   sessionDate: string,
-): Promise<{ title: string; summary: string } | null> {
+): Promise<TodayHomeworkSummary | null> {
   const { data: assignment, error: aErr } = await supabase
     .from('hw_assignments')
     .select('id, title')
@@ -792,7 +804,30 @@ export async function fetchTodayHomeworkSummary(
   if (iErr) throw iErr;
 
   const sorted = [...((itemRows as { sort_order: number }[] | null) ?? [])].sort((a: any, b: any) => a.sort_order - b.sort_order);
-  return { title: assignment.title, summary: buildItemSummaryText(sorted as any) };
+
+  const { data: indivRows, error: indivErr } = await supabase
+    .from('hw_items')
+    .select('item_type, material_name, page_start, page_end, description, sort_order, student_id, students ( name )')
+    .eq('assignment_id', assignment.id)
+    .not('student_id', 'is', null);
+  if (indivErr) throw indivErr;
+
+  const byStudent = new Map<number, { name: string; rows: any[] }>();
+  for (const row of (indivRows as any[]) ?? []) {
+    const sid = row.student_id as number;
+    const entry = byStudent.get(sid) ?? { name: row.students?.name ?? '—', rows: [] as any[] };
+    entry.rows.push(row);
+    byStudent.set(sid, entry);
+  }
+  const individual = Array.from(byStudent.values())
+    .map(({ name, rows }) => ({
+      studentName: name,
+      summary: buildItemSummaryText([...rows].sort((a, b) => a.sort_order - b.sort_order) as any),
+    }))
+    .filter((r) => r.summary)
+    .sort((a, b) => a.studentName.localeCompare(b.studentName, 'ko'));
+
+  return { title: assignment.title, summary: buildItemSummaryText(sorted as any), individual };
 }
 
 // ═══════════════════════════════════════════════════════════════
