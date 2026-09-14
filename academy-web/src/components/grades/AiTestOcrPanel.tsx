@@ -86,7 +86,6 @@ export function AiTestOcrPanel() {
   const [isDragging, setIsDragging] = useState(false);
   const [stage, setStage] = useState<'idle' | 'ocr' | 'analyzing'>('idle');
   const [uploadError, setUploadError] = useState('');
-  const [refinedText, setRefinedText] = useState('');
   const [analysisPartial, setAnalysisPartial] = useState(false);
 
   // ③ 문항 확인·수정 + 확정 저장
@@ -160,7 +159,6 @@ export function AiTestOcrPanel() {
 
   function resetUploadAnalysis() {
     setEditQuestions([]);
-    setRefinedText('');
     setAnalysisPartial(false);
     setUploadError('');
     setTestTitle('');
@@ -217,7 +215,6 @@ export function AiTestOcrPanel() {
             : '미분류') as CognitiveDomain,
         }));
       setEditQuestions(drafts);
-      setRefinedText(result.refinedText);
       setAnalysisPartial(Boolean(result.partial));
       const dominant = inferDominantTopic(drafts);
       setTestTitle(suggestTestTitle(dominant, files[0]?.name, testDate));
@@ -601,12 +598,6 @@ export function AiTestOcrPanel() {
             </p>
           )}
 
-          {refinedText && (
-            <div className={styles.pageBlock}>
-              <div className={styles.pageLabel}>수식 정제된 전체 텍스트 (참고용)</div>
-              <pre className={styles.pageText}>{refinedText}</pre>
-            </div>
-          )}
         </div>
       )}
 
