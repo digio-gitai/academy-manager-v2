@@ -769,31 +769,37 @@ export async function toggleTeacherVerified(submissionId: string): Promise<void>
 export interface TodayHomeworkSummary {
   title: string;
   summary: string;
+  /** 이 과제가 실제로 부여된 날짜(직전 수업일) — 오늘 날짜와 다를 수 있어서
+   * 카드에 "9/10 부여" 식으로 같이 보여주기 위함. */
+  assignedDate: string;
   /** 이 반+날짜에 등록된 개별(학생별) 과제 — 공통 항목과 별개로 학생마다
    * 다르게 나간 항목이 있으면 학생별로 한 줄씩 담긴다. */
   individual: { studentName: string; summary: string }[];
 }
 
 /**
- * 출석 관리 화면의 "오늘 과제 (참고)" 카드용 — homework.py
- * get_hw_assignment_summary() 대응. 이 반+날짜에 과제 인증에서 등록한 과제가
- * 있으면 제목·공통 항목 요약·학생별 개별 항목 요약을 반환, 없으면 null.
- *
- * [2026-09-12] 원래 공통 항목(student_id IS NULL)만 보여주고 개별로 나간
- * 항목(student_id 지정된 hw_items)은 아예 빠져 있었음(사용자가 실사용 중
- * 발견 — "확인만 하면 되는 수준"이라 텍스트로만 학생별 한 줄씩 추가).
+ * 출석 관리 화면의 "직전 수업 과제 (참고)" 카드용 — homework.py
+ * get_hw_assignment_summary() 대응. 원래는 이 반+"오늘 날짜"에 등록된 과제만
+ * 찾았는데, 과제는 보통 수업 중에 "다음 시간까지" 내주는 것이라 부여일이
+ * 오늘이 아니라 직전 수업일로 저장되어 있어서 항상 비어 보이는 문제가 있었음
+ * (사용자 보고, 2026-09-14). 오늘 이전(assigned_date < sessionDate)에 이 반에
+ * 가장 최근에 등록된 과제 1건을 찾도록 변경 — 직전 수업에서 부여한 과제가
+ * 그대로 뜬다. 같은 날짜에 과제를 등록한 경우(당일 부여)도 놓치지 않도록
+ * assigned_date <= sessionDate로 잡는다.
  */
 export async function fetchTodayHomeworkSummary(
   classId: string,
   sessionDate: string,
 ): Promise<TodayHomeworkSummary | null> {
-  const { data: assignment, error: aErr } = await supabase
+  const { data: assignments, error: aErr } = await supabase
     .from('hw_assignments')
-    .select('id, title')
+    .select('id, title, assigned_date')
     .eq('class_id', Number(classId))
-    .eq('assigned_date', sessionDate)
-    .maybeSingle();
+    .lte('assigned_date', sessionDate)
+    .order('assigned_date', { ascending: false })
+    .limit(1);
   if (aErr) throw aErr;
+  const assignment = (assignments as { id: number; title: string; assigned_date: string }[] | null)?.[0];
   if (!assignment) return null;
 
   const { data: itemRows, error: iErr } = await supabase
@@ -827,7 +833,12 @@ export async function fetchTodayHomeworkSummary(
     .filter((r) => r.summary)
     .sort((a, b) => a.studentName.localeCompare(b.studentName, 'ko'));
 
-  return { title: assignment.title, summary: buildItemSummaryText(sorted as any), individual };
+  return {
+    title: assignment.title,
+    summary: buildItemSummaryText(sorted as any),
+    assignedDate: assignment.assigned_date,
+    individual,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════

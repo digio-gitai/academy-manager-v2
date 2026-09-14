@@ -46,6 +46,11 @@ interface AttendanceCheckPanelProps {
  * homework.py get_hw_assignment_summary()와 동일하게, 이 반+날짜에 과제
  * 인증에서 등록한 공통 항목이 있으면 제목과 항목 요약을 그대로 보여줌(수정은
  * 여전히 '과제 인증' 메뉴에서만).
+ * 2026-09-14부터: 카드 이름을 "직전 수업 과제"로 바꾸고, 오늘 날짜가 아니라
+ * 이 반에 가장 최근(오늘 이전 포함)에 등록된 과제를 보여주도록 수정 — 과제는
+ * 보통 수업 중에 다음 시간까지로 내주기 때문에 assigned_date가 오늘이 아니라
+ * 직전 수업일로 저장되어 있어서, 기존 로직(assigned_date==오늘)으로는 거의
+ * 항상 빈 카드만 보였음.
  */
 export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
   const [classId, setClassId] = useState(classes[0]?.id ?? '');
@@ -324,7 +329,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
       </div>
 
       <div className={styles.card}>
-        <h3 className={styles.cardTitle}>오늘 과제 (참고)</h3>
+        <h3 className={styles.cardTitle}>직전 수업 과제 (참고)</h3>
         {homeworkLoading ? (
           <p className={styles.emptyText}>과제 정보를 불러오는 중입니다...</p>
         ) : homeworkError ? (
@@ -332,7 +337,9 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
         ) : homework ? (
           <>
             <div className={styles.refBox}>
-              <strong>{homework.title}</strong>
+              <strong>
+                {homework.title} ({homework.assignedDate} 부여)
+              </strong>
               <div>{homework.summary || '등록된 공통 항목이 없습니다.'}</div>
             </div>
             {homework.individual.length > 0 && (
@@ -349,7 +356,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
           </>
         ) : (
           <p className={styles.emptyText}>
-            이 날짜에 등록된 과제가 없습니다. '과제 인증' 메뉴에서 등록해주세요.
+            등록된 과제가 없습니다. '과제 인증' 메뉴에서 등록해주세요.
           </p>
         )}
       </div>
