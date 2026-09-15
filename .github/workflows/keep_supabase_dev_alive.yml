@@ -18,6 +18,6 @@ jobs:
       - name: Ping dev Supabase REST endpoint
         run: |
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://kpimhidgkrqtegcumrul.supabase.co/rest/v1/" \
+            "https://kpimhidgkrqtegcumrul.supabase.co/auth/v1/health" \
             -H "apikey: sb_publishable_q7eTBPGjlVdwqd6m_GgIZw_GMSh7MvI")
           echo "Supabase dev 프로젝트 응답 코드: $HTTP_CODE"
