@@ -1,0 +1,23 @@
+name: Keep Supabase Dev Alive
+
+# dev용 Supabase 프로젝트(kpimhidgkrqtegcumrul)가
+# 7일간 활동이 없으면 자동으로 일시정지(pause)되는 것을 막기 위한 자동화입니다.
+# 5일마다 한 번씩 dev DB에 아주 가벼운 요청(GET)을 보내서 "활동 중"으로 표시되게 합니다.
+# 실제 데이터를 읽거나 바꾸지 않는 안전한 요청입니다.
+
+on:
+  schedule:
+    # 매 5일마다(대략) UTC 09:00 = 한국시간(KST) 오후 6시에 실행
+    - cron: '0 9 */5 * *'
+  workflow_dispatch: {}  # Actions 탭에서 "Run workflow" 버튼으로 수동 실행도 가능
+
+jobs:
+  ping-dev-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping dev Supabase REST endpoint
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://kpimhidgkrqtegcumrul.supabase.co/rest/v1/" \
+            -H "apikey: sb_publishable_q7eTBPGjlVdwqd6m_GgIZw_GMSh7MvI")
+          echo "Supabase dev 프로젝트 응답 코드: $HTTP_CODE"
