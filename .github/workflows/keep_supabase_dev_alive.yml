@@ -2,22 +2,27 @@ name: Keep Supabase Dev Alive
 
 # dev용 Supabase 프로젝트(kpimhidgkrqtegcumrul)가
 # 7일간 활동이 없으면 자동으로 일시정지(pause)되는 것을 막기 위한 자동화입니다.
-# 5일마다 한 번씩 dev DB에 아주 가벼운 요청(GET)을 보내서 "활동 중"으로 표시되게 합니다.
-# 실제 데이터를 읽거나 바꾸지 않는 안전한 요청입니다.
+# 매주 월/목, 실제 테이블(grade_reports)에 아주 가벼운 조회(SELECT limit 1)를 보내서
+# "DB 활동 중"으로 표시되게 합니다. /auth/v1/health 같은 게이트웨이 헬스체크는
+# 응답은 200이 와도 실제 DB 쿼리가 아니라서 비활성 타이머를 리셋하지 못했습니다
+# (2026-09-22 실제로 일시정지 메일 받고 확인함).
+# 데이터를 읽기만 하고(limit 1) 바꾸지는 않는 안전한 요청입니다.
 
 on:
   schedule:
-    # 매 5일마다(대략) UTC 09:00 = 한국시간(KST) 오후 6시에 실행
-    - cron: '0 9 */5 * *'
+    # 매주 월요일·목요일 UTC 09:00 = 한국시간(KST) 오후 6시에 실행
+    # (day-of-month에 */5를 쓰면 월말을 걸칠 때 최대 8일까지 벌어져 7일 슬립 기준을
+    #  넘길 수 있어서, 요일 고정으로 바꿔 최대 간격을 4일로 확실히 줄였습니다.)
+    - cron: '0 9 * * 1,4'
   workflow_dispatch: {}  # Actions 탭에서 "Run workflow" 버튼으로 수동 실행도 가능
 
 jobs:
   ping-dev-supabase:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping dev Supabase REST endpoint
+      - name: Ping dev Supabase database via real table query
         run: |
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://kpimhidgkrqtegcumrul.supabase.co/auth/v1/health" \
+            "https://kpimhidgkrqtegcumrul.supabase.co/rest/v1/grade_reports?select=id&limit=1" \
             -H "apikey: sb_publishable_q7eTBPGjlVdwqd6m_GgIZw_GMSh7MvI")
           echo "Supabase dev 프로젝트 응답 코드: $HTTP_CODE"
