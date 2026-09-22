@@ -29,7 +29,12 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
   present: '출석',
   late: '지각',
   absent: '결석',
+  cancelled: '휴강',
 };
+
+// 학생별 라디오 버튼에는 '휴강'을 넣지 않는다 — 휴강은 "날짜선택 후 전체휴강"
+// 버튼으로만 반 전체에 한 번에 매기는 상태라서(2026-09-22 사용자 요청).
+const CHECK_STATUS_OPTIONS: AttendanceStatus[] = ['present', 'late', 'absent'];
 
 interface AttendanceCheckPanelProps {
   classes: ClassInfo[];
@@ -76,6 +81,9 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
 
   const selectedClass = classes.find((c) => c.id === classId);
   const alreadySaved = savedRecords.length > 0;
+  // 2026-09-22 추가: 이 날짜에 '전체휴강' 처리된 세션인지 — 반 전체 학생이
+  // 전부 'cancelled' 상태로 저장돼 있으면 휴강 세션으로 간주한다.
+  const isCancelledSession = alreadySaved && savedRecords.every((r) => r.status === 'cancelled');
 
   useEffect(() => {
     if (!classId || !sessionDate) return;
@@ -230,6 +238,42 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
     }
   }
 
+  /**
+   * 전체 휴강 처리 — 연휴·개인 사정 등으로 그날 수업 자체가 없었을 때, 학생
+   * 개개인이 아니라 반 전체를 한 번에 '휴강'으로 표시한다(2026-09-22 사용자
+   * 요청, 출석 관리 화면 옆 버튼). 결석과 달리 출석 통계에서 제외된다
+   * (lib/attendance.ts fetchAttendanceHistory). 나중에 수업을 하게 되면 학생별로
+   * 출석/지각/결석을 체크하고 '출석 저장'을 누르면 같은 (student_id, session_date)
+   * 행이 upsert로 덮어써져서 자동으로 정상 출결로 바뀐다 — 별도의 '휴강 취소'
+   * 버튼이 필요 없음.
+   */
+  async function handleCancelClass() {
+    if (!selectedClass || selectedClass.students.length === 0) return;
+    const ok = window.confirm(
+      `${selectedClass.name} 수업 ${sessionDate}(${weekdayLabel})을 전체 휴강 처리하시겠습니까?\n` +
+        `결석으로 기록되지 않고 출석 통계에서 제외됩니다.\n` +
+        `나중에 수업을 하게 되면 학생별로 출석 체크 후 다시 저장하면 자동으로 정상 출결로 바뀝니다.`,
+    );
+    if (!ok) return;
+    const recs: AttendanceRecord[] = selectedClass.students.map((s) => ({
+      studentId: s.id,
+      status: 'cancelled',
+      note: '휴강',
+    }));
+    setSaving(true);
+    setSaveMessage('');
+    try {
+      await saveAttendanceSession(classId, sessionDate, recs);
+      setSavedRecords(recs);
+      setRecords({});
+      setSaveMessage(`${selectedClass.name} 수업 ${sessionDate}을(를) 휴강 처리했습니다.`);
+    } catch (err) {
+      setSaveMessage(err instanceof Error ? `저장 실패: ${err.message}` : '휴강 처리에 실패했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <div className={styles.card}>
@@ -267,6 +311,17 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
               </button>
             </div>
           </div>
+          <div className={styles.field}>
+            <label className={styles.label}>&nbsp;</label>
+            <button
+              type="button"
+              className={styles.cancelClassButton}
+              onClick={handleCancelClass}
+              disabled={saving || loading || !selectedClass || selectedClass.students.length === 0}
+            >
+              전체 휴강 처리
+            </button>
+          </div>
           <div className={isTodaySelected ? styles.weekdayCaption : styles.weekdayCaptionWarn}>
             선택 날짜: {sessionDate} ({weekdayLabel})
             {!isTodaySelected && ' — 오늘이 아닙니다, 확인해주세요'}
@@ -276,7 +331,13 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
         {loading && <p className={styles.emptyText}>출석 기록을 불러오는 중입니다...</p>}
         {loadError && !loading && <p className={styles.emptyText}>불러오지 못했습니다: {loadError}</p>}
 
-        {!loading && alreadySaved && (
+        {!loading && isCancelledSession && (
+          <div className={styles.cancelBanner}>
+            이 날짜({sessionDate})는 "{selectedClass?.name}" 수업 전체가 휴강 처리되어 있습니다. 수업을 하게
+            되면 아래에서 학생별로 출석을 체크하고 저장하면 자동으로 정상 출결로 바뀝니다.
+          </div>
+        )}
+        {!loading && alreadySaved && !isCancelledSession && (
           <div className={styles.infoBanner}>
             이 날짜의 출결 기록이 이미 저장되어 있습니다. 수정 후 다시 저장할 수 있습니다.
           </div>
@@ -294,7 +355,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
                   <div key={s.id} className={styles.studentRow}>
                     <span className={styles.studentName}>{s.name}</span>
                     <div className={styles.radioGroup}>
-                      {(Object.keys(STATUS_LABELS) as AttendanceStatus[]).map((opt) => (
+                      {CHECK_STATUS_OPTIONS.map((opt) => (
                         <button
                           key={opt}
                           type="button"

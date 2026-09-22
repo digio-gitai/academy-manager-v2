@@ -238,6 +238,12 @@
   font-weight: 700;
 }
 
+.dayCell[data-status='cancelled'] {
+  background: rgba(31, 61, 43, 0.1);
+  color: var(--color-text-faint);
+  text-decoration: line-through;
+}
+
 @media print {
   .calendarGrid {
     gap: 10px;

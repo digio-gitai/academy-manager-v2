@@ -1,4 +1,6 @@
-export type AttendanceStatus = 'present' | 'late' | 'absent';
+// 'cancelled'(휴강)은 학생 개개인이 아니라 반 전체 단위로만 매겨지는 상태 —
+// 결석과 달리 출석률 통계에서 제외된다(lib/attendance.ts의 fetchAttendanceHistory).
+export type AttendanceStatus = 'present' | 'late' | 'absent' | 'cancelled';
 
 export interface AttendanceRecord {
   studentId: string;

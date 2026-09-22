@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchStudents, fetchWithdrawnStudents } from '../lib/students';
+import { fetchStudents, fetchWithdrawnStudents, groupStudentsByClass } from '../lib/students';
 import { useAuth } from '../context/AuthContext';
 import { sendBulkSms, fetchSmsSendLogs } from '../lib/smsSend';
 import type { SendSmsResult, SkippedRecipient, SmsRecipient, SmsSendLog } from '../lib/smsSend';
@@ -70,6 +70,12 @@ export function SmsSend() {
   const [selectedWithdrawnParentIds, setSelectedWithdrawnParentIds] = useState<Set<string>>(new Set());
   const [selectedWithdrawnStudentIds, setSelectedWithdrawnStudentIds] = useState<Set<string>>(new Set());
   const [messageText, setMessageText] = useState('');
+
+  // 2026-09-22 추가: 명부에 없는 번호로 직접 보내는 기능(사용자 요청) — 이름은
+  // 선택이라 안 적으면 번호를 그대로 받는사람 이름으로 씀.
+  const [manualEntries, setManualEntries] = useState<{ id: string; name: string; phone: string }[]>([]);
+  const [manualName, setManualName] = useState('');
+  const [manualPhone, setManualPhone] = useState('');
 
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
@@ -142,6 +148,11 @@ export function SmsSend() {
     [withdrawnStudents],
   );
 
+  // 2026-09-22 추가: 재원생 목록이 한 줄로 쭉 나오면 어수선하다는 사용자
+  // 요청으로 반별로 묶어서 표시(반 미배정은 맨 아래) — 재원생만 적용, 퇴원생은
+  // 반 소속이 이미 의미가 옅어서 기존대로 이름순 목록 유지.
+  const groupedStudents = useMemo(() => groupStudentsByClass(sortedStudents), [sortedStudents]);
+
   // kind별로 대상 학생 목록/선택 상태 setter를 한 곳에서 매핑 — 재원생(parent/student)과
   // 퇴원생(withdrawn-parent/withdrawn-student) 4가지를 같은 로직으로 다룬다.
   function listFor(kind: SectionKind): StudentProfile[] {
@@ -196,6 +207,9 @@ export function SmsSend() {
         list.push({ name: `${s.name} (퇴원)`, phone: s.studentPhone ?? '' });
       }
     }
+    for (const m of manualEntries) {
+      list.push({ name: m.name || m.phone, phone: m.phone });
+    }
     return list;
   }, [
     sortedStudents,
@@ -204,6 +218,7 @@ export function SmsSend() {
     selectedStudentIds,
     selectedWithdrawnParentIds,
     selectedWithdrawnStudentIds,
+    manualEntries,
   ]);
 
   const byteLength = estimateSmsBytes(messageText);
@@ -214,6 +229,22 @@ export function SmsSend() {
     setSelectedStudentIds(new Set());
     setSelectedWithdrawnParentIds(new Set());
     setSelectedWithdrawnStudentIds(new Set());
+    setManualEntries([]);
+  }
+
+  function handleAddManual() {
+    const phone = manualPhone.trim();
+    if (!phone) return;
+    setManualEntries((prev) => [
+      ...prev,
+      { id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: manualName.trim(), phone },
+    ]);
+    setManualName('');
+    setManualPhone('');
+  }
+
+  function handleRemoveManual(id: string) {
+    setManualEntries((prev) => prev.filter((m) => m.id !== id));
   }
 
   async function handleSend() {
@@ -275,30 +306,90 @@ export function SmsSend() {
         </div>
         <div className={styles.studentList}>
           {list.length === 0 && <div className={styles.sectionHint}>{empty}</div>}
-          {list.map((s) => {
-            const phone = phoneOf(s);
-            const disabled = !phone.trim();
-            const checked = selected.has(s.id);
-            return (
-              <label
-                key={s.id}
-                className={styles.studentRow}
-                data-disabled={disabled}
-                data-checked={checked}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={disabled}
-                  onChange={() => toggle(kind, s.id)}
-                />
-                <span className={styles.studentName}>{s.name}</span>
-                <span className={styles.studentMeta}>{s.className}</span>
-                <span className={styles.studentPhone}>{disabled ? '번호 없음' : phone}</span>
-              </label>
-            );
-          })}
+          {groupedStudents.map((group) => (
+            <div key={group.className}>
+              <div className={styles.groupHeader}>{group.className}</div>
+              {group.students.map((s) => {
+                const phone = phoneOf(s);
+                const disabled = !phone.trim();
+                const checked = selected.has(s.id);
+                return (
+                  <label
+                    key={s.id}
+                    className={styles.studentRow}
+                    data-disabled={disabled}
+                    data-checked={checked}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => toggle(kind, s.id)}
+                    />
+                    <span className={styles.studentName}>{s.name}</span>
+                    <span className={styles.studentMeta}>{s.className}</span>
+                    <span className={styles.studentPhone}>{disabled ? '번호 없음' : phone}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ))}
         </div>
+      </div>
+    );
+  }
+
+  /**
+   * 직접번호입력 — 명부에 없는 번호(예: 친척, 임시 연락처)로도 문자를 보낼
+   * 수 있게 한 섹션(2026-09-22 사용자 요청). 이름은 선택 입력.
+   */
+  function renderManualSection() {
+    return (
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <div className={styles.sectionTitle}>직접 번호 입력</div>
+            <div className={styles.sectionHint}>명부에 없는 번호로 직접 보내고 싶을 때 추가하세요.</div>
+          </div>
+        </div>
+        <div className={styles.manualAddRow}>
+          <input
+            type="text"
+            className={styles.manualNameInput}
+            placeholder="이름 (선택)"
+            value={manualName}
+            onChange={(e) => setManualName(e.target.value)}
+          />
+          <input
+            type="text"
+            className={styles.manualPhoneInput}
+            placeholder="010-0000-0000"
+            value={manualPhone}
+            onChange={(e) => setManualPhone(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddManual();
+              }
+            }}
+          />
+          <button type="button" className={styles.selectAllButton} onClick={handleAddManual} disabled={!manualPhone.trim()}>
+            + 추가
+          </button>
+        </div>
+        {manualEntries.length > 0 && (
+          <div className={styles.studentList}>
+            {manualEntries.map((m) => (
+              <div key={m.id} className={styles.studentRow}>
+                <span className={styles.studentName}>{m.name || '(이름 없음)'}</span>
+                <span className={styles.studentPhone}>{m.phone}</span>
+                <button type="button" className={styles.manualRemoveButton} onClick={() => handleRemoveManual(m.id)}>
+                  삭제
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -384,6 +475,9 @@ export function SmsSend() {
                 {renderWithdrawnSection()}
               </>
             )}
+
+            <div className={styles.sectionDivider} />
+            {renderManualSection()}
 
             <div className={styles.selectionSummary}>
               <span>

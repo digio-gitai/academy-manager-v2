@@ -6,6 +6,40 @@ export interface ClassOption {
   name: string;
 }
 
+export interface StudentGroup {
+  className: string;
+  students: StudentProfile[];
+}
+
+const UNASSIGNED_CLASS_NAME = '반 미배정';
+
+/**
+ * 학생 목록을 반별로 묶는다. 학생 명부/SMS발송 화면 둘 다 "학생이 한 줄로
+ * 쭉 나와서 어수선하다"는 사용자 요청(2026-09-22)으로 도입 — 반 이름은
+ * 가나다순, "반 미배정"만 항상 맨 아래로 보낸다.
+ */
+export function groupStudentsByClass(students: StudentProfile[]): StudentGroup[] {
+  const map = new Map<string, StudentProfile[]>();
+  for (const s of students) {
+    const key = s.className || UNASSIGNED_CLASS_NAME;
+    const arr = map.get(key);
+    if (arr) arr.push(s);
+    else map.set(key, [s]);
+  }
+  const assignedNames = Array.from(map.keys())
+    .filter((name) => name !== UNASSIGNED_CLASS_NAME)
+    .sort((a, b) => a.localeCompare(b, 'ko'));
+  const groups: StudentGroup[] = assignedNames.map((className) => ({
+    className,
+    students: map.get(className)!,
+  }));
+  const unassigned = map.get(UNASSIGNED_CLASS_NAME);
+  if (unassigned) {
+    groups.push({ className: UNASSIGNED_CLASS_NAME, students: unassigned });
+  }
+  return groups;
+}
+
 /**
  * 반 목록(id 포함) — 학생 반 재배정 드롭다운용. 2026-08-24: 기존에는 이 화면이
  * "지금 명부에 있는 학생들의 반 이름"만 모아서 드롭다운을 만들었는데, 그러면

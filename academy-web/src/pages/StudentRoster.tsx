@@ -19,6 +19,7 @@ import {
   fetchWithdrawnStudents,
   withdrawStudent,
   restoreStudent,
+  groupStudentsByClass,
 } from '../lib/students';
 import type { ClassOption, NewStudentInput, UpdateStudentInput } from '../lib/students';
 import { fetchConsultationLogs } from '../lib/consultation';
@@ -219,6 +220,10 @@ export function StudentRoster() {
     }
     return list;
   }, [roster, query, classFilter]);
+
+  // 2026-09-22 추가: 목록이 한 줄로 쭉 나오면 어수선하다는 사용자 요청으로
+  // 반별로 묶어서 표시(반 미배정은 항상 맨 아래).
+  const groupedFiltered = useMemo(() => groupStudentsByClass(filtered), [filtered]);
 
   const selected = roster.find((s) => s.id === selectedId) ?? filtered[0];
   const unassignedCount = roster.filter((s) => s.className === '반 미배정').length;
@@ -450,13 +455,21 @@ export function StudentRoster() {
             {filtered.length === 0 ? (
               <div className={styles.emptyList}>검색 결과가 없습니다.</div>
             ) : (
-              filtered.map((s) => (
-                <StudentListItem
-                  key={s.id}
-                  student={s}
-                  active={s.id === selected?.id}
-                  onSelect={() => setSelectedId(s.id)}
-                />
+              groupedFiltered.map((group) => (
+                <div key={group.className}>
+                  <div className={styles.groupHeader}>
+                    {group.className}
+                    <span>{group.students.length}명</span>
+                  </div>
+                  {group.students.map((s) => (
+                    <StudentListItem
+                      key={s.id}
+                      student={s}
+                      active={s.id === selected?.id}
+                      onSelect={() => setSelectedId(s.id)}
+                    />
+                  ))}
+                </div>
               ))
             )}
           </div>

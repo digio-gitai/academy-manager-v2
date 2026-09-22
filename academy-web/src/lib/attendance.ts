@@ -114,6 +114,9 @@ export async function fetchAttendanceHistory(
 
   const statsMap = new Map<string, AttendanceStatsRow & { total: number }>();
   entries.forEach((e) => {
+    // 휴강 처리된 세션은 결석이 아니므로 출석 통계(출석/지각/결석/출석률)에서
+    // 제외한다 — 세션별 로그·캘린더에는 그대로 남아 "휴강"으로 표시됨.
+    if (e.status === 'cancelled') return;
     const key = `${e.studentId}_${e.className}`;
     const row =
       statsMap.get(key) ??

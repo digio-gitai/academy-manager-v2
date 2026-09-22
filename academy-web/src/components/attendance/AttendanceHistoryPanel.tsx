@@ -9,6 +9,7 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
   present: '출석',
   late: '지각',
   absent: '결석',
+  cancelled: '휴강',
 };
 
 function toneForStatus(status: AttendanceStatus) {

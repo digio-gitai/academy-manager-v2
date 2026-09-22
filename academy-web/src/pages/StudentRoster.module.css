@@ -108,6 +108,22 @@
   padding: 10px 4px;
 }
 
+.groupHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 6px 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.groupHeader span {
+  font-weight: 600;
+  color: var(--color-text-faint);
+}
+
 .detailCard {
   background: var(--color-white);
   border: 1px solid rgba(31, 61, 43, 0.07);
