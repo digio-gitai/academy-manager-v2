@@ -193,8 +193,9 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
     if (!selectedClass) return;
     // 2026-09-05: 결석 처리된 학생은 애초에 그날 수업이 없었으므로 과제
     // 수행도 저장 대상에서 제외한다(출결이 저장되어 있어야 걸러짐).
+    // 2026-09-22: 휴강 처리된 날도 수업 자체가 없었던 거라 같은 이유로 제외.
     const recs = selectedClass.students
-      .filter((s) => getStatus(s.id) !== 'absent')
+      .filter((s) => getStatus(s.id) !== 'absent' && getStatus(s.id) !== 'cancelled')
       .map((s) => ({ studentId: s.id, level: getPerf(s.id) }));
     setPerfSaving(true);
     setPerfMessage('');
@@ -442,12 +443,16 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
                 const level = getPerf(s.id);
                 // 2026-09-05: 오늘 결석 처리된 학생은 체크 자체를 막는다 —
                 // 출석체크를 먼저 저장해야 반영됨(안 저장했으면 전원 활성 상태).
-                const isAbsent = getStatus(s.id) === 'absent';
+                // 2026-09-22: 휴강 처리된 날도 수업 자체가 없었던 거라 같은 이유로 막는다.
+                const status = getStatus(s.id);
+                const isAbsent = status === 'absent';
+                const isCancelled = status === 'cancelled';
                 return (
                   <div key={s.id} className={styles.studentRow}>
                     <span className={styles.studentName}>
                       {s.name}
                       {isAbsent && ' (결석)'}
+                      {isCancelled && ' (휴강)'}
                     </span>
                     <div className={styles.radioGroup}>
                       {(['상', '중', '하'] as HomeworkPerformanceLevel[]).map((opt) => (
@@ -457,7 +462,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
                           className={styles.radioBtn}
                           data-status={opt}
                           data-active={level === opt}
-                          disabled={perfSaving || isAbsent}
+                          disabled={perfSaving || isAbsent || isCancelled}
                           onClick={() => updatePerf(s.id, opt)}
                         >
                           {opt}

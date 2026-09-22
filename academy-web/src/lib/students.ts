@@ -367,9 +367,10 @@ export interface HomeworkPerformanceSummary {
  *
  * [2026-09-05] 결석으로 저장된 날짜의 기록은 제외한다(스트림릿 쪽과 동일한
  * 규칙) — 출결과 과제 수행도를 별도 쿼리로 조회한 뒤 여기서 걸러낸다.
+ * [2026-09-22] 휴강 처리된 날짜도 결석과 같은 이유(그날 수업 자체가 없었음)로 제외.
  */
 export async function fetchHomeworkPerformance(studentId: string): Promise<HomeworkPerformanceSummary> {
-  const [{ data, error }, { data: absentData, error: absentError }] = await Promise.all([
+  const [{ data, error }, { data: excludedData, error: excludedError }] = await Promise.all([
     supabase
       .from('student_homework_performance')
       .select('session_date, level')
@@ -379,18 +380,18 @@ export async function fetchHomeworkPerformance(studentId: string): Promise<Homew
       .from('attendance')
       .select('session_date')
       .eq('student_id', Number(studentId))
-      .eq('status', 'absent'),
+      .in('status', ['absent', 'cancelled']),
   ]);
 
   if (error) {
     throw error;
   }
-  if (absentError) {
-    throw absentError;
+  if (excludedError) {
+    throw excludedError;
   }
 
-  const absentDates = new Set(((absentData as { session_date: string }[]) ?? []).map((r) => r.session_date));
-  const rows = ((data as HomeworkPerformanceRow[]) ?? []).filter((r) => !absentDates.has(r.session_date));
+  const excludedDates = new Set(((excludedData as { session_date: string }[]) ?? []).map((r) => r.session_date));
+  const rows = ((data as HomeworkPerformanceRow[]) ?? []).filter((r) => !excludedDates.has(r.session_date));
   const high = rows.filter((r) => r.level === '상').length;
   const mid = rows.filter((r) => r.level === '중').length;
   const total = rows.length;
