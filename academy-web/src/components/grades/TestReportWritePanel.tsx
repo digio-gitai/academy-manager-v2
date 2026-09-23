@@ -13,7 +13,7 @@ import {
   fetchStudentMonthTopicStats,
   prevYearMonth,
   reportModeFor,
-  reportMonthPeriods,
+  reportMonthPeriod,
 } from '../../lib/academyTestReportData';
 import type { TestMeta, ReportMode, QuestionDetail } from '../../lib/academyTestReportData';
 import {
@@ -245,46 +245,14 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
           let attendanceStats: AttendanceStatsInput | null = null;
           let homeworkPerfStats: HomeworkPerfStatsInput | null = null;
           if (showAttendance || showHwPerf) {
-            const periods = reportMonthPeriods(meta.date);
+            const period = reportMonthPeriod(meta.date);
             if (showAttendance) {
-              const [cur, prev] = await Promise.all([
-                fetchStudentAttendanceSummary(s.studentId, periods.curFrom, periods.curTo),
-                periods.prevFrom && periods.prevTo
-                  ? fetchStudentAttendanceSummary(s.studentId, periods.prevFrom, periods.prevTo)
-                  : Promise.resolve(null),
-              ]);
-              attendanceStats = {
-                curMonth: periods.curMonthNum,
-                curRate: cur.rate,
-                curPresent: cur.present,
-                curLate: cur.late,
-                curAbsent: cur.absent,
-                prevMonth: periods.prevMonthNum,
-                prevRate: prev?.rate ?? null,
-                prevPresent: prev?.present ?? null,
-                prevLate: prev?.late ?? null,
-                prevAbsent: prev?.absent ?? null,
-              };
+              const cur = await fetchStudentAttendanceSummary(s.studentId, period.from, period.to);
+              attendanceStats = { month: period.month, ...cur };
             }
             if (showHwPerf) {
-              const [cur, prev] = await Promise.all([
-                fetchStudentHomeworkPerfStats(s.studentId, periods.curFrom, periods.curTo),
-                periods.prevFrom && periods.prevTo
-                  ? fetchStudentHomeworkPerfStats(s.studentId, periods.prevFrom, periods.prevTo)
-                  : Promise.resolve(null),
-              ]);
-              homeworkPerfStats = {
-                curMonth: periods.curMonthNum,
-                curRate: cur.rate,
-                curHigh: cur.high,
-                curMid: cur.mid,
-                curLow: cur.low,
-                prevMonth: periods.prevMonthNum,
-                prevRate: prev?.rate ?? null,
-                prevHigh: prev?.high ?? null,
-                prevMid: prev?.mid ?? null,
-                prevLow: prev?.low ?? null,
-              };
+              const cur = await fetchStudentHomeworkPerfStats(s.studentId, period.from, period.to);
+              homeworkPerfStats = { month: period.month, ...cur };
             }
           }
 

@@ -17,29 +17,19 @@ const TEACHER_NAME = '정재훈';
 const PARENT_GREETING = `안녕하세요, ${ACADEMY_NAME} ${TEACHER_NAME} 강사입니다.`;
 
 export interface AttendanceStatsInput {
-  curMonth: number;
-  curRate: number | null;
-  curPresent: number;
-  curLate: number;
-  curAbsent: number;
-  prevMonth: number | null;
-  prevRate: number | null;
-  prevPresent: number | null;
-  prevLate: number | null;
-  prevAbsent: number | null;
+  month: number;
+  rate: number | null;
+  present: number;
+  late: number;
+  absent: number;
 }
 
 export interface HomeworkPerfStatsInput {
-  curMonth: number;
-  curRate: number | null;
-  curHigh: number;
-  curMid: number;
-  curLow: number;
-  prevMonth: number | null;
-  prevRate: number | null;
-  prevHigh: number | null;
-  prevMid: number | null;
-  prevLow: number | null;
+  month: number;
+  rate: number | null;
+  high: number;
+  mid: number;
+  low: number;
 }
 
 export interface AcademyTestReportInput {
@@ -123,8 +113,17 @@ function scriptJson(v: unknown): string {
   return JSON.stringify(v).replace(/</g, '\\u003c');
 }
 
-// ── KPI 카드 ──
-function buildKpiCards(p: {
+// ── 핵심 지표 한 줄 (2:1:1 — 점수·반평균(·석차) / 이번 달 출석률 / 이번 달 과제 수행도) ──
+function metricStat(label: string, value: string, unit: string, sub: string): string {
+  return `
+      <div class="metric-stat">
+        <div class="kpi-label">${label}</div>
+        <div class="metric-value">${value}${unit ? `<span class="kpi-unit">${unit}</span>` : ''}</div>
+        <div class="kpi-sub">${sub}</div>
+      </div>`;
+}
+
+function buildKeyMetrics(p: {
   score: number;
   accuracy: number;
   classAvg: number | null;
@@ -132,103 +131,62 @@ function buildKpiCards(p: {
   totalStudents: number | null;
   showClassAvg: boolean;
   showClassRank: boolean;
+  attendance: AttendanceStatsInput | null;
+  homework: HomeworkPerfStatsInput | null;
 }): string {
-  const cards: string[] = [];
-  cards.push(`
-    <div class="kpi-card">
-      <div class="kpi-label">이번 점수</div>
-      <div class="kpi-value">${f1(p.score)}<span class="kpi-unit">점</span></div>
-      <div class="kpi-sub">정답률 ${f1(p.accuracy)}%</div>
-    </div>`);
-
+  const mainStats: string[] = [metricStat('이번 점수', f1(p.score), '점', `정답률 ${f1(p.accuracy)}%`)];
   if (p.showClassAvg) {
-    const avgStr = p.classAvg != null ? f1(p.classAvg) : '—';
     let diffStr = '';
     if (p.classAvg != null) {
       const diff = p.score - p.classAvg;
-      const sign = diff >= 0 ? '+' : '';
-      diffStr = `평균 대비 ${sign}${f1(diff)}점`;
+      diffStr = `평균 대비 ${diff >= 0 ? '+' : ''}${f1(diff)}점`;
     }
-    cards.push(`
-    <div class="kpi-card">
-      <div class="kpi-label">반 평균</div>
-      <div class="kpi-value">${avgStr}<span class="kpi-unit">점</span></div>
-      <div class="kpi-sub">${diffStr}</div>
-    </div>`);
+    mainStats.push(metricStat('반 평균', p.classAvg != null ? f1(p.classAvg) : '—', p.classAvg != null ? '점' : '', diffStr));
   }
-
   if (p.showClassRank) {
-    const rankStr = p.rank != null ? String(p.rank) : '—';
-    const totalStr = p.totalStudents ? `전체 ${p.totalStudents}명 중` : '';
-    cards.push(`
-    <div class="kpi-card">
-      <div class="kpi-label">반 석차</div>
-      <div class="kpi-value">${rankStr}<span class="kpi-unit">위</span></div>
-      <div class="kpi-sub">${totalStr}</div>
-    </div>`);
+    mainStats.push(
+      metricStat(
+        '반 석차',
+        p.rank != null ? String(p.rank) : '—',
+        p.rank != null ? '위' : '',
+        p.totalStudents ? `전체 ${p.totalStudents}명 중` : '',
+      ),
+    );
   }
 
-  return cards.join('\n');
-}
+  const cards = [`<div class="metric-card metric-main">${mainStats.join('<div class="metric-divider"></div>')}</div>`];
+  const columns = ['2fr'];
 
-// ── 출석 현황 / 과제 수행도 (전월 + 이번 달 현재까지) ──
-function miniCard(label: string, rate: number | null, sub: string): string {
-  if (rate == null) {
-    return `
-    <div class="kpi-card">
-      <div class="kpi-label">${label}</div>
-      <div class="kpi-value">—</div>
-      <div class="kpi-sub">기록 없음</div>
-    </div>`;
+  if (p.attendance) {
+    const a = p.attendance;
+    cards.push(
+      `<div class="metric-card">${metricStat(
+        `${a.month}월 출석률`,
+        a.rate != null ? f0(a.rate) : '—',
+        a.rate != null ? '%' : '',
+        a.rate != null ? `출석 ${a.present} · 지각 ${a.late} · 결석 ${a.absent}` : '기록 없음',
+      )}</div>`,
+    );
+    columns.push('1fr');
   }
-  return `
-    <div class="kpi-card">
-      <div class="kpi-label">${label}</div>
-      <div class="kpi-value">${f0(rate)}<span class="kpi-unit">%</span></div>
-      <div class="kpi-sub">${sub}</div>
-    </div>`;
-}
+  if (p.homework) {
+    const h = p.homework;
+    cards.push(
+      `<div class="metric-card">${metricStat(
+        `${h.month}월 과제 수행도`,
+        h.rate != null ? f0(h.rate) : '—',
+        h.rate != null ? '%' : '',
+        h.rate != null ? `상 ${h.high} · 중 ${h.mid} · 하 ${h.low}` : '기록 없음',
+      )}</div>`,
+    );
+    columns.push('1fr');
+  }
 
-function buildAttendanceSection(show: boolean, s: AttendanceStatsInput | null): string {
-  if (!show || !s) return '';
-  const prevCard = miniCard(
-    s.prevMonth ? `${s.prevMonth}월 출석` : '지난달 출석',
-    s.prevRate,
-    `출석 ${s.prevPresent || 0} · 지각 ${s.prevLate || 0} · 결석 ${s.prevAbsent || 0}`,
-  );
-  const curCard = miniCard(
-    `${s.curMonth}월 출석 (현재까지)`,
-    s.curRate,
-    `출석 ${s.curPresent || 0} · 지각 ${s.curLate || 0} · 결석 ${s.curAbsent || 0}`,
-  );
   return `
   <div class="section">
-    <div class="sec-title">출석 현황</div>
-    <div class="mini-kpi-grid">
-      ${prevCard}
-      ${curCard}
-    </div>
-  </div>`;
-}
-
-function buildHomeworkPerformanceSection(show: boolean, s: HomeworkPerfStatsInput | null): string {
-  if (!show || !s) return '';
-  const prevCard = miniCard(
-    s.prevMonth ? `${s.prevMonth}월 과제 수행률` : '지난달 과제 수행률',
-    s.prevRate,
-    `상 ${s.prevHigh || 0} · 중 ${s.prevMid || 0} · 하 ${s.prevLow || 0}`,
-  );
-  const curCard = miniCard(
-    `${s.curMonth}월 과제 수행률 (현재까지)`,
-    s.curRate,
-    `상 ${s.curHigh || 0} · 중 ${s.curMid || 0} · 하 ${s.curLow || 0}`,
-  );
-  return `
-  <div class="section">
-    <div class="sec-title">과제 수행도</div>
-    <div class="mini-kpi-grid">
-      ${prevCard}
-      ${curCard}
+    <div class="sec-title">핵심 지표</div>
+    <div class="metric-row" style="grid-template-columns:${columns.join(' ')};">
+      ${cards.join('\n      ')}
     </div>
   </div>`;
 }
@@ -406,6 +364,19 @@ function buildTypeAnalysis(
 </div>`;
   }
 
+  const radar =
+    typeList.length >= RADAR_MIN && typeList.length <= RADAR_MAX
+      ? buildTypeRadar(
+          typeList.map((t) => ({
+            label: t.method,
+            correct: t.correct,
+            total: t.total,
+            pct: t.pct,
+            status: bot3.includes(t.method) ? 'bad' : top3.includes(t.method) ? 'good' : '',
+          })),
+        )
+      : '';
+
   return `
 <div class="type-rep-grid">
   <div class="type-rep-box rep-good">
@@ -417,7 +388,75 @@ function buildTypeAnalysis(
     ${botItems}
   </div>
 </div>
-${barRows}`;
+${radar || barRows}`;
+}
+
+// ── 유형별 진단: 세부 유형 정답률 다각형(레이더) 그래프 ──
+// 꼭짓점이 3개 미만이면 다각형이 안 되고, 너무 많으면 글자가 겹쳐서 이 범위 밖은 막대 목록으로 표시.
+const RADAR_MIN = 3;
+const RADAR_MAX = 12;
+
+function buildTypeRadar(
+  items: { label: string; correct: number; total: number; pct: number; status: 'good' | 'bad' | '' }[],
+): string {
+  const W = 600;
+  const H = 400;
+  const cx = W / 2;
+  const cy = H / 2 + 4;
+  const R = 128;
+  const n = items.length;
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const angle = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
+  const pt = (i: number, radius: number) => [r2(cx + Math.cos(angle(i)) * radius), r2(cy + Math.sin(angle(i)) * radius)];
+  const poly = (radius: (i: number) => number) =>
+    items.map((_, i) => pt(i, radius(i)).join(',')).join(' ');
+
+  const rings = [0.25, 0.5, 0.75, 1]
+    .map(
+      (f) =>
+        `<polygon points="${poly(() => R * f)}" fill="${f === 1 ? '#F7F9FD' : 'none'}" stroke="#E3E8F2" stroke-width="1"/>`,
+    )
+    .join('');
+  const ringLabel = `<text x="${cx + 5}" y="${r2(cy - R / 2 + 11)}" fill="#B3BBCB" font-size="9">50%</text>`;
+  const axes = items
+    .map((_, i) => {
+      const [x, y] = pt(i, R);
+      return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#E3E8F2" stroke-width="1"/>`;
+    })
+    .join('');
+  const dataPoly = `<polygon points="${poly((i) => (R * items[i].pct) / 100)}" fill="rgba(74,124,255,0.22)" stroke="${BRAND_BLUE}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  const dots = items
+    .map((it, i) => {
+      const [x, y] = pt(i, (R * it.pct) / 100);
+      const color = it.status === 'bad' ? BRAND_PINK : BRAND_BLUE;
+      return `<circle cx="${x}" cy="${y}" r="4.5" fill="${color}" stroke="#fff" stroke-width="2"/>`;
+    })
+    .join('');
+  const labels = items
+    .map((it, i) => {
+      const cos = Math.cos(angle(i));
+      const sin = Math.sin(angle(i));
+      const [x, y0] = pt(i, R + 20);
+      const anchor = Math.abs(cos) < 0.3 ? 'middle' : cos > 0 ? 'start' : 'end';
+      const y = r2(sin < -0.7 ? y0 - 14 : sin > 0.7 ? y0 + 6 : y0 - 4);
+      const nameColor = it.status === 'bad' ? '#E14D67' : '#1F2A44';
+      return (
+        `<text x="${x}" y="${y}" text-anchor="${anchor}" font-size="12.5" font-weight="700" fill="${nameColor}">${esc(it.label)}</text>` +
+        `<text x="${x}" y="${r2(y + 15)}" text-anchor="${anchor}" font-size="11" fill="#8A93A6">${it.correct}/${it.total}문항 · ${it.pct}%</text>`
+      );
+    })
+    .join('');
+
+  return `
+<div class="chart-card radar-card">
+  <div class="radar-caption">세부 유형별 정답률 — 바깥쪽으로 넓게 퍼질수록 잘한 유형이에요.
+    <span class="radar-legend"><span class="radar-dot" style="background:${BRAND_BLUE};"></span>우수·보통
+    <span class="radar-dot" style="background:${BRAND_PINK};margin-left:10px;"></span>취약</span>
+  </div>
+  <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">
+    ${rings}${axes}${ringLabel}${dataPoly}${dots}${labels}
+  </svg>
+</div>`;
 }
 
 // ── 프리미엄: 월간 누적 분석 ──
@@ -538,6 +577,7 @@ export function wrongDetailsForAi(wrongNumbers: number[], details: QuestionDetai
   return out;
 }
 
+// 오답이 많으면 문항 카드가 세로로 길게 늘어져서, 같은 단원끼리 카드 하나로 묶고 2단으로 배치.
 function buildWrongDetailCards(
   wrongNumbers: number[],
   details: QuestionDetail[] | null,
@@ -550,46 +590,40 @@ function buildWrongDetailCards(
   }
 
   const map = detailMap(details);
-  const cards: string[] = [];
-  for (const n of wrongNumbers) {
+  const groups = new Map<string, number[]>();
+  for (const n of [...wrongNumbers].sort((a, b) => a - b)) {
     const d = map.get(n);
-    const comment = comments[n] ?? '';
-    if (!d) {
-      cards.push(
-        `<div class="wrong-card">` +
-          `<div class="wrong-card-header">` +
-          `<span class="wrong-card-num">${n}번</span>` +
-          `<span class="wrong-card-topic" style="color:#8A93A6;">문항 정보 없음</span>` +
-          `</div></div>`,
-      );
-      continue;
-    }
-    const topic = d.topic || '미분류';
-    const method = d.questionMethod || '';
-    const diff = (d.difficulty || '').toUpperCase();
-    const diffCls = DIFF_CLASS[diff] ?? 'diff-default';
-    const diffLbl = DIFF_LABEL[diff] ?? (d.difficulty || '—');
-
-    const methodHtml = method
-      ? `<div class="wrong-card-meta">` +
-        `<span class="wrong-card-method-label">풀이유형</span>` +
-        `<span class="wrong-card-method">${esc(method)}</span>` +
-        `</div>`
-      : '';
-    const commentHtml = comment ? `<div class="wrong-card-comment">${esc(comment)}</div>` : '';
-
-    cards.push(`
-<div class="wrong-card">
-  <div class="wrong-card-header">
-    <span class="wrong-card-num">${n}번</span>
-    <span class="wrong-card-topic">${esc(topic)}</span>
-    <span class="wrong-card-diff ${diffCls}">난이도 ${esc(diffLbl)}</span>
-  </div>
-  ${methodHtml}
-  ${commentHtml}
-</div>`);
+    const topic = d ? d.topic || '미분류' : '문항 정보 없음';
+    groups.set(topic, [...(groups.get(topic) ?? []), n]);
   }
-  return `<div class="wrong-card-list">${cards.join('')}</div>`;
+  const ordered = Array.from(groups.entries()).sort((a, b) => b[1].length - a[1].length || a[1][0] - b[1][0]);
+
+  const cards = ordered.map(([topic, nums]) => {
+    const rows = nums
+      .map((n) => {
+        const d = map.get(n);
+        const diff = (d?.difficulty || '').toUpperCase();
+        const diffHtml = d
+          ? `<span class="wrong-card-diff ${DIFF_CLASS[diff] ?? 'diff-default'}">${esc(DIFF_LABEL[diff] ?? (d.difficulty || '—'))}</span>`
+          : '';
+        const method = d?.questionMethod ? `<span class="wg-method">${esc(d.questionMethod)}</span>` : '';
+        const comment = comments[n] ? `<div class="wg-comment">${esc(comments[n])}</div>` : '';
+        return `
+      <div class="wg-item">
+        <div class="wg-line"><span class="wrong-card-num">${n}번</span>${diffHtml}${method}</div>${comment}
+      </div>`;
+      })
+      .join('');
+    return `
+  <div class="wg-card">
+    <div class="wg-head"><span class="wg-topic">${esc(topic)}</span><span class="wg-count">오답 ${nums.length}문항</span></div>${rows}
+  </div>`;
+  });
+
+  return `
+<p class="wg-summary">총 <strong>${wrongNumbers.length}문항</strong> 오답 · <strong>${ordered.length}개</strong> 단원</p>
+<div class="wg-grid">${cards.join('')}
+</div>`;
 }
 
 // ── 정규분포 곡선 SVG ──
@@ -721,7 +755,7 @@ export function buildAcademyTestReportHtml(p: AcademyTestReportInput): string {
   const isLite = p.reportMode === 'lite';
   const isPremium = p.reportMode === 'premium';
 
-  const kpiCards = buildKpiCards({
+  const keyMetricsHtml = buildKeyMetrics({
     score: p.score,
     accuracy,
     classAvg,
@@ -729,10 +763,9 @@ export function buildAcademyTestReportHtml(p: AcademyTestReportInput): string {
     totalStudents,
     showClassAvg: p.showClassAvg,
     showClassRank: p.showClassRank && !isLite,
+    attendance: p.showAttendance ? p.attendanceStats : null,
+    homework: p.showHomeworkPerf ? p.homeworkPerfStats : null,
   });
-
-  const attendanceSectionHtml = buildAttendanceSection(p.showAttendance, p.attendanceStats);
-  const homeworkPerfSectionHtml = buildHomeworkPerformanceSection(p.showHomeworkPerf, p.homeworkPerfStats);
 
   let wrongSectionHtml: string;
   let typeAnalysisHtml: string;
@@ -1392,6 +1425,100 @@ export function buildAcademyTestReportHtml(p: AcademyTestReportInput): string {
   .delta-up   { color: #13AE67; font-weight: 700; }
   .delta-down { color: #FF5555; font-weight: 700; }
 
+  /* ── 핵심 지표 한 줄 (2:1:1) ── */
+  .metric-row {
+    display: grid;
+    gap: 14px;
+  }
+  .metric-card {
+    background: #FFFFFF;
+    border: 1.5px solid #BFD3FF;
+    border-radius: 16px;
+    padding: 18px 10px 16px;
+    text-align: center;
+    box-shadow: 0 6px 14px rgba(74,124,255,0.10);
+    display: flex;
+    align-items: center;
+  }
+  .metric-stat { flex: 1; min-width: 0; }
+  .metric-divider {
+    width: 1px;
+    align-self: stretch;
+    background: #E3E8F2;
+    margin: 2px 6px;
+  }
+  .metric-value {
+    font-size: 34px;
+    font-weight: 800;
+    color: ${BRAND_BLUE};
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+  .metric-card .kpi-label { font-size: 12.5px; margin-bottom: 9px; }
+  .metric-card .kpi-sub { font-size: 11.5px; }
+
+  /* ── 유형별 진단: 레이더(다각형) 그래프 ── */
+  .radar-card { padding: 16px 20px 8px; }
+  .radar-caption {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+    color: #8A93A6;
+  }
+  .radar-legend { display: inline-flex; align-items: center; gap: 4px; }
+  .radar-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  /* ── 오답 문항 분석: 단원별 묶음 (2단) ── */
+  .wg-summary { font-size: 12.5px; color: #5B6B8C; margin: 0 2px 12px; }
+  .wg-summary strong { color: #E14D67; }
+  .wg-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .wg-card {
+    background: #FFFFFF;
+    border: 1.5px solid #FCD0DD;
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+  .wg-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 9px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed #FAD8E2;
+  }
+  .wg-topic { font-size: 14px; font-weight: 800; color: #1F2A44; }
+  .wg-count {
+    font-size: 11px;
+    font-weight: 700;
+    color: #E14D67;
+    background: #FDEEF2;
+    padding: 2px 9px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .wg-item + .wg-item { margin-top: 7px; }
+  .wg-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .wg-line .wrong-card-num { font-size: 11.5px; padding: 2px 9px; }
+  .wg-line .wrong-card-diff { font-size: 10.5px; padding: 1px 8px; }
+  .wg-method { font-size: 12px; color: #3A4763; }
+  .wg-comment {
+    font-size: 12px;
+    color: #A0455E;
+    background: #FDF2F5;
+    border-radius: 8px;
+    padding: 6px 10px;
+    margin-top: 5px;
+    line-height: 1.6;
+  }
+
   /* ── 푸터 ── */
   .footer {
     text-align: center;
@@ -1416,7 +1543,8 @@ export function buildAcademyTestReportHtml(p: AcademyTestReportInput): string {
     .tab-row, .date-row { display: none; }
     .hero { padding-bottom: 26px; }
     .section, .kpi-card, .info-card, .chart-card,
-    .wrong-card, .comment-card, .type-rep-box, .type-row-box {
+    .wrong-card, .comment-card, .type-rep-box, .type-row-box,
+    .metric-card, .wg-card {
       break-inside: avoid;
     }
   }
@@ -1447,17 +1575,11 @@ export function buildAcademyTestReportHtml(p: AcademyTestReportInput): string {
 
   ${infoSection}
 
-  <!-- 핵심 지표 -->
-  <div class="section">
-    <div class="sec-title">핵심 지표</div>
-    <div class="kpi-grid">
-      ${kpiCards}
-    </div>
-  </div>
+  <!-- 핵심 지표 (점수·반평균 / 출석률 / 과제 수행도) -->
+  ${keyMetricsHtml}
 
-  ${attendanceSectionHtml}
-
-  ${homeworkPerfSectionHtml}
+  <!-- 반 분포 곡선 -->
+  ${distSection}
 
   <!-- 유형별 진단 -->
   ${typeSection}
@@ -1472,9 +1594,6 @@ export function buildAcademyTestReportHtml(p: AcademyTestReportInput): string {
 
   <!-- 최근 점수 추이 -->
   ${historySection}
-
-  <!-- 반 분포 곡선 -->
-  ${distSection}
 
   ${monthlySectionHtml}
 

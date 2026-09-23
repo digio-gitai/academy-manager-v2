@@ -195,37 +195,10 @@ export function prevYearMonth(yearMonth: string): string {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
 }
 
-export interface ReportMonthPeriods {
-  curFrom: string;
-  curTo: string;
-  curMonthNum: number;
-  prevFrom: string | null;
-  prevTo: string | null;
-  prevMonthNum: number | null;
-}
-
-export function reportMonthPeriods(testDate: string): ReportMonthPeriods {
-  const curYm = testDate.slice(0, 7);
-  const prevYm = prevYearMonth(curYm);
-  let prevFrom: string | null = null;
-  let prevTo: string | null = null;
-  let prevMonthNum: number | null = null;
-  if (prevYm) {
-    const py = parseInt(prevYm.slice(0, 4), 10);
-    const pm = parseInt(prevYm.slice(5, 7), 10);
-    const lastDay = new Date(py, pm, 0).getDate();
-    prevFrom = `${prevYm}-01`;
-    prevTo = `${prevYm}-${String(lastDay).padStart(2, '0')}`;
-    prevMonthNum = pm;
-  }
-  return {
-    curFrom: `${curYm}-01`,
-    curTo: testDate,
-    curMonthNum: parseInt(curYm.slice(5, 7), 10),
-    prevFrom,
-    prevTo,
-    prevMonthNum,
-  };
+/** 보고서 기준 기간 — 시험일이 속한 달의 1일 ~ 시험일(현재까지). */
+export function reportMonthPeriod(testDate: string): { from: string; to: string; month: number } {
+  const ym = testDate.slice(0, 7);
+  return { from: `${ym}-01`, to: testDate, month: parseInt(ym.slice(5, 7), 10) };
 }
 
 export interface AttendanceSummary {
