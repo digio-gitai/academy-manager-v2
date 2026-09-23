@@ -1,39 +1,127 @@
-import logoDataUrl from '../assets/logo_jmath.png?inline';
-import type { AttendanceStatus } from '../types/attendance';
+import type { AttendanceLogRow, AttendanceStatus } from '../types/attendance';
+import type { MakeupSession } from './makeup';
 
 /**
- * 학부모에게 링크로 보내는 "학생 1명 · 한 달" 출석 내역 페이지(A4). 학원시험
- * 보고서(academyTestReportHtml.ts)와 같은 블루 테마·로고를 써서 학부모가 받는
- * 문서들의 모양을 맞춤. report_links에 저장돼 /parent-report?token= 으로 열람.
+ * 학생 1명 · 한 달 "출석 내역" 문서(A4 1장). 출석 관리 화면의 기존 출석부 인쇄
+ * 디자인(녹색·골드, 통계 → 캘린더 → 기록 순)을 그대로 따르되 반 단위가 아니라
+ * 학생 단위로 한 페이지씩 나오게 만든 것. 같은 HTML을 인쇄(여러 명이면 학생마다
+ * 한 페이지)와 학부모 문자 링크(report_links → /parent-report) 양쪽에 쓴다.
  */
 
-const BRAND_BLUE = '#4A7CFF';
-const ACADEMY_NAME = 'J MATH';
-const TEACHER_NAME = '정재훈';
-
-const STATUS_LABEL: Record<AttendanceStatus, string> = {
-  present: '출석',
-  late: '지각',
-  absent: '결석',
-  cancelled: '휴강',
+const C = {
+  primary: '#1F3D2B',
+  accent: '#C9A961',
+  late: '#E08A3C',
+  absent: '#C94B3C',
+  makeup: '#2F7D5B',
+  muted: 'rgba(31,61,43,0.6)',
+  faint: 'rgba(31,61,43,0.45)',
+  border: 'rgba(31,61,43,0.12)',
+  pageBg: '#EFEAE0',
+  tint: '#F0E6D2',
 };
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
-export interface AttendanceReportInput {
+export type AttendanceNoteKind = '보강' | '휴강' | '지각' | '결석' | '비고';
+
+export interface AttendanceStatLine {
+  className: string;
+  present: number;
+  late: number;
+  absent: number;
+  cancelled: number;
+  makeup: number;
+  rate: number | null;
+}
+
+export interface StudentAttendanceData {
   studentName: string;
   className: string;
   year: number;
   month: number;
-  present: number;
-  late: number;
-  absent: number;
-  /** 휴강 제외 출석률(출석+지각)/전체. 기록이 없으면 null. */
-  rate: number | null;
-  /** 날짜(일) → 그날 상태. */
+  stats: AttendanceStatLine[];
   dayStatus: Record<number, AttendanceStatus>;
-  /** 지각·결석·휴강·비고가 있는 기록(날짜순). */
-  notes: { date: string; weekday: string; status: AttendanceStatus; note: string }[];
+  makeupDays: number[];
+  notes: { date: string; weekday: string; kind: AttendanceNoteKind; text: string }[];
+}
+
+const KIND_ORDER: AttendanceNoteKind[] = ['휴강', '보강', '결석', '지각', '비고'];
+
+function weekdayOf(date: string): string {
+  const d = new Date(`${date}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? '' : WEEKDAYS[d.getDay()];
+}
+
+/**
+ * 한 학생의 한 달 출결 로그 + 보강 기록을 문서용 데이터로 모은다.
+ * 출결도 보강도 하나도 없으면 null(보낼·인쇄할 내용이 없음).
+ */
+export function collectStudentAttendance(
+  student: { id: string; name: string; className: string },
+  log: AttendanceLogRow[],
+  makeups: MakeupSession[],
+  year: number,
+  month: number,
+): StudentAttendanceData | null {
+  const rows = log.filter((r) => r.studentId === student.id);
+  const myMakeups = makeups.filter((m) => m.students.some((s) => s.id === student.id));
+  if (rows.length === 0 && myMakeups.length === 0) return null;
+
+  const byClass = new Map<string, AttendanceStatLine>();
+  const line = (className: string) => {
+    let l = byClass.get(className);
+    if (!l) {
+      l = { className, present: 0, late: 0, absent: 0, cancelled: 0, makeup: 0, rate: null };
+      byClass.set(className, l);
+    }
+    return l;
+  };
+
+  const dayStatus: Record<number, AttendanceStatus> = {};
+  const notes: StudentAttendanceData['notes'] = [];
+  for (const r of rows) {
+    const l = line(r.className);
+    if (r.status === 'present') l.present += 1;
+    else if (r.status === 'late') l.late += 1;
+    else if (r.status === 'absent') l.absent += 1;
+    else l.cancelled += 1;
+    const day = Number(r.date.slice(8, 10));
+    if (!Number.isNaN(day)) dayStatus[day] = r.status;
+
+    const note = r.note.trim();
+    if (r.status === 'cancelled') notes.push({ date: r.date, weekday: r.weekday, kind: '휴강', text: note || '휴강' });
+    else if (r.status === 'late') notes.push({ date: r.date, weekday: r.weekday, kind: '지각', text: note });
+    else if (r.status === 'absent') notes.push({ date: r.date, weekday: r.weekday, kind: '결석', text: note });
+    else if (note) notes.push({ date: r.date, weekday: r.weekday, kind: '비고', text: note });
+  }
+
+  const makeupDays: number[] = [];
+  for (const m of myMakeups) {
+    const target = byClass.has(m.className) ? m.className : (byClass.keys().next().value ?? student.className);
+    line(target).makeup += 1;
+    const day = Number(m.date.slice(8, 10));
+    if (!Number.isNaN(day)) makeupDays.push(day);
+    notes.push({ date: m.date, weekday: weekdayOf(m.date), kind: '보강', text: m.content || '보강 수업' });
+  }
+
+  for (const l of byClass.values()) {
+    const total = l.present + l.late + l.absent;
+    l.rate = total ? Math.round(((l.present + l.late) / total) * 1000) / 10 : null;
+  }
+  notes.sort((a, b) => a.date.localeCompare(b.date) || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
+
+  const stats = Array.from(byClass.values());
+  return {
+    studentName: student.name,
+    className: stats.map((s) => s.className).join(', ') || student.className,
+    year,
+    month,
+    stats,
+    dayStatus,
+    makeupDays,
+    notes,
+  };
 }
 
 function esc(s: string): string {
@@ -48,253 +136,217 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function buildCalendar(year: number, month: number, dayStatus: Record<number, AttendanceStatus>): string {
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const startWeekday = new Date(year, month - 1, 1).getDay();
-  const cells: string[] = [];
-  for (let i = 0; i < startWeekday; i++) cells.push('<div class="cal-cell cal-empty"></div>');
-  for (let d = 1; d <= daysInMonth; d++) {
-    const st = dayStatus[d];
-    const weekday = (startWeekday + d - 1) % 7;
-    const dayCls = weekday === 0 ? ' sun' : weekday === 6 ? ' sat' : '';
-    cells.push(
-      `<div class="cal-cell${st ? ` has-${st}` : ''}">` +
-        `<span class="cal-day${dayCls}">${d}</span>` +
-        (st ? `<span class="cal-chip chip-${st}">${STATUS_LABEL[st]}</span>` : '') +
-        `</div>`,
-    );
-  }
-  while (cells.length % 7 !== 0) cells.push('<div class="cal-cell cal-empty"></div>');
-  const head = WEEKDAYS.map(
-    (w, i) => `<div class="cal-head${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}">${w}</div>`,
-  ).join('');
-  return `<div class="cal-grid">${head}${cells.join('')}</div>`;
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-export function buildAttendanceReportHtml(p: AttendanceReportInput): string {
-  const name = esc(p.studentName);
-  const monthLabel = `${p.year}년 ${p.month}월`;
-  const now = new Date();
-  const generatedAt = `${now.getFullYear()}.${pad2(now.getMonth() + 1)}.${pad2(now.getDate())} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-  const total = p.present + p.late + p.absent;
+function calendarHtml(d: StudentAttendanceData): string {
+  const daysInMonth = new Date(d.year, d.month, 0).getDate();
+  const start = new Date(d.year, d.month - 1, 1).getDay();
+  const makeup = new Set(d.makeupDays);
+  const cells: string[] = [];
+  for (let i = 0; i < start; i++) cells.push('<td></td>');
+  for (let day = 1; day <= daysInMonth; day++) {
+    const st = d.dayStatus[day];
+    const mk = makeup.has(day);
+    cells.push(
+      `<td><span class="day" data-status="${st ?? 'none'}">${day}</span>${mk ? '<span class="mk">보강</span>' : ''}</td>`,
+    );
+  }
+  while (cells.length % 7 !== 0) cells.push('<td></td>');
+  const weeks: string[] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(`<tr>${cells.slice(i, i + 7).join('')}</tr>`);
+  return `<table class="cal"><thead><tr>${WEEKDAYS.map((w) => `<th>${w}</th>`).join('')}</tr></thead><tbody>${weeks.join('')}</tbody></table>`;
+}
 
-  const kpi = (label: string, value: string, unit: string, cls = '') => `
-      <div class="kpi-card ${cls}">
-        <div class="kpi-label">${label}</div>
-        <div class="kpi-value">${value}<span class="kpi-unit">${unit}</span></div>
-      </div>`;
+function pageHtml(d: StudentAttendanceData): string {
+  const monthLabel = `${d.year}년 ${d.month}월`;
+  const totals = d.stats.reduce(
+    (a, s) => ({
+      present: a.present + s.present,
+      late: a.late + s.late,
+      absent: a.absent + s.absent,
+      cancelled: a.cancelled + s.cancelled,
+      makeup: a.makeup + s.makeup,
+    }),
+    { present: 0, late: 0, absent: 0, cancelled: 0, makeup: 0 },
+  );
+  const attended = totals.present + totals.late + totals.absent;
+  const rate = attended ? Math.round(((totals.present + totals.late) / attended) * 1000) / 10 : null;
 
-  const notesHtml =
-    p.notes.length === 0
-      ? '<div class="all-good">이번 달은 모두 정상 출석했습니다. 👏</div>'
-      : `<table class="note-table">
-      <thead><tr><th>날짜</th><th>상태</th><th>비고</th></tr></thead>
-      <tbody>${p.notes
-        .map(
-          (r) =>
-            `<tr><td>${esc(r.date.slice(5).replace('-', '/'))} (${esc(r.weekday)})</td>` +
-            `<td><span class="cal-chip chip-${r.status}">${STATUS_LABEL[r.status]}</span></td>` +
-            `<td>${r.note ? esc(r.note) : '—'}</td></tr>`,
-        )
-        .join('')}</tbody>
-    </table>`;
+  const statRows = d.stats
+    .map(
+      (s) =>
+        `<tr><td>${esc(s.className)}</td><td>${s.present}</td><td>${s.late}</td><td>${s.absent}</td>` +
+        `<td>${s.cancelled}</td><td>${s.makeup}</td><td>${s.rate != null ? `${s.rate}%` : '—'}</td></tr>`,
+    )
+    .join('');
 
+  const notes =
+    d.notes.length === 0
+      ? '<p class="empty">해당 사항 없음 — 보강·휴강 없이 정상 수업했습니다.</p>'
+      : `<table class="tbl"><thead><tr><th style="width:120px">날짜</th><th style="width:70px">구분</th><th>내용</th></tr></thead><tbody>${d.notes
+          .map(
+            (n) =>
+              `<tr><td>${esc(n.date)} (${esc(n.weekday)})</td><td><span class="tag tag-${n.kind}">${n.kind}</span></td>` +
+              `<td>${n.text ? esc(n.text) : '—'}</td></tr>`,
+          )
+          .join('')}</tbody></table>`;
+
+  return `
+<section class="sheet">
+  <header class="head">
+    <div class="title">${esc(d.studentName)} 출석 내역</div>
+    <div class="sub">${esc(d.className)} · ${monthLabel} · 생성일 ${todayStr()}</div>
+  </header>
+
+  <div class="card">
+    <h3>출석 통계</h3>
+    <table class="tbl">
+      <thead><tr><th>수업</th><th>출석</th><th>지각</th><th>결석</th><th>휴강</th><th>보강</th><th>출석률</th></tr></thead>
+      <tbody>${statRows}</tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>출석 캘린더 <small>${monthLabel}</small></h3>
+    <div class="cal-line">출석 ${totals.present} · 지각 ${totals.late} · 결석 ${totals.absent} · 휴강 ${totals.cancelled} · 보강 ${totals.makeup}${
+      rate != null ? ` · 출석률 ${rate}%` : ''
+    }</div>
+    ${calendarHtml(d)}
+    <div class="legend">
+      <span><i class="day" data-status="present">&nbsp;</i>출석</span>
+      <span><i class="day" data-status="late">&nbsp;</i>지각</span>
+      <span><i class="day" data-status="absent">&nbsp;</i>결석</span>
+      <span><i class="day" data-status="cancelled">&nbsp;</i>휴강</span>
+      <span><i class="mk">보강</i>보강</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>보강 진행 및 기타</h3>
+    ${notes}
+  </div>
+
+  <footer class="foot">J MATH · 정재훈 강사</footer>
+</section>`;
+}
+
+/**
+ * 학생 여러 명(인쇄) 또는 1명(학부모 링크)의 출석 내역 문서.
+ * autoPrint면 열리자마자 인쇄창을 띄운다.
+ */
+export function buildAttendanceReportDocument(pages: StudentAttendanceData[], opts: { autoPrint?: boolean } = {}): string {
+  const title =
+    pages.length === 1 ? `${pages[0].studentName} ${pages[0].year}년 ${pages[0].month}월 출석 내역` : '출석 내역';
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=834">
-<title>${name} ${monthLabel} 출석 내역</title>
+<title>${esc(title)}</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
-    background: #EFF2F8;
-    color: #1F2A44;
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+    background: ${C.pageBg};
+    color: ${C.primary};
   }
-  .page {
+  .sheet {
     width: 794px;
-    margin: 0 auto;
+    margin: 0 auto 24px;
+    padding: 28px 34px 22px;
+    background: ${C.pageBg};
+  }
+  .head { padding-bottom: 10px; margin-bottom: 14px; border-bottom: 2px solid ${C.accent}; }
+  .title { font-size: 22px; font-weight: 800; }
+  .sub { font-size: 12px; color: ${C.muted}; margin-top: 3px; }
+  .card {
     background: #FFFFFF;
-    padding: 26px 30px 36px;
-    box-shadow: 0 4px 30px rgba(31,42,68,0.10);
+    border: 1px solid rgba(31,61,43,0.07);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
   }
-  .hero {
-    background: ${BRAND_BLUE};
-    border-radius: 22px;
-    padding: 24px 28px;
-    display: flex;
-    align-items: center;
-    gap: 22px;
+  .card h3 { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
+  .card h3 small { font-size: 12px; color: ${C.muted}; font-weight: 600; margin-left: 4px; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .tbl th {
+    text-align: left; font-size: 11px; color: ${C.faint}; font-weight: 700;
+    padding: 6px 8px; border-bottom: 1px solid ${C.border};
   }
-  .hero-logo {
-    width: 92px; height: 92px;
-    background: #FFFFFF;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    overflow: hidden;
-    flex-shrink: 0;
+  .tbl td { padding: 7px 8px; border-bottom: 1px solid rgba(31,61,43,0.05); }
+  .cal-line { font-size: 11.5px; color: ${C.muted}; margin: -4px 0 8px; }
+  .cal { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .cal th { font-size: 11px; font-weight: 700; color: ${C.faint}; padding: 3px 0; text-align: center; }
+  .cal td { text-align: center; padding: 3px 0; height: 44px; vertical-align: top; }
+  .day {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%;
+    font-size: 12px; font-style: normal; color: ${C.faint};
   }
-  .hero-logo img { width: 84%; height: 84%; object-fit: contain; }
-  .hero-text { flex: 1; text-align: center; padding-right: 40px; }
-  .hero-text h1 { color: #FFFFFF; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 6px; }
-  .hero-sub { color: rgba(255,255,255,0.85); font-size: 13px; }
-  .greeting { font-size: 13px; color: #5B6B8C; line-height: 1.7; margin: 16px 4px 26px; }
-  .section { margin-bottom: 30px; }
-  .sec-title {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 16px; font-weight: 800; color: #1F2A44;
-    margin: 0 0 14px 2px;
+  .day[data-status='present'] { background: ${C.accent}; color: #FFFFFF; font-weight: 700; }
+  .day[data-status='late'] { background: ${C.late}; color: #FFFFFF; font-weight: 700; }
+  .day[data-status='absent'] { border: 1.5px solid ${C.absent}; color: ${C.absent}; font-weight: 700; }
+  .day[data-status='cancelled'] { background: rgba(31,61,43,0.1); color: ${C.faint}; text-decoration: line-through; }
+  .mk {
+    display: block; width: fit-content; margin: 2px auto 0;
+    font-size: 9.5px; font-weight: 700; font-style: normal; color: #FFFFFF;
+    background: ${C.makeup}; border-radius: 6px; padding: 0 5px; line-height: 14px;
   }
-  .sec-title::before {
-    content: ''; width: 9px; height: 9px; border-radius: 50%;
-    background: ${BRAND_BLUE}; flex-shrink: 0;
-  }
-  .sec-title small { font-size: 12px; font-weight: 600; color: ${BRAND_BLUE}; }
-  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-  .kpi-card {
-    border: 1.5px solid #BFD3FF;
-    border-radius: 16px;
-    padding: 18px 10px 16px;
-    text-align: center;
-    box-shadow: 0 6px 14px rgba(74,124,255,0.10);
-  }
-  .kpi-card.main { background: #F3F7FF; }
-  .kpi-label { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
-  .kpi-value { font-size: 34px; font-weight: 800; color: ${BRAND_BLUE}; letter-spacing: -1px; line-height: 1; }
-  .kpi-unit { font-size: 15px; font-weight: 700; margin-left: 1px; }
-  .kpi-card.late .kpi-value { color: #D98E04; }
-  .kpi-card.absent .kpi-value { color: #E14D67; }
-  .cal-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    border: 1.5px solid #E3E8F2;
-    border-radius: 16px;
-    overflow: hidden;
-  }
-  .cal-head {
-    background: #F3F6FB;
-    text-align: center;
-    font-size: 12px; font-weight: 700; color: #5B6B8C;
-    padding: 8px 0;
-  }
-  .cal-cell {
-    min-height: 64px;
-    border-top: 1px solid #EEF1F6;
-    border-left: 1px solid #EEF1F6;
-    padding: 6px 7px;
-    display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
-  }
-  .cal-cell:nth-child(7n + 1) { border-left: none; }
-  .cal-empty { background: #FAFBFD; }
-  .cal-day { font-size: 12px; font-weight: 700; color: #3A4763; }
-  .cal-day.sun, .cal-head.sun { color: #E14D67; }
-  .cal-day.sat, .cal-head.sat { color: ${BRAND_BLUE}; }
-  .has-present { background: #F3F7FF; }
-  .has-late { background: #FFF8E8; }
-  .has-absent { background: #FDF0F3; }
-  .cal-chip {
-    display: inline-block;
-    font-size: 11px; font-weight: 700;
-    padding: 2px 9px;
-    border-radius: 10px;
-    white-space: nowrap;
-  }
-  .chip-present { background: ${BRAND_BLUE}; color: #FFFFFF; }
-  .chip-late { background: #F8B62D; color: #FFFFFF; }
-  .chip-absent { background: #FFFFFF; color: #E14D67; border: 1.5px solid #E14D67; }
-  .chip-cancelled { background: #E8EBF1; color: #8A93A6; }
-  .legend { display: flex; gap: 12px; justify-content: flex-end; margin-top: 8px; font-size: 11px; color: #8A93A6; }
+  .legend { display: flex; gap: 14px; justify-content: flex-end; font-size: 11px; color: ${C.muted}; margin-top: 4px; }
   .legend span { display: inline-flex; align-items: center; gap: 4px; }
-  .note-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .note-table th {
-    text-align: left; font-size: 12px; color: #5B6B8C; font-weight: 700;
-    padding: 8px 10px; background: #F3F6FB;
+  .legend .day { width: 14px; height: 14px; font-size: 0; }
+  .legend .mk { display: inline-block; margin: 0; }
+  .tag {
+    display: inline-block; font-size: 10.5px; font-weight: 700;
+    padding: 2px 9px; border-radius: 100px; white-space: nowrap;
   }
-  .note-table td { padding: 9px 10px; border-bottom: 1px solid #EEF1F6; }
-  .all-good {
-    background: #E8F8EF; border: 1.5px solid #86EFAC; color: #16A34A;
-    font-size: 13px; font-weight: 700; padding: 12px 16px; border-radius: 12px;
-  }
-  .footer {
-    text-align: center; padding-top: 22px; margin-top: 6px;
-    color: #8A93A6; font-size: 11px; border-top: 1px solid #E3E8F2;
-  }
-  .footer strong { color: #1F2A44; }
-  @page { size: A4; margin: 8mm; }
+  .tag-보강 { background: ${C.makeup}; color: #FFFFFF; }
+  .tag-휴강 { background: rgba(31,61,43,0.1); color: ${C.primary}; }
+  .tag-지각 { background: #FBE9D7; color: #9A5A1C; }
+  .tag-결석 { background: #F6DEDA; color: ${C.absent}; }
+  .tag-비고 { background: ${C.tint}; color: ${C.primary}; }
+  .empty { font-size: 12.5px; color: ${C.muted}; }
+  .foot { text-align: right; font-size: 10.5px; color: ${C.faint}; margin-top: 4px; }
+
+  @page { size: A4; margin: 10mm; }
   @media print {
     body { background: #FFFFFF; }
-    .page { width: auto; box-shadow: none; padding: 0; transform: none !important; }
-    .section, .kpi-card, .cal-grid { break-inside: avoid; }
+    .sheet {
+      width: auto; margin: 0; padding: 0; background: #FFFFFF;
+      page-break-after: always; break-after: page;
+      transform: none !important;
+    }
+    .sheet:last-child { page-break-after: auto; break-after: auto; }
+    .card { border: 1px solid ${C.border}; break-inside: avoid; }
   }
 </style>
 </head>
 <body>
-<div class="page">
-  <div class="hero">
-    <div class="hero-logo"><img src="${logoDataUrl}" alt="학원 로고"></div>
-    <div class="hero-text">
-      <h1>${name} 학생 출석 내역</h1>
-      <div class="hero-sub">${esc(p.className)} &nbsp;·&nbsp; ${monthLabel}</div>
-    </div>
-  </div>
-
-  <div class="greeting">
-    안녕하세요, ${ACADEMY_NAME} ${TEACHER_NAME} 강사입니다.<br>${name} 학생의 ${monthLabel} 출석 내역을 보내드립니다.
-  </div>
-
-  <div class="section">
-    <div class="sec-title">이번 달 출석 요약 <small>수업 ${total}회 기준 (휴강 제외)</small></div>
-    <div class="kpi-grid">
-      ${kpi('출석률', p.rate != null ? String(Math.round(p.rate)) : '—', p.rate != null ? '%' : '', 'main')}
-      ${kpi('출석', String(p.present), '회')}
-      ${kpi('지각', String(p.late), '회', 'late')}
-      ${kpi('결석', String(p.absent), '회', 'absent')}
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="sec-title">출석 달력 <small>${monthLabel}</small></div>
-    ${buildCalendar(p.year, p.month, p.dayStatus)}
-    <div class="legend">
-      <span><span class="cal-chip chip-present">출석</span></span>
-      <span><span class="cal-chip chip-late">지각</span></span>
-      <span><span class="cal-chip chip-absent">결석</span></span>
-      <span><span class="cal-chip chip-cancelled">휴강</span></span>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="sec-title">확인이 필요한 기록 <small>지각 · 결석 · 휴강 · 비고</small></div>
-    ${notesHtml}
-  </div>
-
-  <div class="footer">
-    <strong>${ACADEMY_NAME}</strong> &nbsp;·&nbsp; 문의 사항은 학원으로 연락 주세요.<br>
-    생성일시: ${generatedAt}
-  </div>
-</div>
+${pages.map(pageHtml).join('\n')}
 <script>
-(function() {
-  function fitPage() {
-    var page = document.querySelector('.page');
-    if (!page) return;
+(function () {
+  var auto = ${opts.autoPrint ? 'true' : 'false'};
+  function fit() {
     var w = window.innerWidth;
-    if (w < 810) {
-      var s = w / 794;
-      page.style.transform = 'scale(' + s + ')';
-      page.style.transformOrigin = 'top left';
-      document.body.style.overflowX = 'hidden';
-      document.body.style.height = (page.offsetHeight * s) + 'px';
-    } else {
-      page.style.transform = '';
-      document.body.style.height = '';
-      document.body.style.overflowX = '';
-    }
+    var sheets = document.querySelectorAll('.sheet');
+    var s = w < 810 ? w / 794 : 1;
+    sheets.forEach(function (el) {
+      el.style.transform = s < 1 ? 'scale(' + s + ')' : '';
+      el.style.transformOrigin = 'top left';
+      el.style.marginBottom = s < 1 ? (-(1 - s) * el.offsetHeight) + 'px' : '';
+    });
+    document.body.style.overflowX = s < 1 ? 'hidden' : '';
   }
-  window.addEventListener('resize', fitPage);
-  window.addEventListener('load', fitPage);
-  fitPage();
+  window.addEventListener('resize', fit);
+  window.addEventListener('load', function () {
+    fit();
+    if (auto) { window.focus(); window.print(); }
+  });
+  fit();
 })();
 </script>
 </body>

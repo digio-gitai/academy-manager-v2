@@ -66,6 +66,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
   const [records, setRecords] = useState<Record<string, { status: AttendanceStatus; note: string }>>({});
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [cancelReason, setCancelReason] = useState('');
 
   const [homework, setHomework] = useState<TodayHomeworkSummary | null>(null);
   const [homeworkLoading, setHomeworkLoading] = useState(true);
@@ -84,6 +85,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
   // 2026-09-22 추가: 이 날짜에 '전체휴강' 처리된 세션인지 — 반 전체 학생이
   // 전부 'cancelled' 상태로 저장돼 있으면 휴강 세션으로 간주한다.
   const isCancelledSession = alreadySaved && savedRecords.every((r) => r.status === 'cancelled');
+  const savedCancelReason = isCancelledSession ? (savedRecords[0]?.note.trim() ?? '') : '';
 
   useEffect(() => {
     if (!classId || !sessionDate) return;
@@ -92,6 +94,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
     setLoadError('');
     setRecords({});
     setSaveMessage('');
+    setCancelReason('');
     fetchAttendanceForSession(classId, sessionDate)
       .then((data) => {
         if (cancelled) return;
@@ -250,8 +253,11 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
    */
   async function handleCancelClass() {
     if (!selectedClass || selectedClass.students.length === 0) return;
+    const reason = cancelReason.trim();
+    if (!reason) return;
     const ok = window.confirm(
       `${selectedClass.name} 수업 ${sessionDate}(${weekdayLabel})을 전체 휴강 처리하시겠습니까?\n` +
+        `휴강 사유: ${reason}\n` +
         `결석으로 기록되지 않고 출석 통계에서 제외됩니다.\n` +
         `나중에 수업을 하게 되면 학생별로 출석 체크 후 다시 저장하면 자동으로 정상 출결로 바뀝니다.`,
     );
@@ -259,7 +265,7 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
     const recs: AttendanceRecord[] = selectedClass.students.map((s) => ({
       studentId: s.id,
       status: 'cancelled',
-      note: '휴강',
+      note: reason,
     }));
     setSaving(true);
     setSaveMessage('');
@@ -267,7 +273,8 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
       await saveAttendanceSession(classId, sessionDate, recs);
       setSavedRecords(recs);
       setRecords({});
-      setSaveMessage(`${selectedClass.name} 수업 ${sessionDate}을(를) 휴강 처리했습니다.`);
+      setCancelReason('');
+      setSaveMessage(`${selectedClass.name} 수업 ${sessionDate}을(를) 휴강 처리했습니다. (사유: ${reason})`);
     } catch (err) {
       setSaveMessage(err instanceof Error ? `저장 실패: ${err.message}` : '휴강 처리에 실패했습니다.');
     } finally {
@@ -313,15 +320,28 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
             </div>
           </div>
           <div className={styles.field}>
-            <label className={styles.label}>&nbsp;</label>
-            <button
-              type="button"
-              className={styles.cancelClassButton}
-              onClick={handleCancelClass}
-              disabled={saving || loading || !selectedClass || selectedClass.students.length === 0}
-            >
-              전체 휴강 처리
-            </button>
+            <label className={styles.label}>휴강 사유 (입력 후 버튼)</label>
+            <div className={styles.dateRow}>
+              <input
+                type="text"
+                className={styles.cancelReasonInput}
+                placeholder="예: 추석 연휴, 학교 시험 기간"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                disabled={saving}
+              />
+              <button
+                type="button"
+                className={styles.cancelClassButton}
+                onClick={handleCancelClass}
+                disabled={
+                  saving || loading || !cancelReason.trim() || !selectedClass || selectedClass.students.length === 0
+                }
+                title={cancelReason.trim() ? '' : '휴강 사유를 먼저 입력해 주세요'}
+              >
+                전체 휴강 처리
+              </button>
+            </div>
           </div>
           <div className={isTodaySelected ? styles.weekdayCaption : styles.weekdayCaptionWarn}>
             선택 날짜: {sessionDate} ({weekdayLabel})
@@ -334,7 +354,8 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
 
         {!loading && isCancelledSession && (
           <div className={styles.cancelBanner}>
-            이 날짜({sessionDate})는 "{selectedClass?.name}" 수업 전체가 휴강 처리되어 있습니다. 수업을 하게
+            이 날짜({sessionDate})는 "{selectedClass?.name}" 수업 전체가 휴강 처리되어 있습니다
+            {savedCancelReason ? ` (사유: ${savedCancelReason})` : ''}. 수업을 하게
             되면 아래에서 학생별로 출석을 체크하고 저장하면 자동으로 정상 출결로 바뀝니다.
           </div>
         )}

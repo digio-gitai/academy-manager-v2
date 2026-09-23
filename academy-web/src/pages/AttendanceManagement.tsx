@@ -3,6 +3,7 @@ import { Tabs } from '../components/common/Tabs';
 import { AttendanceCheckPanel } from '../components/attendance/AttendanceCheckPanel';
 import { AttendanceHistoryPanel } from '../components/attendance/AttendanceHistoryPanel';
 import { AttendanceSheetPanel } from '../components/attendance/AttendanceSheetPanel';
+import { MakeupPanel } from '../components/attendance/MakeupPanel';
 import { fetchClasses } from '../lib/classManagement';
 import type { ClassInfo } from '../types/classManagement';
 import styles from './AttendanceManagement.module.css';
@@ -15,7 +16,10 @@ import styles from './AttendanceManagement.module.css';
  * 반 목록만 실제 데이터면 그대로 동작함.
  */
 export function AttendanceManagement() {
-  const [monthValue, setMonthValue] = useState('2026-08');
+  const [monthValue, setMonthValue] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [classList, setClassList] = useState<ClassInfo[]>([]);
   const [rosterLoading, setRosterLoading] = useState(true);
   const [rosterError, setRosterError] = useState('');
@@ -64,7 +68,7 @@ export function AttendanceManagement() {
       </div>
 
       <div className={styles.monthCard}>
-        <label>조회 월 (출석 이력·통계 탭 기준)</label>
+        <label>조회 월 (출석 이력·통계 / 보강 관리 탭 기준)</label>
         <input
           type="month"
           className={styles.monthInput}
@@ -97,6 +101,11 @@ export function AttendanceManagement() {
                   toDate={toDate}
                 />
               ),
+            },
+            {
+              key: 'makeup',
+              label: '보강 관리',
+              content: <MakeupPanel classes={classList} monthLabel={monthLabel} fromDate={fromDate} toDate={toDate} />,
             },
             { key: 'sheet', label: '출석부 만들기', content: <AttendanceSheetPanel classes={classList} /> },
           ]}

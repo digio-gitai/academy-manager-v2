@@ -102,6 +102,18 @@
   margin-bottom: 12px;
 }
 
+.cancelReasonInput {
+  height: 38px;
+  width: 200px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 12.5px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
 .cancelClassButton {
   height: 38px;
   padding: 0 14px;

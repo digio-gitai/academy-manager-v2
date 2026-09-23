@@ -272,6 +272,24 @@
   font-weight: 700;
 }
 
+.makeupMark {
+  display: block;
+  width: fit-content;
+  margin: 1px auto 0;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--color-white);
+  background: #2f7d5b;
+  border-radius: 5px;
+  padding: 0 4px;
+  line-height: 13px;
+}
+
+.pdfButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .dayCell[data-status='cancelled'] {
   background: rgba(31, 61, 43, 0.1);
   color: var(--color-text-faint);
