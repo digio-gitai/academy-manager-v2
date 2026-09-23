@@ -409,7 +409,11 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
           testName: meta.testName,
         });
         const text = buildParentReportLinkText({ studentName: rep.name, token, reportType: smsType });
-        const result = await sendBulkSms([{ name: rep.name, phone: rep.parentPhone }], text);
+        const result = await sendBulkSms(
+          [{ name: rep.name, phone: rep.parentPhone, studentId: rep.studentId }],
+          text,
+          'report',
+        );
         if (result.succeeded > 0) {
           ok += 1;
           markReportSent(token).catch(() => {});

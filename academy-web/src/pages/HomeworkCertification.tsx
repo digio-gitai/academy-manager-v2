@@ -199,7 +199,7 @@ export function HomeworkCertification() {
       link,
     });
 
-    await sendBulkSms([{ name: student.name, phone: targetPhone }], text);
+    await sendBulkSms([{ name: student.name, phone: targetPhone, studentId: student.id }], text, 'hw_notify');
     return { via: studentPhone ? 'student' : 'parent' };
   }
 
@@ -240,7 +240,7 @@ export function HomeworkCertification() {
       items,
     });
 
-    await sendBulkSms([{ name: student.name, phone }], text);
+    await sendBulkSms([{ name: student.name, phone, studentId: student.id }], text, 'hw_notify');
     await markNotified(sub.id);
     reload();
     return { status: 'sent' };

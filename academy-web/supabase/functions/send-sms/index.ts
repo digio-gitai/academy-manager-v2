@@ -64,11 +64,23 @@ const corsHeaders = {
 interface RecipientInput {
   name?: string;
   phone: string;
+  studentId?: string;
 }
 
 interface RequestBody {
   recipients: RecipientInput[];
   text: string;
+  // 2026-09-23: 대시보드 "오늘 발송 SMS" KPI는 sms_log(kind='report'|'hw_notify')를
+  // 읽는데, React에서 보낸 문자는 sms_send_logs에만 남아 KPI가 계속 0이었음.
+  // kind가 오면 접수 성공 건을 sms_log에도 기록한다(공지 등 자유 문자는 kind 없음).
+  kind?: 'report' | 'hw_notify';
+}
+
+// sms_log.sent_at은 "YYYY-MM-DD HH:mm"(한국 시간) — 대시보드가 오늘 날짜 문자열로 비교함.
+function kstNowStr(): string {
+  const s = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${s.getUTCFullYear()}-${pad(s.getUTCMonth() + 1)}-${pad(s.getUTCDate())} ${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}`;
 }
 
 interface SkippedEntry {
@@ -205,10 +217,12 @@ Deno.serve(async (req: Request) => {
       const original = recipients.find((r) => cleanPhone(r?.phone ?? '') === m.to);
       return {
         name: original?.name,
+        studentId: original?.studentId,
         phone: m.to,
         status: failedTo.has(m.to) ? ('failed' as const) : ('success' as const),
       };
     });
+    const kind = body?.kind === 'report' || body?.kind === 'hw_notify' ? body.kind : null;
 
     // 발송 내역 기록 — 서비스 역할 키로 RLS 우회하여 기록(위 2026-09-11 메모 참고).
     // 기록이 실패해도 문자는 이미 나갔으므로 응답 자체는 그대로 성공 처리.
@@ -237,6 +251,22 @@ Deno.serve(async (req: Request) => {
           const { error: logError } = await supabase.from('sms_send_logs').insert(logRows);
           if (logError) {
             console.warn('[send-sms] 발송 내역 기록 실패:', logError.message);
+          }
+        }
+        if (kind) {
+          const sentAt = kstNowStr();
+          const kpiRows = results
+            .filter((r) => r.status === 'success')
+            .map((r) => ({
+              kind,
+              student_id: r.studentId && /^\d+$/.test(r.studentId) ? Number(r.studentId) : null,
+              sent_at: sentAt,
+            }));
+          if (kpiRows.length > 0) {
+            const { error: kpiError } = await supabase.from('sms_log').insert(kpiRows);
+            if (kpiError) {
+              console.warn('[send-sms] sms_log 기록 실패:', kpiError.message);
+            }
           }
         }
       } else {

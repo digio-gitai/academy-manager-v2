@@ -3,7 +3,12 @@ import { supabase } from './supabaseClient';
 export interface SmsRecipient {
   name: string;
   phone: string;
+  /** kind와 함께 넘기면 대시보드 "오늘 발송 SMS"용 sms_log에 학생 단위로 기록됨. */
+  studentId?: string;
 }
+
+/** 대시보드 KPI 분류 — report(성적 리포트) / hw_notify(과제 알림). 공지 등 자유 문자는 생략. */
+export type SmsKind = 'report' | 'hw_notify';
 
 export interface SkippedRecipient {
   name?: string;
@@ -68,10 +73,10 @@ interface SmsSendLogRow {
  * (send-sms, 서비스 역할 키로 RLS 우회)으로 옮김 — 여기서는 더 이상 직접
  * insert하지 않는다.
  */
-export async function sendBulkSms(recipients: SmsRecipient[], text: string): Promise<SendSmsResult> {
+export async function sendBulkSms(recipients: SmsRecipient[], text: string, kind?: SmsKind): Promise<SendSmsResult> {
   const { data, error } = await supabase.functions.invoke<{ data?: SendSmsResult; error?: string }>(
     'send-sms',
-    { body: { recipients, text } },
+    { body: { recipients, text, kind } },
   );
 
   if (error) {

@@ -232,7 +232,7 @@ export function IntegratedTestReportSection({
         testName: `통합보고서(${reportData.tests.length}개 시험)`,
       });
       const text = buildParentReportLinkText({ studentName: reportData.studentName, token });
-      await sendBulkSms([{ name: reportData.studentName, phone }], text);
+      await sendBulkSms([{ name: reportData.studentName, phone, studentId }], text, 'report');
       await markReportSent(token);
       setSendResultMessage(`${reportData.studentName} 학부모님께 리포트 링크 문자를 발송했습니다.`);
     } catch (err) {
