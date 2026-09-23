@@ -76,6 +76,39 @@ export async function fetchExistingTestResults(testId: number): Promise<Map<stri
   return map;
 }
 
+export interface TestResultStudent {
+  studentId: string;
+  name: string;
+  className: string;
+}
+
+/**
+ * 이 테스트(testId)에 오답 체크까지 끝나 student_results에 저장된 학생 목록.
+ * "학원시험 AI분석" 탭에서 오답 체크 저장 후 나오는 "보고서 작성" 섹션(그때그때
+ * 시험 본 것에 대한 보고서 일괄 생성)의 대상 학생을 정할 때 씀 — 스트림릿의
+ * saved_students 조회(student_results ⋈ students ⋈ classes)와 동일.
+ */
+export async function fetchTestResultStudents(testId: number): Promise<TestResultStudent[]> {
+  const { data, error } = await supabase
+    .from('student_results')
+    .select('student_id, students ( name, classes ( name ) )')
+    .eq('test_id', testId);
+  if (error) throw error;
+
+  type Row = {
+    student_id: number;
+    students: { name: string; classes: { name: string } | null } | null;
+  };
+  const rows = ((data as unknown as Row[]) ?? []).filter((r) => r.students);
+  return rows
+    .map((r) => ({
+      studentId: String(r.student_id),
+      name: r.students!.name,
+      className: r.students!.classes?.name ?? '반 미배정',
+    }))
+    .sort((a, b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name));
+}
+
 /**
  * 학생 1명의 오답 체크 결과를 student_results에 저장(점수 자동 계산, upsert).
  * 스트림릿의 save_student_result()와 동일 — 단, sync_all_csvs()/

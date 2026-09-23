@@ -18,6 +18,7 @@ import type {
   TestListItem,
 } from '../../lib/testAnalysis';
 import { TestResultAssignPanel } from './TestResultAssignPanel';
+import { TestReportWritePanel } from './TestReportWritePanel';
 import styles from './AiTestOcrPanel.module.css';
 
 const TEST_TYPE_OPTIONS = ['일일테스트', '주간테스트', '월간테스트', '단원테스트', '기타'];
@@ -624,6 +625,10 @@ export function AiTestOcrPanel() {
             </p>
           </div>
         </div>
+      )}
+
+      {activeTest && (
+        <TestReportWritePanel testId={activeTest.id} testName={activeTest.name} />
       )}
     </div>
   );
