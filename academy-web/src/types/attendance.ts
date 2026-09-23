@@ -9,6 +9,7 @@ export interface AttendanceRecord {
 }
 
 export interface AttendanceStatsRow {
+  studentId: string;
   studentName: string;
   className: string;
   present: number;
@@ -20,6 +21,7 @@ export interface AttendanceStatsRow {
 export interface AttendanceLogRow {
   date: string;
   weekday: string;
+  studentId: string;
   studentName: string;
   className: string;
   status: AttendanceStatus;

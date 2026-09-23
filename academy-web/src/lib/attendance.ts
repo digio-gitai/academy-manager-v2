@@ -121,6 +121,7 @@ export async function fetchAttendanceHistory(
     const row =
       statsMap.get(key) ??
       ({
+        studentId: e.studentId,
         studentName: e.studentName,
         className: e.className,
         present: 0,
@@ -146,6 +147,7 @@ export async function fetchAttendanceHistory(
   const log: AttendanceLogRow[] = entries.map((e) => ({
     date: e.date,
     weekday: WEEKDAYS_KO[new Date(`${e.date}T00:00:00`).getDay()],
+    studentId: e.studentId,
     studentName: e.studentName,
     className: e.className,
     status: e.status,

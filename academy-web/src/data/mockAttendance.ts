@@ -17,15 +17,15 @@ export const referenceAssignments: Record<string, string> = {
 };
 
 export const attendanceStats: AttendanceStatsRow[] = [
-  { studentName: '김지우', className: '중2 심화반', present: 11, late: 1, absent: 0, attendanceRate: 100 },
-  { studentName: '최민서', className: '중2 심화반', present: 9, late: 2, absent: 1, attendanceRate: 92 },
-  { studentName: '박서연', className: '중3 대수반', present: 12, late: 0, absent: 0, attendanceRate: 100 },
-  { studentName: '이준호', className: '중3 대수반', present: 7, late: 1, absent: 4, attendanceRate: 67 },
+  { studentId: '1', studentName: '김지우', className: '중2 심화반', present: 11, late: 1, absent: 0, attendanceRate: 100 },
+  { studentId: '2', studentName: '최민서', className: '중2 심화반', present: 9, late: 2, absent: 1, attendanceRate: 92 },
+  { studentId: '3', studentName: '박서연', className: '중3 대수반', present: 12, late: 0, absent: 0, attendanceRate: 100 },
+  { studentId: '4', studentName: '이준호', className: '중3 대수반', present: 7, late: 1, absent: 4, attendanceRate: 67 },
 ];
 
 export const attendanceLog: AttendanceLogRow[] = [
-  { date: '2026-08-20', weekday: '목', studentName: '김지우', className: '중2 심화반', status: 'present', note: '' },
-  { date: '2026-08-20', weekday: '목', studentName: '최민서', className: '중2 심화반', status: 'late', note: '차량 지연' },
-  { date: '2026-08-19', weekday: '수', studentName: '박서연', className: '중3 대수반', status: 'present', note: '' },
-  { date: '2026-08-19', weekday: '수', studentName: '이준호', className: '중3 대수반', status: 'absent', note: '병결' },
+  { date: '2026-08-20', weekday: '목', studentId: '1', studentName: '김지우', className: '중2 심화반', status: 'present', note: '' },
+  { date: '2026-08-20', weekday: '목', studentId: '2', studentName: '최민서', className: '중2 심화반', status: 'late', note: '차량 지연' },
+  { date: '2026-08-19', weekday: '수', studentId: '3', studentName: '박서연', className: '중3 대수반', status: 'present', note: '' },
+  { date: '2026-08-19', weekday: '수', studentId: '4', studentName: '이준호', className: '중3 대수반', status: 'absent', note: '병결' },
 ];
