@@ -1,15 +1,38 @@
 import { useEffect, useState } from 'react';
 import { fetchTestResultStudents } from '../../lib/testResults';
 import type { TestResultStudent } from '../../lib/testResults';
-import { buildIntegratedReportData, summarizeForAiComment } from '../../lib/integratedReport';
-import type { IntegratedReportData } from '../../lib/integratedReport';
-import { buildWebReportHtml } from '../../lib/webReportHtml';
-import { generateParentComment } from '../../lib/parentComment';
+import {
+  fetchTestMeta,
+  fetchTestQuestionDetails,
+  fetchTestAllScores,
+  fetchStudentReportProfile,
+  fetchStudentResultRecord,
+  fetchStudentScoreHistory,
+  fetchStudentAttendanceSummary,
+  fetchStudentHomeworkPerfStats,
+  fetchStudentMonthTopicStats,
+  prevYearMonth,
+  reportModeFor,
+  reportMonthPeriods,
+} from '../../lib/academyTestReportData';
+import type { TestMeta, ReportMode, QuestionDetail } from '../../lib/academyTestReportData';
+import {
+  buildAcademyTestReportHtml,
+  isSingleTopicTest,
+  distinctQuestionMethods,
+  wrongDetailsForAi,
+} from '../../lib/academyTestReportHtml';
+import type { AttendanceStatsInput, HomeworkPerfStatsInput } from '../../lib/academyTestReportHtml';
+import {
+  generateTeacherCommentDraft,
+  generateWrongQuestionComments,
+  clusterQuestionMethods,
+} from '../../lib/claudeReportAi';
 import { createReportLink, markReportSent, buildParentReportLinkText } from '../../lib/reportLinks';
-import { fetchStudentContact } from '../../lib/students';
 import { sendBulkSms } from '../../lib/smsSend';
 import styles from './IntegratedTestReportSection.module.css';
 import panelStyles from './TestResultAssignPanel.module.css';
+import own from './TestReportWritePanel.module.css';
 
 function describeError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -23,73 +46,103 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
-function fallbackComment(studentName: string, score: number): string {
-  return (
-    `${studentName} 학생은 이번 시험에서 ${score.toFixed(1)}점을 기록하였습니다. ` +
-    '전반적인 개념 이해도는 양호하나 응용 문제에서 보완이 필요합니다. ' +
-    '앞으로 취약 단원 집중 훈련과 서술형 풀이 연습을 강화하겠습니다.'
-  );
+/** 동시에 limit개씩 처리 — 스트림릿 ThreadPoolExecutor(max_workers=5)와 같은 목적(속도). */
+async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await worker(item);
+    }
+  });
+  await Promise.all(runners);
 }
 
-interface StudentReportState {
-  reportData: IntegratedReportData | null;
-  comment: string;
-  reportHtml: string;
-  generating: boolean;
-  error: string;
-  sending: boolean;
-  sendMsg: string;
-  sendErr: string;
-}
+const MODE_LABEL: Record<ReportMode, string> = {
+  lite: '라이트(간단)',
+  standard: '표준',
+  premium: '프리미엄(월간 누적)',
+};
+const MODE_CHOICES = ['자동', '라이트(간단)', '표준', '프리미엄(월간 누적)'] as const;
+type ModeChoice = (typeof MODE_CHOICES)[number];
+const MODE_BY_CHOICE: Partial<Record<ModeChoice, ReportMode>> = {
+  '라이트(간단)': 'lite',
+  표준: 'standard',
+  '프리미엄(월간 누적)': 'premium',
+};
 
-function emptyState(): StudentReportState {
-  return {
-    reportData: null,
-    comment: '',
-    reportHtml: '',
-    generating: false,
-    error: '',
-    sending: false,
-    sendMsg: '',
-    sendErr: '',
-  };
+const SMS_TYPE_BY_CATEGORY: Record<string, string> = {
+  일일테스트: '일일 성적표',
+  주간테스트: '주간 성적표',
+  월간테스트: '월간 성적표',
+  단원테스트: '단원 성적표',
+};
+const SMS_TYPES = ['일일 성적표', '주간 성적표', '월간 성적표', '단원 성적표', '성적표'];
+
+const EMPTY_COMMENT = '선생님 코멘트를 입력해 주세요.';
+
+interface GeneratedReport {
+  studentId: string;
+  name: string;
+  fname: string;
+  html: string;
+  parentPhone: string;
 }
 
 interface Props {
   testId: number;
-  testName: string;
+  /** 오답 저장이 끝날 때마다 바뀌는 값 — 대상 학생 목록을 다시 불러오는 신호. */
+  refreshKey: number;
 }
 
 /**
- * "학원시험 AI분석" 탭에서 오답 체크 저장 직후 나와야 하는 "보고서 작성"
- * 섹션 — 스트림릿 원본의 ⑤~⑦단계(AI 코멘트 일괄 생성 → 코멘트 확인·수정 →
- * 보고서 일괄 생성)를 재현. React 포팅 과정에서 "오답노트 생성" 자리만 먼저
- * 배치하고(d3246663, 2026-09-02) 이 섹션 자체가 통째로 누락되어 있던 것을
- * 복원(2026-09-23) — "통합보고서 작성" 탭(여러 시험을 묶는 것)과는 별개로,
- * 지금 막 오답 체크를 마친 "이 시험 하나"에 대해 시험 본 학생 전원의 보고서를
- * 그때그때 만들어 보내는 용도.
- *
- * 시험 1개 = buildIntegratedReportData(studentId, [testId])로 넘기면 "통합보고서"와
- * 완전히 같은 집계 로직(백분위·석차·단원별 분석)이 시험 1개 기준으로 그대로
- * 나오므로, 그 계산 로직/HTML 조판(webReportHtml.ts)을 새로 만들지 않고 재사용함.
+ * "학원시험 AI분석" 탭 — 오답 체크 저장 뒤에 나오는 "그때그때 시험 본 것"의
+ * 학부모 보고서 작성 섹션. 스트림릿 app.py의 ⑤ AI 코멘트 일괄 생성 → ⑥ 학생별
+ * 코멘트 확인·수정 → ⑦ 보고서 일괄 생성(포함 항목 체크박스 5개 + 보고서 형식)
+ * → 다운로드 → 학부모 문자 일괄 발송 흐름을 그대로 재현. 보고서 양식은
+ * claude_report.py의 generate_parent_report_html()을 이식한 academyTestReportHtml.ts
+ * (블루+핑크 A4)이며, "통합보고서 작성" 탭의 양식과는 별개.
  */
-export function TestReportWritePanel({ testId, testName }: Props) {
+export function TestReportWritePanel({ testId, refreshKey }: Props) {
+  const [meta, setMeta] = useState<TestMeta | null>(null);
   const [students, setStudents] = useState<TestResultStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [perStudent, setPerStudent] = useState<Map<string, StudentReportState>>(new Map());
-  const [batchRunning, setBatchRunning] = useState(false);
-  const [batchProgress, setBatchProgress] = useState('');
+
+  const [comments, setComments] = useState<Record<string, string>>({});
+  const [commentRunning, setCommentRunning] = useState(false);
+  const [commentProgress, setCommentProgress] = useState('');
+  const [commentMessages, setCommentMessages] = useState<string[]>([]);
+  const [commentDone, setCommentDone] = useState('');
+
+  const [showAvg, setShowAvg] = useState(true);
+  const [showRank, setShowRank] = useState(true);
+  const [showChart, setShowChart] = useState(true);
+  const [showAttendance, setShowAttendance] = useState(true);
+  const [showHwPerf, setShowHwPerf] = useState(true);
+  const [modeChoice, setModeChoice] = useState<ModeChoice>('자동');
+
+  const [reportRunning, setReportRunning] = useState(false);
+  const [reportProgress, setReportProgress] = useState('');
+  const [reportErrors, setReportErrors] = useState<string[]>([]);
+  const [generated, setGenerated] = useState<GeneratedReport[]>([]);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+
+  const [smsType, setSmsType] = useState('성적표');
+  const [smsRunning, setSmsRunning] = useState(false);
+  const [smsProgress, setSmsProgress] = useState('');
+  const [smsResult, setSmsResult] = useState<{ ok: number; total: number; fails: string[] } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setLoadError('');
-    fetchTestResultStudents(testId)
-      .then((list) => {
+    Promise.all([fetchTestMeta(testId), fetchTestResultStudents(testId)])
+      .then(([m, list]) => {
         if (cancelled) return;
+        setMeta(m);
         setStudents(list);
-        setPerStudent(new Map(list.map((s) => [s.studentId, emptyState()])));
+        setSmsType(SMS_TYPE_BY_CATEGORY[m.testType] ?? '성적표');
       })
       .catch((err) => {
         if (!cancelled) setLoadError(describeError(err));
@@ -100,221 +153,496 @@ export function TestReportWritePanel({ testId, testName }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [testId]);
+  }, [testId, refreshKey]);
 
-  function patchState(studentId: string, patch: Partial<StudentReportState>) {
-    setPerStudent((prev) => {
-      const next = new Map(prev);
-      next.set(studentId, { ...(next.get(studentId) ?? emptyState()), ...patch });
-      return next;
-    });
-  }
+  const autoMode: ReportMode = reportModeFor(meta?.testType ?? '');
+  const reportMode: ReportMode = MODE_BY_CHOICE[modeChoice] ?? autoMode;
 
-  function getState(studentId: string): StudentReportState {
-    return perStudent.get(studentId) ?? emptyState();
-  }
-
-  async function generateOne(s: TestResultStudent) {
-    patchState(s.studentId, { generating: true, error: '' });
+  async function handleGenerateComments() {
+    if (!meta) return;
+    setCommentRunning(true);
+    setCommentMessages([]);
+    setCommentDone('');
+    const warnings: string[] = [];
     try {
-      const reportData = await buildIntegratedReportData(s.studentId, [testId]);
-      let comment: string;
-      try {
-        comment = await generateParentComment(s.name, [], summarizeForAiComment(reportData));
-      } catch {
-        const score = reportData.tests[0]?.score ?? 0;
-        comment = fallbackComment(s.name, score);
-      }
-      const reportHtml = buildWebReportHtml(reportData, comment);
-      patchState(s.studentId, { reportData, comment, reportHtml, generating: false });
+      const allScores = await fetchTestAllScores(testId);
+      const classAvg = allScores.length ? Math.round((allScores.reduce((a, b) => a + b, 0) / allScores.length) * 10) / 10 : null;
+      let done = 0;
+      setCommentProgress(`AI 코멘트 생성 중... (0/${students.length}명)`);
+      await runPool(students, 5, async (s) => {
+        try {
+          const [history, record] = await Promise.all([
+            fetchStudentScoreHistory(s.studentId),
+            fetchStudentResultRecord(s.studentId, testId),
+          ]);
+          if (!record) return;
+          const draft = await generateTeacherCommentDraft({
+            studentName: s.name,
+            score: record.score,
+            classAvg,
+            rank: allScores.length ? allScores.filter((sc) => sc > record.score).length + 1 : null,
+            totalStudents: allScores.length || null,
+            wrongNumbers: record.wrongNumbers,
+            totalQuestions: meta.totalQuestions || 20,
+            historyScores: history.map((h) => h.score),
+            testName: meta.testName,
+          });
+          setComments((prev) => ({ ...prev, [s.studentId]: draft }));
+        } catch (err) {
+          setComments((prev) => ({ ...prev, [s.studentId]: '' }));
+          warnings.push(`${s.name} 코멘트 생성 실패: ${describeError(err)}`);
+        } finally {
+          done += 1;
+          setCommentProgress(`AI 코멘트 생성 중... (${done}/${students.length}명)`);
+        }
+      });
+      setCommentDone(`✅ ${students.length}명 AI 코멘트 생성 완료! 아래에서 확인·수정 후 보고서를 생성하세요.`);
     } catch (err) {
-      patchState(s.studentId, { generating: false, error: describeError(err) });
+      warnings.push(describeError(err));
+    } finally {
+      setCommentMessages(warnings);
+      setCommentProgress('');
+      setCommentRunning(false);
     }
   }
 
-  async function handleGenerateAll() {
-    setBatchRunning(true);
-    for (let i = 0; i < students.length; i++) {
-      setBatchProgress(`보고서 생성 중... (${i + 1}/${students.length})`);
-      await generateOne(students[i]);
+  async function handleGenerateReports() {
+    if (!meta) return;
+    setReportRunning(true);
+    setReportErrors([]);
+    setGenerated([]);
+    setPreviewId(null);
+    setSmsResult(null);
+    const errors: string[] = [];
+    const results: GeneratedReport[] = [];
+    try {
+      const [allScores, questionDetails] = await Promise.all([
+        fetchTestAllScores(testId),
+        fetchTestQuestionDetails(testId),
+      ]);
+      const details: QuestionDetail[] | null = questionDetails.length > 0 ? questionDetails : null;
+
+      // 단원 1개짜리 시험의 풀이유형 AI 묶기는 시험 공통이라 1번만 호출(학생마다 결과가 달라지지 않게).
+      let methodMapping: Record<string, string> | null = null;
+      if (reportMode !== 'lite' && details && isSingleTopicTest(details)) {
+        methodMapping = await clusterQuestionMethods(distinctQuestionMethods(details));
+      }
+
+      let done = 0;
+      setReportProgress(`보고서 생성 중... (0/${students.length}명)`);
+      await runPool(students, 5, async (s) => {
+        try {
+          const [profile, record, history] = await Promise.all([
+            fetchStudentReportProfile(s.studentId),
+            fetchStudentResultRecord(s.studentId, testId),
+            fetchStudentScoreHistory(s.studentId),
+          ]);
+          if (!record) {
+            errors.push(`${s.name} — DB 기록 없음, 건너뜁니다.`);
+            return;
+          }
+
+          let attendanceStats: AttendanceStatsInput | null = null;
+          let homeworkPerfStats: HomeworkPerfStatsInput | null = null;
+          if (showAttendance || showHwPerf) {
+            const periods = reportMonthPeriods(meta.date);
+            if (showAttendance) {
+              const [cur, prev] = await Promise.all([
+                fetchStudentAttendanceSummary(s.studentId, periods.curFrom, periods.curTo),
+                periods.prevFrom && periods.prevTo
+                  ? fetchStudentAttendanceSummary(s.studentId, periods.prevFrom, periods.prevTo)
+                  : Promise.resolve(null),
+              ]);
+              attendanceStats = {
+                curMonth: periods.curMonthNum,
+                curRate: cur.rate,
+                curPresent: cur.present,
+                curLate: cur.late,
+                curAbsent: cur.absent,
+                prevMonth: periods.prevMonthNum,
+                prevRate: prev?.rate ?? null,
+                prevPresent: prev?.present ?? null,
+                prevLate: prev?.late ?? null,
+                prevAbsent: prev?.absent ?? null,
+              };
+            }
+            if (showHwPerf) {
+              const [cur, prev] = await Promise.all([
+                fetchStudentHomeworkPerfStats(s.studentId, periods.curFrom, periods.curTo),
+                periods.prevFrom && periods.prevTo
+                  ? fetchStudentHomeworkPerfStats(s.studentId, periods.prevFrom, periods.prevTo)
+                  : Promise.resolve(null),
+              ]);
+              homeworkPerfStats = {
+                curMonth: periods.curMonthNum,
+                curRate: cur.rate,
+                curHigh: cur.high,
+                curMid: cur.mid,
+                curLow: cur.low,
+                prevMonth: periods.prevMonthNum,
+                prevRate: prev?.rate ?? null,
+                prevHigh: prev?.high ?? null,
+                prevMid: prev?.mid ?? null,
+                prevLow: prev?.low ?? null,
+              };
+            }
+          }
+
+          let monthlyTopicStats = null;
+          let prevMonthAvg: number | null = null;
+          if (reportMode === 'premium') {
+            const ym = meta.date.slice(0, 7);
+            monthlyTopicStats = await fetchStudentMonthTopicStats(s.studentId, ym);
+            const pm = prevYearMonth(ym);
+            const prevScores = history.filter((h) => h.date.slice(0, 7) === pm).map((h) => h.score);
+            prevMonthAvg = prevScores.length
+              ? Math.round((prevScores.reduce((a, b) => a + b, 0) / prevScores.length) * 10) / 10
+              : null;
+          }
+
+          const wrongComments =
+            reportMode === 'lite'
+              ? {}
+              : await generateWrongQuestionComments(s.name, wrongDetailsForAi(record.wrongNumbers, details));
+
+          const comment = (comments[s.studentId] ?? '').trim() || EMPTY_COMMENT;
+          const html = buildAcademyTestReportHtml({
+            studentName: s.name,
+            school: profile.school || '—',
+            grade: profile.grade || '—',
+            className: s.className,
+            testName: meta.testName,
+            testDate: meta.date,
+            score: record.score,
+            totalQuestions: meta.totalQuestions || 20,
+            wrongNumbers: record.wrongNumbers,
+            allScores,
+            history: history.map((h) => ({ testName: h.testName, date: h.date, score: h.score })),
+            teacherComment: comment,
+            showClassAvg: showAvg,
+            showClassRank: showRank,
+            showHistoryChart: showChart,
+            testCategory: meta.testType,
+            reportMode,
+            monthlyTopicStats,
+            prevMonthAvg,
+            questionDetails: details,
+            showAttendance,
+            attendanceStats,
+            showHomeworkPerf: showHwPerf,
+            homeworkPerfStats,
+            wrongComments,
+            methodMapping,
+          });
+          const fname = `${s.name}_${meta.date}_${Array.from(meta.testName).slice(0, 15).join('')}.html`
+            .replace(/ /g, '_')
+            .replace(/\//g, '-');
+          results.push({ studentId: s.studentId, name: s.name, fname, html, parentPhone: profile.parentPhone.trim() });
+        } catch (err) {
+          errors.push(`${s.name} 보고서 생성 실패: ${describeError(err)}`);
+        } finally {
+          done += 1;
+          setReportProgress(`보고서 생성 중... (${done}/${students.length}명)`);
+        }
+      });
+      const order = new Map(students.map((s, i) => [s.studentId, i]));
+      results.sort((a, b) => (order.get(a.studentId) ?? 999) - (order.get(b.studentId) ?? 999));
+      setGenerated(results);
+    } catch (err) {
+      errors.push(describeError(err));
+    } finally {
+      setReportErrors(errors);
+      setReportProgress('');
+      setReportRunning(false);
     }
-    setBatchProgress('');
-    setBatchRunning(false);
   }
 
-  function rebuildHtml(s: TestResultStudent) {
-    const state = getState(s.studentId);
-    if (!state.reportData) return;
-    const reportHtml = buildWebReportHtml(state.reportData, state.comment);
-    patchState(s.studentId, { reportHtml });
+  function openInNewTab(html: string) {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
   }
 
-  function handleOpenInNewTab(state: StudentReportState) {
-    if (!state.reportHtml) return;
-    const newTab = window.open('', '_blank');
-    if (!newTab) return;
-    newTab.document.open();
-    newTab.document.write(state.reportHtml);
-    newTab.document.close();
-  }
-
-  function handleDownload(s: TestResultStudent, state: StudentReportState) {
-    if (!state.reportHtml) return;
-    const blob = new Blob([state.reportHtml], { type: 'text/html;charset=utf-8' });
+  function download(rep: GeneratedReport) {
+    const blob = new Blob([rep.html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `보고서_${s.name}_${testName}.html`;
+    a.download = rep.fname;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
-  function handlePrint(state: StudentReportState) {
-    if (!state.reportHtml) return;
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    printWindow.document.open();
-    printWindow.document.write(state.reportHtml);
-    printWindow.document.close();
-    printWindow.onload = () => {
-      printWindow.focus();
-      printWindow.print();
+  function print(html: string) {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.onload = () => {
+      w.focus();
+      w.print();
     };
   }
 
-  async function handleSendToParent(s: TestResultStudent) {
-    const state = getState(s.studentId);
-    if (!state.reportHtml) return;
-    patchState(s.studentId, { sending: true, sendErr: '', sendMsg: '' });
-    try {
-      const contact = await fetchStudentContact(s.studentId);
-      const phone = contact?.parentPhone?.trim();
-      if (!phone) {
-        throw new Error('보호자 연락처가 없어 문자를 보낼 수 없습니다.');
+  async function handleSendSms() {
+    if (!meta) return;
+    const targets = generated.filter((r) => r.parentPhone);
+    setSmsRunning(true);
+    setSmsResult(null);
+    let ok = 0;
+    const fails: string[] = [];
+    for (let i = 0; i < targets.length; i++) {
+      const rep = targets[i];
+      setSmsProgress(`문자 발송 중... (${i + 1}/${targets.length}명)`);
+      try {
+        const token = await createReportLink({
+          html: rep.html,
+          studentName: rep.name,
+          studentId: rep.studentId,
+          testType: meta.testType,
+          testDate: meta.date,
+          testName: meta.testName,
+        });
+        const text = buildParentReportLinkText({ studentName: rep.name, token, reportType: smsType });
+        const result = await sendBulkSms([{ name: rep.name, phone: rep.parentPhone }], text);
+        if (result.succeeded > 0) {
+          ok += 1;
+          markReportSent(token).catch(() => {});
+        } else {
+          fails.push(`${rep.name}: ${result.skipped[0]?.reason ?? '발송 실패'}`);
+        }
+      } catch (err) {
+        fails.push(`${rep.name}: ${describeError(err)}`);
       }
-      const token = await createReportLink({
-        html: state.reportHtml,
-        studentName: s.name,
-        studentId: s.studentId,
-        testType: testName,
-        testDate: state.reportData?.generatedAt.slice(0, 10) ?? '',
-        testName,
-      });
-      const text = buildParentReportLinkText({ studentName: s.name, token });
-      await sendBulkSms([{ name: s.name, phone }], text);
-      await markReportSent(token);
-      patchState(s.studentId, { sending: false, sendMsg: `${s.name} 학부모님께 리포트 링크 문자를 발송했습니다.` });
-    } catch (err) {
-      patchState(s.studentId, { sending: false, sendErr: describeError(err) });
     }
+    setSmsProgress('');
+    setSmsRunning(false);
+    setSmsResult({ ok, total: targets.length, fails });
   }
 
-  const generatedCount = students.filter((s) => getState(s.studentId).reportHtml).length;
+  if (loading) {
+    return (
+      <div className={styles.card}>
+        <p className={styles.caption}>보고서 작성 정보를 불러오는 중...</p>
+      </div>
+    );
+  }
+  if (loadError || !meta) {
+    return (
+      <div className={styles.card}>
+        <p className={styles.errorText}>{loadError || '시험 정보를 불러오지 못했습니다.'}</p>
+      </div>
+    );
+  }
+  if (students.length === 0) {
+    return (
+      <div className={styles.card}>
+        <h3 className={styles.cardTitle}>📝 보고서 작성</h3>
+        <div className={styles.infoBanner}>
+          이 시험에 저장된 학생 오답 기록이 없습니다. 위에서 오답을 체크한 뒤 "전원 오답 일괄 저장"을 눌러 주세요.
+        </div>
+      </div>
+    );
+  }
+
+  const noPhoneCount = generated.filter((r) => !r.parentPhone).length;
+  const smsOptions = [smsType, ...SMS_TYPES.filter((o) => o !== smsType)];
+  const previewReport = generated.find((r) => r.studentId === previewId) ?? null;
 
   return (
     <div className={styles.card}>
       <h3 className={styles.cardTitle}>📝 보고서 작성</h3>
       <p className={styles.caption}>
-        이 시험(<strong>{testName}</strong>)을 본 학생들의 AI 코멘트와 학부모용 보고서를 그때그때 만들어
-        보낼 수 있어요. 여러 시험을 묶어서 보는 "통합보고서 작성" 탭과는 별개로, 지금 방금 오답 체크를
-        마친 이 시험 하나만 다룹니다.
+        이 시험(<strong>{meta.testName}</strong>)을 본 학생들의 학부모 보고서를 만듭니다. 여러 시험을 묶는 "통합보고서
+        작성" 탭과는 별개의 양식입니다.
       </p>
 
-      {loading ? (
-        <p className={styles.caption}>불러오는 중...</p>
-      ) : loadError ? (
-        <p className={styles.errorText}>{loadError}</p>
-      ) : students.length === 0 ? (
-        <div className={styles.infoBanner}>
-          이 시험에 저장된 학생 오답 기록이 없습니다. 위에서 먼저 오답을 체크·저장해 주세요.
-        </div>
-      ) : (
-        <>
-          <button
-            type="button"
-            className={styles.generateButton}
-            onClick={handleGenerateAll}
-            disabled={batchRunning}
-          >
-            {batchRunning ? batchProgress : `🎨 전원 보고서 일괄 생성 (${students.length}명)`}
-          </button>
-          {generatedCount > 0 && (
-            <p className={styles.successText}>{generatedCount}/{students.length}명 보고서 생성됨</p>
-          )}
+      {/* ⑤ AI 코멘트 일괄 생성 */}
+      <div className={own.stepBlock}>
+        <div className={own.stepTitle}>⑤ AI 코멘트 일괄 생성 — {students.length}명</div>
+        <button
+          type="button"
+          className={`${styles.secondaryButton} ${own.fullButton}`}
+          onClick={handleGenerateComments}
+          disabled={commentRunning || reportRunning}
+        >
+          {commentRunning ? commentProgress : '✨ 전원 AI 코멘트 생성'}
+        </button>
+        {commentDone && <p className={styles.successText}>{commentDone}</p>}
+        {commentMessages.map((m) => (
+          <p key={m} className={own.warnText}>
+            {m}
+          </p>
+        ))}
+      </div>
 
-          <div className={panelStyles.studentList} style={{ marginTop: 14 }}>
-            {students.map((s) => {
-              const state = getState(s.studentId);
-              return (
-                <details key={s.studentId} className={panelStyles.studentDetails}>
-                  <summary className={panelStyles.studentSummary}>
-                    <span>{s.className} · {s.name}</span>
-                    <span className={state.reportHtml ? panelStyles.statusSaved : panelStyles.statusUnsaved}>
-                      {state.generating
-                        ? '⏳ 생성 중...'
-                        : state.reportHtml
-                        ? '✅ 보고서 생성됨'
-                        : '⬜ 미생성'}
-                    </span>
-                  </summary>
-                  <div className={panelStyles.studentBody}>
+      {/* ⑥ 학생별 코멘트 확인·수정 */}
+      <div className={own.stepBlock}>
+        <div className={own.stepTitle}>⑥ 학생별 코멘트 확인 · 수정</div>
+        <div className={panelStyles.studentList}>
+          {students.map((s) => (
+            <details key={s.studentId} className={panelStyles.studentDetails}>
+              <summary className={panelStyles.studentSummary}>
+                <span>
+                  💬 {s.className} · {s.name}
+                </span>
+                <span className={comments[s.studentId]?.trim() ? panelStyles.statusSaved : panelStyles.statusUnsaved}>
+                  {comments[s.studentId]?.trim() ? '작성됨' : '비어 있음'}
+                </span>
+              </summary>
+              <div className={panelStyles.studentBody}>
+                <textarea
+                  className={styles.commentTextarea}
+                  rows={5}
+                  value={comments[s.studentId] ?? ''}
+                  onChange={(e) => setComments((prev) => ({ ...prev, [s.studentId]: e.target.value }))}
+                  placeholder="AI 코멘트 생성 후 여기에 표시됩니다. 직접 입력도 가능합니다."
+                />
+              </div>
+            </details>
+          ))}
+        </div>
+      </div>
+
+      {/* ⑦ 보고서 일괄 생성 */}
+      <div className={own.stepBlock}>
+        <div className={own.stepTitle}>⑦ 보고서 일괄 생성</div>
+        <div className={own.optionGrid}>
+          <label className={own.optionLabel}>
+            <input type="checkbox" checked={showAvg} onChange={(e) => setShowAvg(e.target.checked)} />반 평균 포함
+          </label>
+          <label className={own.optionLabel}>
+            <input type="checkbox" checked={showRank} onChange={(e) => setShowRank(e.target.checked)} />반 석차 포함
+          </label>
+          <label className={own.optionLabel}>
+            <input type="checkbox" checked={showChart} onChange={(e) => setShowChart(e.target.checked)} />누적 그래프
+            포함
+          </label>
+          <label className={own.optionLabel}>
+            <input type="checkbox" checked={showAttendance} onChange={(e) => setShowAttendance(e.target.checked)} />
+            출석 현황 포함
+          </label>
+          <label className={own.optionLabel}>
+            <input type="checkbox" checked={showHwPerf} onChange={(e) => setShowHwPerf(e.target.checked)} />
+            과제 수행도 포함
+          </label>
+        </div>
+
+        <div className={own.selectRow}>
+          <span className={own.selectLabel}>보고서 형식</span>
+          <select
+            className={own.select}
+            value={modeChoice}
+            onChange={(e) => setModeChoice(e.target.value as ModeChoice)}
+            title={`자동: 이 시험은 '${meta.testType}' → ${MODE_LABEL[autoMode]} 보고서로 생성됩니다.`}
+          >
+            {MODE_CHOICES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className={styles.caption}>
+          시험 유형: <strong>{meta.testType}</strong> → 전원 <strong>{MODE_LABEL[reportMode]}</strong> 보고서로
+          생성됩니다.
+        </p>
+
+        <button
+          type="button"
+          className={`${styles.generateButton} ${own.fullButton}`}
+          onClick={handleGenerateReports}
+          disabled={reportRunning || commentRunning}
+        >
+          {reportRunning ? reportProgress : '🎨 전원 보고서 일괄 생성'}
+        </button>
+        {reportErrors.map((m) => (
+          <p key={m} className={styles.errorText}>
+            {m}
+          </p>
+        ))}
+        {!reportRunning && generated.length > 0 && (
+          <p className={styles.successText}>✅ {generated.length}명 보고서 생성 완료!</p>
+        )}
+      </div>
+
+      {generated.length > 0 && (
+        <>
+          <div className={own.stepBlock}>
+            <div className={own.stepTitle}>📥 보고서 다운로드</div>
+            <div className={own.reportList}>
+              {generated.map((rep) => (
+                <div key={rep.studentId} className={own.reportRow}>
+                  <span>{rep.name}</span>
+                  <div className={own.reportRowActions}>
                     <button
                       type="button"
-                      className={styles.secondaryButton}
-                      onClick={() => generateOne(s)}
-                      disabled={state.generating || batchRunning}
+                      className={own.smallButton}
+                      onClick={() => setPreviewId(previewId === rep.studentId ? null : rep.studentId)}
                     >
-                      {state.reportHtml ? '🔄 다시 생성' : '✨ 이 학생 보고서 생성'}
+                      {previewId === rep.studentId ? '미리보기 닫기' : '👁️ 미리보기'}
                     </button>
-                    {state.error && <p className={styles.errorText}>{state.error}</p>}
-
-                    {state.reportData && (
-                      <>
-                        <textarea
-                          className={styles.commentTextarea}
-                          value={state.comment}
-                          onChange={(e) => patchState(s.studentId, { comment: e.target.value })}
-                          onBlur={() => rebuildHtml(s)}
-                          placeholder="학부모님께 전하는 글"
-                          rows={4}
-                        />
-                        <p className={panelStyles.previewText}>
-                          점수 {state.reportData.tests[0]?.score.toFixed(1) ?? '-'}점 · 백분위{' '}
-                          {state.reportData.tests[0]?.irt.percentile ?? '-'}% · {state.reportData.tests[0]?.irt.rank ?? '-'}
-                          /{state.reportData.tests[0]?.irt.peerCount ?? '-'}등
-                        </p>
-                      </>
-                    )}
-
-                    {state.reportHtml && (
-                      <div className={styles.reportPreviewActions} style={{ marginTop: 10, flexWrap: 'wrap' }}>
-                        <button type="button" className={styles.secondaryButton} onClick={() => handleOpenInNewTab(state)}>
-                          🔗 새 창에서 보기
-                        </button>
-                        <button type="button" className={styles.secondaryButton} onClick={() => handleDownload(s, state)}>
-                          ⬇️ HTML 다운로드
-                        </button>
-                        <button type="button" className={styles.secondaryButton} onClick={() => handlePrint(state)}>
-                          🖨️ 인쇄 / PDF로 저장
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.generateButton}
-                          onClick={() => handleSendToParent(s)}
-                          disabled={state.sending}
-                        >
-                          {state.sending ? '발송 중...' : '📱 학부모에게 문자로 보내기'}
-                        </button>
-                      </div>
-                    )}
-                    {state.sendMsg && <p className={styles.successText}>{state.sendMsg}</p>}
-                    {state.sendErr && <p className={styles.errorText}>{state.sendErr}</p>}
+                    <button type="button" className={own.smallButton} onClick={() => openInNewTab(rep.html)}>
+                      🔗 새 창
+                    </button>
+                    <button type="button" className={own.smallButton} onClick={() => download(rep)}>
+                      ⬇️ 다운로드
+                    </button>
+                    <button type="button" className={own.smallButton} onClick={() => print(rep.html)}>
+                      🖨️ 인쇄/PDF
+                    </button>
                   </div>
-                </details>
-              );
-            })}
+                </div>
+              ))}
+            </div>
+            {previewReport && (
+              <iframe title={`${previewReport.name} 보고서 미리보기`} srcDoc={previewReport.html} className={styles.reportIframe} />
+            )}
+          </div>
+
+          <div className={own.stepBlock}>
+            <div className={own.stepTitle}>📱 학부모에게 문자 일괄 발송</div>
+            {noPhoneCount > 0 && (
+              <p className={own.warnText}>
+                연락처가 등록되지 않은 학생이 {noPhoneCount}명 있습니다. 해당 학생은 발송에서 제외됩니다. (학생 명부에서
+                연락처를 등록하세요)
+              </p>
+            )}
+            <div className={own.selectRow}>
+              <span className={own.selectLabel}>보고서 종류 (문자 문구에 표시됩니다 — 시험 유형에 맞춰 자동 선택됨)</span>
+              <select className={own.select} value={smsType} onChange={(e) => setSmsType(e.target.value)}>
+                {smsOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              className={`${styles.generateButton} ${own.fullButton}`}
+              onClick={handleSendSms}
+              disabled={smsRunning || generated.length - noPhoneCount === 0}
+            >
+              {smsRunning ? smsProgress : `📤 전원 문자 발송 (${generated.length - noPhoneCount}명)`}
+            </button>
+            {smsResult && (
+              <>
+                <p className={styles.successText}>
+                  ✅ 문자 발송 완료 — 성공 {smsResult.ok}명 / 대상 {smsResult.total}명
+                </p>
+                {smsResult.fails.map((m) => (
+                  <p key={m} className={styles.errorText}>
+                    {m}
+                  </p>
+                ))}
+              </>
+            )}
           </div>
         </>
       )}

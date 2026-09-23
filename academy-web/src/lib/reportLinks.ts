@@ -111,7 +111,11 @@ export async function markReportViewed(token: string): Promise<void> {
 }
 
 /** 학부모에게 보낼 리포트 링크 문자 문구. */
-export function buildParentReportLinkText(params: { studentName: string; token: string }): string {
+export function buildParentReportLinkText(params: { studentName: string; token: string; reportType?: string }): string {
   const link = `${PARENT_REPORT_BASE_URL}?token=${params.token}`;
+  if (params.reportType) {
+    // 스트림릿 sms_sender.send_report_sms()와 동일 문구("OOO 학생 일일 성적표 도착").
+    return `${HW_SMS_GREETING}\n${params.studentName} 학생 ${params.reportType} 도착\n${link}`;
+  }
   return `${HW_SMS_GREETING}\n${params.studentName} 학생의 성적 리포트입니다. 확인 부탁드립니다.\n${link}`;
 }

@@ -98,6 +98,7 @@ export function AiTestOcrPanel() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [savedTestId, setSavedTestId] = useState<number | null>(null);
+  const [resultsVersion, setResultsVersion] = useState(0);
 
   useEffect(() => {
     loadExistingTests();
@@ -613,6 +614,7 @@ export function AiTestOcrPanel() {
             testName={activeTest.name}
             totalQuestions={activeTest.total}
             questionNumbers={activeTest.questionNumbers}
+            onSaved={() => setResultsVersion((v) => v + 1)}
           />
 
           <div className={styles.pageBlock}>
@@ -628,7 +630,7 @@ export function AiTestOcrPanel() {
       )}
 
       {activeTest && (
-        <TestReportWritePanel testId={activeTest.id} testName={activeTest.name} />
+        <TestReportWritePanel key={activeTest.id} testId={activeTest.id} refreshKey={resultsVersion} />
       )}
     </div>
   );

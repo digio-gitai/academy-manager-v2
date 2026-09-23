@@ -41,6 +41,7 @@ interface Props {
   totalQuestions: number;
   /** 편집 화면(2단계)에 있던 문항번호 중 숫자로 된 것만(오답 체크박스용). */
   questionNumbers: number[];
+  onSaved?: () => void;
 }
 
 /**
@@ -54,7 +55,7 @@ interface Props {
  * 않게 최적화했지만, React는 컴포넌트 리렌더 자체가 가볍기 때문에 별도
  * form 없이 그냥 state로 처리 — 동작은 동일함.
  */
-export function TestResultAssignPanel({ testId, testName, totalQuestions, questionNumbers }: Props) {
+export function TestResultAssignPanel({ testId, testName, totalQuestions, questionNumbers, onSaved }: Props) {
   const [classes, setClasses] = useState<ClassInfo[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
   const [classesError, setClassesError] = useState('');
@@ -191,6 +192,7 @@ export function TestResultAssignPanel({ testId, testName, totalQuestions, questi
     }
     setSaving(false);
     setSaveSummary({ success, fail: failNames.length, failNames });
+    if (success > 0) onSaved?.();
   }
 
   if (classesLoading || resultsLoading) {
