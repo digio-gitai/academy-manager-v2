@@ -114,6 +114,17 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
   const [sending, setSending] = useState(false);
   const [sendProgress, setSendProgress] = useState('');
   const [sendResult, setSendResult] = useState<{ ok: string[]; fails: string[] } | null>(null);
+  // 학생별 확인 후 발송: 미리보기를 연 학생만 체크할 수 있고, 체크한 학생만 발송.
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+  const [sendIds, setSendIds] = useState<Set<string>>(new Set());
+
+  function resetSendState() {
+    setSendResult(null);
+    setPreviewId(null);
+    setReviewedIds(new Set());
+    setSendIds(new Set());
+  }
 
   const selectedClassId = classFilter === CLASS_FILTER_ALL ? null : classFilter;
   const classLabel =
@@ -214,9 +225,18 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
     openDocument(buildAttendanceReportDocument(studentData.map((s) => s.data), { autoPrint: true }));
   }
 
-  function handlePreview() {
-    if (studentData.length !== 1) return;
-    openDocument(buildAttendanceReportDocument([studentData[0].data]));
+  function togglePreview(id: string) {
+    setPreviewId((cur) => (cur === id ? null : id));
+    setReviewedIds((prev) => new Set(prev).add(id));
+  }
+
+  function toggleSend(id: string) {
+    setSendIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   async function sendToParent(st: CandidateStudent, data: StudentAttendanceData): Promise<void> {
@@ -236,18 +256,20 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
     await markReportSent(token).catch(() => {});
   }
 
+  const sendTargets = studentData.filter(({ student }) => sendIds.has(student.id));
+
   async function handleSend() {
-    if (studentData.length === 0) return;
-    const who = selectedStudent ? `${selectedStudent.name} 학생` : `${classLabel} 학생 ${studentData.length}명`;
-    if (!window.confirm(`${who}의 ${monthLabel} 출석 내역을 학부모님께 문자로 보냅니다. 계속할까요?`)) return;
+    if (sendTargets.length === 0) return;
+    const names = sendTargets.map(({ student }) => student.name).join(', ');
+    if (!window.confirm(`${monthLabel} 출석 내역을 ${sendTargets.length}명(${names}) 학부모님께 문자로 보냅니다. 계속할까요?`)) return;
 
     setSending(true);
     setSendResult(null);
     const ok: string[] = [];
     const fails: string[] = [];
-    for (let i = 0; i < studentData.length; i++) {
-      const { student, data } = studentData[i];
-      setSendProgress(`문자 발송 중... (${i + 1}/${studentData.length}명)`);
+    for (let i = 0; i < sendTargets.length; i++) {
+      const { student, data } = sendTargets[i];
+      setSendProgress(`문자 발송 중... (${i + 1}/${sendTargets.length}명)`);
       try {
         await sendToParent(student, data);
         ok.push(student.name);
@@ -258,7 +280,15 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
     setSendProgress('');
     setSending(false);
     setSendResult({ ok, fails });
+    setSendIds((prev) => {
+      const next = new Set(prev);
+      for (const { student } of sendTargets) if (ok.includes(student.name)) next.delete(student.id);
+      return next;
+    });
   }
+
+  const previewData = studentData.find(({ student }) => student.id === previewId)?.data ?? null;
+  const previewHtml = useMemo(() => (previewData ? buildAttendanceReportDocument([previewData]) : ''), [previewData]);
 
   const targetLabel = selectedStudent ? `${selectedStudent.name} 학생` : `${classLabel} 학생 ${studentData.length}명`;
 
@@ -274,7 +304,7 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
               onChange={(e) => {
                 setClassFilter(e.target.value);
                 setStudentFilter(STUDENT_FILTER_ALL);
-                setSendResult(null);
+                resetSendState();
               }}
             >
               <option value={CLASS_FILTER_ALL}>{CLASS_FILTER_ALL}</option>
@@ -292,7 +322,7 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
               value={studentFilter}
               onChange={(e) => {
                 setStudentFilter(e.target.value);
-                setSendResult(null);
+                resetSendState();
               }}
             >
               <option value={STUDENT_FILTER_ALL}>전체 학생</option>
@@ -315,34 +345,12 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
           <div className={styles.card}>
             <h3 className={styles.cardTitle}>출석 내역 내보내기</h3>
             <p className={styles.emptyText}>
-              {targetLabel}의 {monthLabel} 출석 내역을 학생마다 A4 한 장으로 인쇄하거나, 학부모님께 문자(열람 링크)로
-              보냅니다. 인쇄창에서 "PDF로 저장"을 고르면 PDF 파일로 받을 수 있습니다.
+              {targetLabel}의 {monthLabel} 출석 내역을 학생마다 A4 한 장으로 인쇄합니다. 인쇄창에서 "PDF로 저장"을
+              고르면 PDF 파일로 받을 수 있습니다. 학부모 문자는 아래 "학부모 문자 보내기"에서 학생별로 확인 후 보냅니다.
             </p>
             <div className={styles.exportActions}>
               <button type="button" className={styles.pdfButton} onClick={handlePrint} disabled={studentData.length === 0}>
                 출석 내역 인쇄 (PDF)
-              </button>
-              {selectedStudent && (
-                <button
-                  type="button"
-                  className={styles.secondaryButton}
-                  onClick={handlePreview}
-                  disabled={studentData.length === 0}
-                >
-                  👁️ 학부모용 화면 미리보기
-                </button>
-              )}
-              <button
-                type="button"
-                className={styles.secondaryButton}
-                onClick={handleSend}
-                disabled={sending || studentData.length === 0}
-              >
-                {sending
-                  ? sendProgress
-                  : selectedStudent
-                  ? '📱 학부모에게 문자로 보내기'
-                  : `📱 학부모 전원에게 문자로 보내기 (${studentData.length}명)`}
               </button>
             </div>
             {studentData.length === 0 && (
@@ -355,21 +363,78 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
                 보강 기록을 불러오지 못해 보강은 빠진 채로 표시됩니다 (보강 테이블 SQL 실행 여부 확인): {makeupError}
               </p>
             )}
-            {sendResult && (
-              <>
-                {sendResult.ok.length > 0 && (
-                  <p className={styles.downloadNotice}>
-                    ✅ {sendResult.ok.length}명 발송 완료 ({sendResult.ok.join(', ')})
-                  </p>
-                )}
-                {sendResult.fails.map((m) => (
-                  <p key={m} className={styles.errorNotice}>
-                    {m}
-                  </p>
-                ))}
-              </>
-            )}
           </div>
+
+          {studentData.length > 0 && (
+            <div className={styles.card}>
+              <h3 className={styles.cardTitle}>📱 학부모 문자 보내기</h3>
+              <p className={styles.emptyText}>
+                학생마다 👁️ 미리보기로 학부모가 받을 화면을 확인한 뒤 "확인 · 발송"에 체크하세요. 체크한 학생에게만
+                문자가 나갑니다.
+              </p>
+              <div className={styles.sendList}>
+                {studentData.map(({ student, data }) => {
+                  const reviewed = reviewedIds.has(student.id);
+                  const hasPhone = student.parentPhone.trim() !== '';
+                  return (
+                    <div key={student.id} className={styles.sendRow}>
+                      <span className={styles.sendName}>
+                        {student.name} <span className={styles.sendMeta}>· {data.className}</span>
+                      </span>
+                      <span className={hasPhone ? styles.sendMeta : styles.sendWarn}>
+                        {hasPhone ? student.parentPhone : '보호자 연락처 없음'}
+                      </span>
+                      <div className={styles.sendActions}>
+                        <button type="button" className={styles.smallButton} onClick={() => togglePreview(student.id)}>
+                          {previewId === student.id ? '미리보기 닫기' : '👁️ 미리보기'}
+                        </button>
+                        <label
+                          className={styles.sendCheck}
+                          title={!reviewed ? '미리보기로 먼저 확인해 주세요' : !hasPhone ? '보호자 연락처가 없습니다' : ''}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={sendIds.has(student.id)}
+                            disabled={!reviewed || !hasPhone || sending}
+                            onChange={() => toggleSend(student.id)}
+                          />
+                          확인 · 발송
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {previewHtml && (
+                <iframe title="학부모용 출석 내역 미리보기" srcDoc={previewHtml} className={styles.previewFrame} />
+              )}
+
+              <button
+                type="button"
+                className={styles.pdfButton}
+                style={{ marginTop: 12 }}
+                onClick={handleSend}
+                disabled={sending || sendTargets.length === 0}
+              >
+                {sending ? sendProgress : `📤 확인한 ${sendTargets.length}명 학부모에게 문자 발송`}
+              </button>
+              {sendResult && (
+                <>
+                  {sendResult.ok.length > 0 && (
+                    <p className={styles.downloadNotice}>
+                      ✅ {sendResult.ok.length}명 발송 완료 ({sendResult.ok.join(', ')})
+                    </p>
+                  )}
+                  {sendResult.fails.map((m) => (
+                    <p key={m} className={styles.errorNotice}>
+                      {m}
+                    </p>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
 
           <div className={styles.card}>
             <h3 className={styles.cardTitle}>학생별 출석 통계</h3>

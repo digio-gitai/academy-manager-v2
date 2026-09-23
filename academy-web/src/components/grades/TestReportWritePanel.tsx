@@ -127,6 +127,9 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
   const [reportErrors, setReportErrors] = useState<string[]>([]);
   const [generated, setGenerated] = useState<GeneratedReport[]>([]);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // 학생별 확인 후 발송: 미리보기를 연 학생만 체크할 수 있고, 체크한 학생만 발송.
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+  const [sendIds, setSendIds] = useState<Set<string>>(new Set());
 
   const [smsType, setSmsType] = useState('성적표');
   const [smsRunning, setSmsRunning] = useState(false);
@@ -212,6 +215,8 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
     setReportErrors([]);
     setGenerated([]);
     setPreviewId(null);
+    setReviewedIds(new Set());
+    setSendIds(new Set());
     setSmsResult(null);
     const errors: string[] = [];
     const results: GeneratedReport[] = [];
@@ -357,9 +362,27 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
     };
   }
 
+  function togglePreview(id: string) {
+    setPreviewId((cur) => (cur === id ? null : id));
+    setReviewedIds((prev) => new Set(prev).add(id));
+  }
+
+  function toggleSend(id: string) {
+    setSendIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   async function handleSendSms() {
     if (!meta) return;
-    const targets = generated.filter((r) => r.parentPhone);
+    const targets = generated.filter((r) => r.parentPhone && sendIds.has(r.studentId));
+    if (targets.length === 0) return;
+    const names = targets.map((r) => r.name).join(', ');
+    if (!window.confirm(`${targets.length}명(${names}) 학부모님께 "${smsType}" 문자를 보냅니다. 계속할까요?`)) return;
+    const sentIds: string[] = [];
     setSmsRunning(true);
     setSmsResult(null);
     let ok = 0;
@@ -384,6 +407,7 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
         );
         if (result.succeeded > 0) {
           ok += 1;
+          sentIds.push(rep.studentId);
           markReportSent(token).catch(() => {});
         } else {
           fails.push(`${rep.name}: ${result.skipped[0]?.reason ?? '발송 실패'}`);
@@ -395,6 +419,11 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
     setSmsProgress('');
     setSmsRunning(false);
     setSmsResult({ ok, total: targets.length, fails });
+    setSendIds((prev) => {
+      const next = new Set(prev);
+      for (const id of sentIds) next.delete(id);
+      return next;
+    });
   }
 
   if (loading) {
@@ -423,6 +452,7 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
   }
 
   const noPhoneCount = generated.filter((r) => !r.parentPhone).length;
+  const sendCount = generated.filter((r) => r.parentPhone && sendIds.has(r.studentId)).length;
   const smsOptions = [smsType, ...SMS_TYPES.filter((o) => o !== smsType)];
   const previewReport = generated.find((r) => r.studentId === previewId) ?? null;
 
@@ -552,11 +582,7 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
                 <div key={rep.studentId} className={own.reportRow}>
                   <span>{rep.name}</span>
                   <div className={own.reportRowActions}>
-                    <button
-                      type="button"
-                      className={own.smallButton}
-                      onClick={() => setPreviewId(previewId === rep.studentId ? null : rep.studentId)}
-                    >
+                    <button type="button" className={own.smallButton} onClick={() => togglePreview(rep.studentId)}>
                       {previewId === rep.studentId ? '미리보기 닫기' : '👁️ 미리보기'}
                     </button>
                     <button type="button" className={own.smallButton} onClick={() => openInNewTab(rep.html)}>
@@ -568,6 +594,24 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
                     <button type="button" className={own.smallButton} onClick={() => print(rep.html)}>
                       🖨️ 인쇄/PDF
                     </button>
+                    <label
+                      className={own.sendCheck}
+                      title={
+                        !reviewedIds.has(rep.studentId)
+                          ? '미리보기로 먼저 확인해 주세요'
+                          : !rep.parentPhone
+                          ? '보호자 연락처가 없습니다'
+                          : ''
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={sendIds.has(rep.studentId)}
+                        disabled={!reviewedIds.has(rep.studentId) || !rep.parentPhone || smsRunning}
+                        onChange={() => toggleSend(rep.studentId)}
+                      />
+                      {rep.parentPhone ? '확인 · 발송' : '연락처 없음'}
+                    </label>
                   </div>
                 </div>
               ))}
@@ -578,7 +622,10 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
           </div>
 
           <div className={own.stepBlock}>
-            <div className={own.stepTitle}>📱 학부모에게 문자 일괄 발송</div>
+            <div className={own.stepTitle}>📱 학부모에게 문자 발송</div>
+            <p className={styles.caption}>
+              위 목록에서 학생마다 👁️ 미리보기로 확인한 뒤 "확인 · 발송"에 체크한 학생에게만 문자가 나갑니다.
+            </p>
             {noPhoneCount > 0 && (
               <p className={own.warnText}>
                 연락처가 등록되지 않은 학생이 {noPhoneCount}명 있습니다. 해당 학생은 발송에서 제외됩니다. (학생 명부에서
@@ -599,9 +646,9 @@ export function TestReportWritePanel({ testId, refreshKey }: Props) {
               type="button"
               className={`${styles.generateButton} ${own.fullButton}`}
               onClick={handleSendSms}
-              disabled={smsRunning || generated.length - noPhoneCount === 0}
+              disabled={smsRunning || sendCount === 0}
             >
-              {smsRunning ? smsProgress : `📤 전원 문자 발송 (${generated.length - noPhoneCount}명)`}
+              {smsRunning ? smsProgress : `📤 확인한 ${sendCount}명 학부모에게 문자 발송`}
             </button>
             {smsResult && (
               <>

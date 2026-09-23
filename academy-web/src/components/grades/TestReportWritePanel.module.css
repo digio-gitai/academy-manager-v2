@@ -100,6 +100,22 @@
   cursor: pointer;
 }
 
+.sendCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.sendCheck:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .smallButton:hover {
   background: var(--color-tint);
 }

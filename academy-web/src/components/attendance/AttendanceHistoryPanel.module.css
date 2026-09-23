@@ -129,6 +129,90 @@
   cursor: not-allowed;
 }
 
+.sendList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.sendRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border: 1px solid rgba(31, 61, 43, 0.1);
+  border-radius: 10px;
+}
+
+.sendName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary);
+  min-width: 150px;
+}
+
+.sendMeta {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.sendWarn {
+  font-size: 12px;
+  font-weight: 700;
+  color: #b3453c;
+}
+
+.sendActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.smallButton {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-primary);
+  background: var(--color-white);
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.smallButton:hover {
+  background: var(--color-tint);
+}
+
+.sendCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.sendCheck:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.previewFrame {
+  width: 100%;
+  height: 80vh;
+  margin-top: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: #efeae0;
+}
+
 .errorNotice {
   font-size: 12px;
   color: #b3453c;
