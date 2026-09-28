@@ -280,3 +280,97 @@
   font-size: 12.5px;
   color: var(--color-text-muted);
 }
+
+/* [2026-09-28] "직전 수업 과제" 카드를 두 칸으로 — 오른쪽은 반 공지(ClassNoticeBox). */
+.splitCard {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.splitCol {
+  min-width: 0;
+}
+
+.splitCol + .splitCol {
+  border-left: 1px solid rgba(31, 61, 43, 0.08);
+  padding-left: 20px;
+}
+
+@media (max-width: 720px) {
+  .splitCard {
+    grid-template-columns: 1fr;
+  }
+  .splitCol + .splitCol {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid rgba(31, 61, 43, 0.08);
+    padding-top: 16px;
+  }
+}
+
+.noticeBody {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.noticeTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-surface);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+  font-family: inherit;
+  resize: vertical;
+}
+
+.noticeActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.noticeActions .refCaption {
+  margin: 0 auto 0 0;
+}
+
+.noticeSaveButton,
+.noticeGhostButton {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.noticeSaveButton {
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-white);
+}
+
+.noticeGhostButton {
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-white);
+  color: var(--color-text);
+}
+
+.noticeSaveButton:disabled,
+.noticeGhostButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.errorInline {
+  font-size: 12px;
+  color: #b23a3a;
+  margin: 0 0 8px;
+}

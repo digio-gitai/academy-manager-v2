@@ -9,6 +9,7 @@ import {
   type HomeworkPerformanceLevel,
   type TodayHomeworkSummary,
 } from '../../lib/homework';
+import { ClassNoticeBox } from './ClassNoticeBox';
 import styles from './AttendanceCheckPanel.module.css';
 
 const WEEKDAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
@@ -411,7 +412,9 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
         )}
       </div>
 
-      <div className={styles.card}>
+      {/* 2026-09-28: 두 칸으로 나눔 — 왼쪽 직전 수업 과제(참고), 오른쪽 반 공지(반별 메모, 지우기 전까지 유지). */}
+      <div className={`${styles.card} ${styles.splitCard}`}>
+        <div className={styles.splitCol}>
         <h3 className={styles.cardTitle}>직전 수업 과제 (참고)</h3>
         {homeworkLoading ? (
           <p className={styles.emptyText}>과제 정보를 불러오는 중입니다...</p>
@@ -442,6 +445,11 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
             등록된 과제가 없습니다. '과제 인증' 메뉴에서 등록해주세요.
           </p>
         )}
+        </div>
+        <div className={styles.splitCol}>
+          <h3 className={styles.cardTitle}>반 공지 ({selectedClass?.name ?? '반 선택'})</h3>
+          {classId ? <ClassNoticeBox classId={classId} /> : <p className={styles.emptyText}>반을 선택해주세요.</p>}
+        </div>
       </div>
 
       {/* 2026-09-05 추가: 과제 수행도(상/중/하) 체크 — 직전 수업 과제를 오늘
