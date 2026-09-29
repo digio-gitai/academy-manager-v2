@@ -10,6 +10,9 @@ export interface SmsRecipient {
 /** 대시보드 KPI 분류 — report(성적 리포트) / hw_notify(과제 알림). 공지 등 자유 문자는 생략. */
 export type SmsKind = 'report' | 'hw_notify';
 
+/** 과제 제출 시 원장님 본인에게 가는 알림 문자 번호(AssignmentUpload) — 학생·학부모 발송이 아니라서 대시보드 SMS 집계에서는 뺀다. */
+export const TEACHER_NOTIFY_PHONE = '010-9655-3089';
+
 export interface SkippedRecipient {
   name?: string;
   phone: string;

@@ -16,7 +16,7 @@ import {
 } from '../lib/hwUpload';
 import { StepHeader } from '../components/StepHeader';
 import { UploadItemCard } from '../components/homework-upload/UploadItemCard';
-import { sendBulkSms } from '../lib/smsSend';
+import { sendBulkSms, TEACHER_NOTIFY_PHONE } from '../lib/smsSend';
 import styles from './AssignmentUpload.module.css';
 
 const STATUS_LABELS: Record<string, string> = { pending: '⏳ 미완료', partial: '🟡 일부완료', done: '✅ 완료' };
@@ -27,7 +27,7 @@ const STATUS_LABELS: Record<string, string> = { pending: '⏳ 미완료', partia
 // 둔다(관리자 1명뿐인 소규모 운영 특성상 설정 테이블을 새로 만들 정도는
 // 아니라고 판단). 발송 실패해도 학생의 제출 자체는 이미 끝난 뒤라 절대
 // 막지 않음(fire-and-forget, 다른 부가 기능들과 동일한 원칙).
-const TEACHER_NOTIFY_PHONE = '010-9655-3089';
+// (번호 자체는 대시보드 SMS 집계에서 제외하려고 lib/smsSend.ts로 옮김.)
 
 function seedRawInput(item: HwUploadItem, totalItemCount: number): RawItemInput {
   const isPageRange =

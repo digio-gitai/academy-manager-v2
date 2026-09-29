@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { fetchClasses } from './classManagement';
+import { fetchSmsSendLogs, TEACHER_NOTIFY_PHONE } from './smsSend';
 import type { ClassInfo as ClassManagementInfo } from '../types/classManagement';
 import type { ClassInfo, DashboardKpi, HomeworkStatus, HomeworkStudent, ReportRow, ReportStatus } from '../types/dashboard';
 
@@ -171,6 +172,27 @@ export async function fetchDashboardOverview(): Promise<DashboardOverview> {
     }
   }
 
+  // 2026-09-29: 'SMS 발송' 메뉴에서 보낸 일반 문자는 sms_log에 안 남아서(kind 없음)
+  // 학생에게 보냈는데도 KPI가 0으로 보였음 → 실제 발송 기록(sms_send_logs, 모든
+  // 화면 공통)에서 오늘 성공 건을 세서 총합으로 쓰고, 리포트·알림을 뺀 나머지를
+  // '일반'으로 표시. 원장님 본인에게 가는 과제 제출 알림은 제외.
+  // 조회 실패 시에는 기존처럼 sms_log 기준(리포트+알림)만 표시.
+  let totalSmsCount = reportSmsCount + hwSmsCount;
+  try {
+    const teacherDigits = TEACHER_NOTIFY_PHONE.replace(/\D/g, '');
+    const logs = await fetchSmsSendLogs(200);
+    const sentToday = logs.filter((l) => {
+      if (l.status !== 'success') return false;
+      if (l.recipientPhone.replace(/\D/g, '') === teacherDigits) return false;
+      const d = new Date(l.sentAt);
+      return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` === today;
+    }).length;
+    totalSmsCount = Math.max(totalSmsCount, sentToday);
+  } catch {
+    // 발송 내역 조회 실패 — sms_log 기준 값 유지.
+  }
+  const generalSmsCount = totalSmsCount - reportSmsCount - hwSmsCount;
+
   // "이번 주 리포트" KPI + "최근 발송한 리포트" 목록 — report_links 테이블.
   let weekReportRows: ReportLinkRow[] = [];
   let recentReportRows: ReportLinkRow[] = [];
@@ -226,9 +248,9 @@ export async function fetchDashboardOverview(): Promise<DashboardOverview> {
     },
     {
       label: '오늘 발송 SMS',
-      value: reportSmsCount + hwSmsCount,
+      value: totalSmsCount,
       unit: '건',
-      sub: `리포트 ${reportSmsCount} · 알림 ${hwSmsCount}`,
+      sub: `리포트 ${reportSmsCount} · 알림 ${hwSmsCount} · 일반 ${generalSmsCount}`,
       dot: 'primary',
     },
     {
