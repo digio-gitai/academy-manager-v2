@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ClassInfo } from '../../types/classManagement';
 import type { AttendanceLogRow, AttendanceStatus } from '../../types/attendance';
 import { fetchAttendanceHistory } from '../../lib/attendance';
-import { fetchMakeupSessions, type MakeupSession } from '../../lib/makeup';
+import { fetchMakeupSessions, isMakeupSubstituteNote, type MakeupSession } from '../../lib/makeup';
 import {
   buildAttendanceReportDocument,
   collectStudentAttendance,
@@ -593,7 +593,9 @@ export function AttendanceHistoryPanel({ classes, monthLabel, fromDate, toDate }
                               className={styles.statusTag}
                               style={{ background: tone.badgeBg, color: tone.badgeColor }}
                             >
-                              {STATUS_LABELS[row.status]}
+                              {row.status === 'cancelled' && isMakeupSubstituteNote(row.note)
+                                ? '보강대체'
+                                : STATUS_LABELS[row.status]}
                             </span>
                           </td>
                           <td>{row.note || '—'}</td>

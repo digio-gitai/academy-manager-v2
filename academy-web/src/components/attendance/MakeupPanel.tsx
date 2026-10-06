@@ -43,6 +43,8 @@ export function MakeupPanel({ classes, monthLabel, fromDate, toDate }: MakeupPan
   const [date, setDate] = useState(todayStr());
   const [classId, setClassId] = useState(classes[0]?.id ?? NO_CLASS);
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  // 학생별 "원래 수업일"(결석 대신 보강한 날) — 비워 두면 일반 보강.
+  const [originalDates, setOriginalDates] = useState<Record<string, string>>({});
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
@@ -67,14 +69,14 @@ export function MakeupPanel({ classes, monthLabel, fromDate, toDate }: MakeupPan
 
   /** 체크 목록 — 반을 고르면 그 반 학생, "반 지정 안 함"이면 전체 학생(반 이름과 함께). */
   const studentOptions = useMemo(() => {
-    const out: { id: string; name: string; className: string }[] = [];
+    const out: { id: string; name: string; className: string; classId: string }[] = [];
     const seen = new Set<string>();
     for (const c of classes) {
       if (classId && c.id !== classId) continue;
       for (const st of c.students) {
         if (seen.has(st.id)) continue;
         seen.add(st.id);
-        out.push({ id: st.id, name: st.name, className: c.name });
+        out.push({ id: st.id, name: st.name, className: c.name, classId: c.id });
       }
     }
     return out;
@@ -104,13 +106,36 @@ export function MakeupPanel({ classes, monthLabel, fromDate, toDate }: MakeupPan
 
   async function handleSave() {
     if (checked.size === 0 || !date) return;
+    const picked = studentOptions.filter((s) => checked.has(s.id));
+    if (picked.some((s) => originalDates[s.id] === date)) {
+      setSaveError('원래 수업일이 보강 날짜와 같습니다. 원래 수업일을 확인해 주세요.');
+      return;
+    }
     setSaving(true);
     setSaveMessage('');
     setSaveError('');
     try {
-      await createMakeupSession({ date, classId: classId || null, content, studentIds: Array.from(checked) });
-      setSaveMessage(`${date}(${weekdayOf(date)}) 보강 ${checked.size}명 기록 완료`);
+      const { skippedNames } = await createMakeupSession({
+        date,
+        classId: classId || null,
+        content,
+        students: picked.map((s) => ({
+          studentId: s.id,
+          studentName: s.name,
+          classId: s.classId,
+          originalDate: originalDates[s.id] ?? '',
+        })),
+      });
+      const replaced = picked.filter((s) => originalDates[s.id]).length - skippedNames.length;
+      setSaveMessage(
+        `${date}(${weekdayOf(date)}) 보강 ${checked.size}명 기록 완료` +
+          (replaced > 0 ? ` · 원래 수업일 ${replaced}명은 결석 대신 보강대체로 처리됨` : '') +
+          (skippedNames.length > 0
+            ? ` · ${skippedNames.join(', ')}은(는) 원래 수업일에 출석·지각 기록이 있어 그대로 둠`
+            : ''),
+      );
       setChecked(new Set());
+      setOriginalDates({});
       setContent('');
       loadList();
     } catch (err) {
@@ -124,7 +149,7 @@ export function MakeupPanel({ classes, monthLabel, fromDate, toDate }: MakeupPan
     const names = m.students.map((s) => s.name).join(', ');
     if (!window.confirm(`${m.date} 보강 기록(${names})을 삭제할까요?`)) return;
     try {
-      await deleteMakeupSession(m.id);
+      await deleteMakeupSession(m);
       loadList();
     } catch (err) {
       setListError(describeError(err));
@@ -180,6 +205,33 @@ export function MakeupPanel({ classes, monthLabel, fromDate, toDate }: MakeupPan
                 {!classId && <span className={own.chipMeta}> · {s.className}</span>}
               </button>
             ))}
+          </div>
+        )}
+
+        {checked.size > 0 && (
+          <div className={own.originalBox}>
+            <p className={styles.emptyText} style={{ marginBottom: 6 }}>
+              결석 대신 보강한 학생은 <strong>원래 수업일</strong>을 고르세요. 그 날 출결이 결석이 아니라 "보강대체"로
+              자동 처리되어 출석률에서 빠집니다. 일반 보강이면 비워 두세요.
+            </p>
+            {studentOptions
+              .filter((s) => checked.has(s.id))
+              .map((s) => (
+                <div key={s.id} className={own.originalRow}>
+                  <span className={own.originalName}>{s.name}</span>
+                  <input
+                    type="date"
+                    className={styles.dateInput}
+                    value={originalDates[s.id] ?? ''}
+                    onChange={(e) => setOriginalDates((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                  />
+                  <span className={styles.rangeCaption}>
+                    {originalDates[s.id]
+                      ? `${originalDates[s.id]} (${weekdayOf(originalDates[s.id])}) 수업분`
+                      : '원래 수업일 (선택)'}
+                  </span>
+                </div>
+              ))}
           </div>
         )}
 
@@ -240,7 +292,13 @@ export function MakeupPanel({ classes, monthLabel, fromDate, toDate }: MakeupPan
                       {m.date} ({weekdayOf(m.date)})
                     </td>
                     <td>{m.className || '—'}</td>
-                    <td>{m.students.map((s) => s.name).join(', ')}</td>
+                    <td>
+                      {m.students
+                        .map((s) =>
+                          s.originalDate ? `${s.name}(${s.originalDate.slice(5)} 수업분)` : s.name,
+                        )
+                        .join(', ')}
+                    </td>
                     <td>{m.content || '—'}</td>
                     <td>
                       <button type="button" className={own.linkButton} onClick={() => handleDelete(m)}>

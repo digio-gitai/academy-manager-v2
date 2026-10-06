@@ -9,6 +9,7 @@ import {
   type HomeworkPerformanceLevel,
   type TodayHomeworkSummary,
 } from '../../lib/homework';
+import { isMakeupSubstituteNote } from '../../lib/makeup';
 import { ClassNoticeBox } from './ClassNoticeBox';
 import styles from './AttendanceCheckPanel.module.css';
 
@@ -376,7 +377,10 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
                 const status = getStatus(s.id);
                 return (
                   <div key={s.id} className={styles.studentRow}>
-                    <span className={styles.studentName}>{s.name}</span>
+                    <span className={styles.studentName}>
+                      {s.name}
+                      {status === 'cancelled' && isMakeupSubstituteNote(getNote(s.id)) && ' (보강대체)'}
+                    </span>
                     <div className={styles.radioGroup}>
                       {CHECK_STATUS_OPTIONS.map((opt) => (
                         <button

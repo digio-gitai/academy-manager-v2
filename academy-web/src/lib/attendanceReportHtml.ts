@@ -1,5 +1,5 @@
 import type { AttendanceLogRow, AttendanceStatus } from '../types/attendance';
-import type { MakeupSession } from './makeup';
+import { isMakeupSubstituteNote, type MakeupSession } from './makeup';
 
 /**
  * 학생 1명 · 한 달 "출석 내역" 문서(A4 1장). 출석 관리 화면의 기존 출석부 인쇄
@@ -82,14 +82,18 @@ export function collectStudentAttendance(
   const notes: StudentAttendanceData['notes'] = [];
   for (const r of rows) {
     const l = line(r.className);
+    // 보강으로 대체된 날(결석 대신 보강)은 휴강 수에 안 세고 메모도 안 남긴다 —
+    // 보강 쪽 메모("○/○ 수업분")와 보강 횟수로 표시되고, 캘린더에는 취소선으로만 보임.
+    const substitute = r.status === 'cancelled' && isMakeupSubstituteNote(r.note);
     if (r.status === 'present') l.present += 1;
     else if (r.status === 'late') l.late += 1;
     else if (r.status === 'absent') l.absent += 1;
-    else l.cancelled += 1;
+    else if (!substitute) l.cancelled += 1;
     const day = Number(r.date.slice(8, 10));
     if (!Number.isNaN(day)) dayStatus[day] = r.status;
 
     const note = r.note.trim();
+    if (substitute) continue;
     if (r.status === 'cancelled') notes.push({ date: r.date, weekday: r.weekday, kind: '휴강', text: note || '휴강' });
     else if (r.status === 'late') notes.push({ date: r.date, weekday: r.weekday, kind: '지각', text: note });
     else if (r.status === 'absent') notes.push({ date: r.date, weekday: r.weekday, kind: '결석', text: note });
@@ -102,7 +106,10 @@ export function collectStudentAttendance(
     line(target).makeup += 1;
     const day = Number(m.date.slice(8, 10));
     if (!Number.isNaN(day)) makeupDays.push(day);
-    notes.push({ date: m.date, weekday: weekdayOf(m.date), kind: '보강', text: m.content || '보강 수업' });
+    const orig = m.students.find((s) => s.id === student.id)?.originalDate;
+    const base = m.content || '보강 수업';
+    const text = orig ? `${base} (${Number(orig.slice(5, 7))}/${Number(orig.slice(8, 10))}(${weekdayOf(orig)}) 수업분 대체)` : base;
+    notes.push({ date: m.date, weekday: weekdayOf(m.date), kind: '보강', text });
   }
 
   for (const l of byClass.values()) {
@@ -219,7 +226,7 @@ function pageHtml(d: StudentAttendanceData): string {
       <span><i class="day" data-status="present">&nbsp;</i>출석</span>
       <span><i class="day" data-status="late">&nbsp;</i>지각</span>
       <span><i class="day" data-status="absent">&nbsp;</i>결석</span>
-      <span><i class="day" data-status="cancelled">&nbsp;</i>휴강</span>
+      <span><i class="day" data-status="cancelled">&nbsp;</i>휴강·보강대체</span>
       <span><i class="mk">보강</i>보강</span>
     </div>
   </div>

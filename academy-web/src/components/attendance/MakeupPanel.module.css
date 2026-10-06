@@ -40,6 +40,27 @@
   opacity: 0.75;
 }
 
+.originalBox {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: var(--color-surface);
+}
+
+.originalRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.originalName {
+  min-width: 64px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
 .linkButton {
   background: none;
   border: none;
