@@ -31,6 +31,14 @@ Deno.serve(async (req: Request) => {
     const homework = String(body.homework || '').trim();
     const tags: string[] = Array.isArray(body.tags) ? body.tags.map((t: unknown) => String(t)) : [];
 
+    const toneRules = `[말투 — 매우 중요]
+- 딱딱한 보고서체("~할 필요가 있습니다", "~바랍니다", "~사료됩니다")는 쓰지 말고, 선생님이 학부모님께 문자로 직접 말하듯 부드러운 구어체로 쓰세요.
+- 문장 끝은 "~했어요", "~해 보여요", "~해 주세요", "~같아요", "~볼게요"처럼 친근한 존댓말을 주로 쓰고, 중요한 안내만 "~합니다"로 섞으세요.
+- 매번 보내는 데일리 글이므로 인사말·자기소개("안녕하세요", "~강사입니다")는 절대 쓰지 말고 바로 내용부터 시작하세요.
+- 예시 말투: "오늘은 지안이가 많이 지쳐 보였어요. 중요한 단원이 많은 만큼 과제 꼼꼼히 해 주시고, 모르는 부분은 바로 확인해 주세요."
+- 학생은 성을 빼고 이름으로 친근하게 부르세요(예: 김지안 → 지안이, 이도윤 → 도윤이).
+- 칭찬과 걱정을 균형 있게, 과하게 격식을 차리거나 장황하게 쓰지 마세요.`;
+
     const studentName = String(body.studentName || '').trim();
     const attendance = String(body.attendance || '').trim(); // present/late/absent
     const hwPerformance = String(body.hwPerformance || '').trim(); // 상/중/하
@@ -49,11 +57,12 @@ Deno.serve(async (req: Request) => {
 [선생님이 고른 이 학생 특징] ${tags.length ? tags.join(', ') : '특별히 선택한 항목 없음'}
 
 [작성 조건]
-1. 2~3문장, 150자 이내로 간결하게
-2. 학생 이름을 한 번 자연스럽게 넣고, 위 정보 범위 안에서 오늘 모습과 과제·다음 수업 준비를 구체적으로 언급
+1. 인사 없이 2~3문장, 150자 이내로 간결하게
+2. 학생 이름을 자연스럽게 넣고, 위 정보 범위 안에서 오늘 모습과 과제·다음 수업 준비를 구체적으로 언급
 3. 결석이면 질책하지 말고 수업 내용을 어떻게 보충할지 가볍게 안내
-4. 따뜻하고 신뢰감 있는 존댓말, 인사말 없이 바로 내용부터 시작
-5. 위에 없는 사실(점수, 다른 학생 이야기, 날짜 등)은 절대 지어내지 마세요`
+4. 위에 없는 사실(점수, 다른 학생 이야기, 날짜 등)은 절대 지어내지 마세요
+
+${toneRules}`
       : `학원 수학 강사가 수업이 끝난 뒤 반 학생들의 학부모님께 보내는 "수업 Diary"의
 '공지사항 및 전하는 말씀'을 작성해주세요. 반 전체에 똑같이 나가는 글입니다.
 
@@ -63,11 +72,12 @@ Deno.serve(async (req: Request) => {
 [오늘 수업 분위기/특징] ${tags.length ? tags.join(', ') : '특별히 선택한 항목 없음'}
 
 [작성 조건]
-1. 2~3문장, 150자 이내로 간결하게
+1. 인사 없이 2~3문장, 150자 이내로 간결하게
 2. 오늘 수업의 특징과 과제 안내 또는 다음 수업 준비 사항을 자연스럽게 포함
-3. 따뜻하고 신뢰감 있는 존댓말, 인사말 없이 바로 내용부터 시작
-4. 위에 없는 사실(점수, 특정 학생 이야기, 날짜 등)은 절대 지어내지 마세요
-5. 특정 학생이 아니라 반 전체에 해당하는 표현만 사용`;
+3. 위에 없는 사실(점수, 특정 학생 이야기, 날짜 등)은 절대 지어내지 마세요
+4. 반 전체에 해당하는 표현만 사용(학생 이름 언급 금지)
+
+${toneRules}`;
 
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -75,7 +85,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         model: 'gpt-4o',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 300,
+        max_tokens: 400,
         temperature: 0.7,
       }),
     });

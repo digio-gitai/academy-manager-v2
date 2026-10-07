@@ -25,7 +25,7 @@ import type { ClassInfo } from '../types/classManagement';
 import type { AttendanceStatus } from '../types/attendance';
 import styles from './DailyDiary.module.css';
 
-const MOOD_TAGS = ['집중 좋음', '오답 많음', '질문 적극적', '숙제 미흡', '계산 실수', '태도 좋음', '복습 필요'];
+const MOOD_TAGS = ['집중 좋음', '피곤해 보임', '오답 많음', '질문 적극적', '숙제 미흡', '계산 실수', '태도 좋음', '복습 필요'];
 const STATUS_LABEL: Record<AttendanceStatus, string> = { present: '출석', late: '지각', absent: '결석', cancelled: '휴강' };
 
 function todayStr(): string {
@@ -365,7 +365,7 @@ export function DailyDiary() {
           <button type="button" className={`${styles.btn} ${styles.btnGold}`} onClick={() => handleEntryAi(e)} disabled={aiBusy === e.studentId}>
             {aiBusy === e.studentId ? 'AI 작성 중…' : `✨ ${e.studentName} AI 개별 초안`}
           </button>
-          {e.message !== null && (
+          {indiv && e.message !== null && (
             <button type="button" className={styles.linkBtn} onClick={() => patchEntry(e.studentId, { message: null })}>
               공통 말씀으로 되돌리기
             </button>
