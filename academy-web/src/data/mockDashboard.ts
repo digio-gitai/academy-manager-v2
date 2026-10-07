@@ -25,6 +25,7 @@ export const menuItems: MenuItem[] = [
   { id: 'classes', label: '내 수업 관리', path: '/classes', icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15Z' },
   { id: 'students', label: '학생 명부', path: '/students', icon: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
   { id: 'attendance', label: '출석 관리', path: '/attendance', icon: 'M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9' },
+  { id: 'diary', label: '데일리 Diary', path: '/daily-diary', icon: 'M4 4h12a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4ZM8 8h6M8 12h6M18 8h2M18 12h2' },
   { id: 'tuition', label: '수강료 관리', path: '/tuition', icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
   { id: 'consultation', label: '상담 일지', path: '/consultation', icon: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z' },
   { id: 'reports', label: '성적 리포트', path: '/reports', icon: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 14h6M9 17h4' },

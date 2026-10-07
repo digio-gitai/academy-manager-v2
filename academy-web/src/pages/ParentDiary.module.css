@@ -1,0 +1,34 @@
+.page { min-height: 100vh; background: #e9e3d3; padding: 16px 12px 40px; display: flex; justify-content: center; align-items: flex-start; }
+.status { margin: 60px auto; text-align: center; color: var(--color-text-muted); font-size: 15px; padding: 0 24px; }
+
+.diary { width: 100%; max-width: 440px; background: #faf6ec; border-radius: 18px; overflow: hidden; box-shadow: 0 6px 24px rgba(31, 61, 43, 0.18); border: 1px solid #ddd5c0; }
+.head { background: var(--color-primary); color: var(--color-tint); padding: 20px 20px 16px; }
+.head small { letter-spacing: 2px; color: var(--color-accent); font-size: 11px; }
+.head h1 { margin: 2px 0 10px; font-size: 22px; font-weight: 800; }
+.meta { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; opacity: 0.9; flex-wrap: wrap; }
+
+.body { padding: 16px 18px 20px; }
+.absentNote { background: #f6ddd8; border: 1px solid #e8bdb5; color: #7d3226; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; line-height: 1.5; }
+.stat { display: flex; gap: 8px; margin-bottom: 14px; }
+.stat > div { flex: 1; background: #fff; border: 1px solid #ddd5c0; border-radius: 10px; padding: 8px 10px; text-align: center; }
+.stat small { display: block; color: #7a7f72; font-size: 11px; }
+.stat b { font-size: 15px; }
+.statAbs { background: #f6ddd8 !important; border-color: #e8bdb5 !important; }
+.statAbs b { color: #b5483a; }
+
+.sec { margin-bottom: 14px; }
+.sec h3 { margin: 0 0 5px; font-size: 12px; color: #a98a3d; letter-spacing: 1px; display: flex; align-items: center; gap: 6px; }
+.sec h3::after { content: ''; flex: 1; height: 1px; background: #ddd5c0; }
+.sec p { margin: 0; font-size: 14px; line-height: 1.55; background: #fff; border: 1px solid #ddd5c0; border-radius: 10px; padding: 10px 12px; white-space: pre-line; }
+.msg { background: #f3e8c8 !important; border-color: #e3d199 !important; }
+
+.report { display: flex; align-items: center; gap: 10px; background: var(--color-primary); color: var(--color-tint); border-radius: 12px; padding: 13px 14px; margin-top: 6px; text-decoration: none; }
+.report b { font-size: 14px; }
+.report i { margin-left: auto; font-style: normal; color: var(--color-accent); font-size: 18px; }
+
+.past { list-style: none; margin: 0; padding: 0; }
+.past li { margin-bottom: 6px; }
+.past a { display: flex; flex-direction: column; gap: 2px; background: #fff; border: 1px solid #ddd5c0; border-radius: 10px; padding: 8px 12px; text-decoration: none; color: inherit; font-size: 13px; }
+.past span { color: #7a7f72; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.foot { text-align: center; font-size: 12px; color: #7a7f72; padding: 12px 0 16px; border-top: 1px solid #ddd5c0; background: #fff; }

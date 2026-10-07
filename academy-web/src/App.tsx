@@ -14,6 +14,8 @@ import { SchoolInfo } from './pages/SchoolInfo';
 import { SettingsPage } from './pages/SettingsPage';
 import { ComingSoon } from './pages/ComingSoon';
 import { SmsSend } from './pages/SmsSend';
+import { DailyDiary } from './pages/DailyDiary';
+import { ParentDiary } from './pages/ParentDiary';
 import { PastExamAnalyzer } from './pages/PastExamAnalyzer';
 import { AppLayout } from './components/layout/AppLayout';
 import { AuthProvider } from './context/AuthContext';
@@ -33,6 +35,7 @@ function App() {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/upload" element={<AssignmentUpload />} />
       <Route path="/parent-report" element={<ParentReport />} />
+      <Route path="/diary" element={<ParentDiary />} />
       <Route path="/login" element={<TeacherLogin />} />
 
       {/* teacher 전용 화면 — 여기 안에 새 메뉴 화면을 추가하면 자동으로
@@ -43,6 +46,7 @@ function App() {
         <Route path="/classes" element={<ClassManagement />} />
         <Route path="/students" element={<StudentRoster />} />
         <Route path="/attendance" element={<AttendanceManagement />} />
+        <Route path="/daily-diary" element={<DailyDiary />} />
         <Route path="/tuition" element={<TuitionManagement />} />
         <Route path="/consultation" element={<ConsultationLog />} />
         <Route path="/reports" element={<GradeReport />} />
