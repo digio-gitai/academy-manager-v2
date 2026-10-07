@@ -25,6 +25,9 @@ import type { ClassInfo } from '../types/classManagement';
 import type { AttendanceStatus } from '../types/attendance';
 import styles from './DailyDiary.module.css';
 
+// 다시 쓰려면 false → true. "내 번호로 테스트"(원장님 번호로만 1건 발송) 버튼 표시 여부.
+const SHOW_TEST_BUTTON = false;
+
 const MOOD_TAGS = ['집중 좋음', '피곤해 보임', '오답 많음', '질문 적극적', '숙제 미흡', '계산 실수', '태도 좋음', '복습 필요'];
 const STATUS_LABEL: Record<AttendanceStatus, string> = { present: '출석', late: '지각', absent: '결석', cancelled: '휴강' };
 
@@ -618,9 +621,11 @@ export function DailyDiary() {
                 </label>
               )}
               <div className={styles.sendbar}>
-                <button type="button" className={`${styles.btn} ${styles.btnLine}`} onClick={() => handleSend(true)} disabled={sending || included.length === 0}>
-                  내 번호로 테스트
-                </button>
+                {SHOW_TEST_BUTTON && (
+                  <button type="button" className={`${styles.btn} ${styles.btnLine}`} onClick={() => handleSend(true)} disabled={sending || included.length === 0}>
+                    내 번호로 테스트
+                  </button>
+                )}
                 <button type="button" className={`${styles.btn} ${styles.btnGreen}`} onClick={() => handleSend(false)} disabled={sending || targets.length === 0}>
                   {sending ? '발송 중…' : `${targets.length}명에게 발송`}
                 </button>
