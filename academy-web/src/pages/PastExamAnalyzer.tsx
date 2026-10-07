@@ -60,6 +60,7 @@ export function PastExamAnalyzer() {
   const [schoolName, setSchoolName] = useState('');
   const [academyName, setAcademyName] = useState(DEFAULT_ACADEMY_NAME);
   const [reportTitle, setReportTitle] = useState('');
+  const [scopeHint, setScopeHint] = useState('');
   const [logoDataUri, setLogoDataUri] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [stage, setStage] = useState<'idle' | 'ocr' | 'analyzing'>('idle');
@@ -129,7 +130,7 @@ export function PastExamAnalyzer() {
       }
 
       setStage('analyzing');
-      const data = await analyzePastExam(schoolName.trim(), examText);
+      const data = await analyzePastExam(schoolName.trim(), examText, scopeHint.trim());
       const html = generatePastExamReportHtml(data, {
         schoolName: schoolName.trim(),
         academyName: academyName.trim() || DEFAULT_ACADEMY_NAME,
@@ -197,6 +198,15 @@ export function PastExamAnalyzer() {
               className={styles.input}
               value={academyName}
               onChange={(e) => setAcademyName(e.target.value)}
+            />
+          </label>
+          <label className={`${styles.field} ${styles.fieldWide}`}>
+            <span className={styles.fieldLabel}>시험 범위 (선택 — 입력하면 이 범위만 사용)</span>
+            <input
+              className={styles.input}
+              value={scopeHint}
+              onChange={(e) => setScopeHint(e.target.value)}
+              placeholder="예: 삼각형의 성질, 사각형의 성질"
             />
           </label>
           <label className={`${styles.field} ${styles.fieldWide}`}>

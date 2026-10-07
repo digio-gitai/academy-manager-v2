@@ -31,6 +31,7 @@ export interface PastExamTrend {
   obj_rate?: number;
   sub_rate?: number;
   type_bar_note?: string;
+  type_sub_pct?: number;
 }
 
 export interface PastExamQuestion {
@@ -78,6 +79,16 @@ export interface PastExamStrategy {
   low?: string[];
 }
 
+export interface PastExamFinalReviewBlock {
+  heading?: string;
+  points?: string[];
+}
+
+export interface PastExamFinalReview {
+  blocks?: PastExamFinalReviewBlock[];
+  hashtags?: string[];
+}
+
 export interface PastExamWeeklyPlan {
   week?: number | string;
   goal?: string;
@@ -102,6 +113,7 @@ export interface PastExamReportData {
   strategy?: PastExamStrategy;
   weekly_plan?: PastExamWeeklyPlan[];
   parent_advice?: PastExamParentAdvice;
+  final_review?: PastExamFinalReview;
 }
 
 const Q_TABLE_MAX = 25;
@@ -121,6 +133,48 @@ function clean(text: unknown): string {
   if (!text) return '';
   const s = String(text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
   return escapeHtml(s.trim());
+}
+
+// **핵심어** 표시를 강조 태그로 변환(이스케이프 먼저 하고 나서 처리).
+function kw(text: unknown): string {
+  return clean(text).replace(/\*\*(.+?)\*\*/g, '<strong class="kw">$1</strong>');
+}
+
+// GPT가 준 문항 유형/개수를 실제 문항 목록 기준으로 다시 계산함(유형 오분류 방지).
+function normalizeReportData(data: PastExamReportData): PastExamReportData {
+  const qs = data.questions || [];
+  const expected = Number(data.basic_info?.total_questions) || 0;
+  // GPT가 문항을 일부만 돌려주면 이 값들로 만든 보고서는 전부 거짓이 되므로 막음.
+  if (qs.length === 0 || (expected > 0 && qs.length < expected * 0.8) || (expected === 0 && qs.length < 5)) {
+    throw new Error(
+      `시험지에서 문항을 ${qs.length}개만 인식했습니다` +
+        (expected > 0 ? ` (총 ${expected}문항 중)` : '') +
+        '. 사진이 흐리거나 일부만 읽힌 것 같아요. 선명한 파일로 다시 올리거나, PDF로 올려 주세요.',
+    );
+  }
+  for (const q of qs) {
+    q.type = /서술|서답|논술|주관/.test(String(q.type || '')) ? '서술' : '객관';
+  }
+  const bi = (data.basic_info = data.basic_info || {});
+  const sub = qs.filter((q) => q.type === '서술').length;
+  bi.total_questions = qs.length;
+  bi.sub_count = sub;
+  bi.obj_count = qs.length - sub;
+  if (sub === 0) {
+    const tr = (data.trend = data.trend || {});
+    tr.sub_rate = 0;
+    tr.type_sub_pct = 0;
+  }
+  // 난이도 분포는 실제 문항 목록에서 직접 계산(GPT 추정치 대신).
+  const lowN = qs.filter((q) => q.difficulty === '하' || q.difficulty === '중하').length;
+  const midN = qs.filter((q) => q.difficulty === '중').length;
+  const lowPct = Math.round((lowN / qs.length) * 100);
+  const midPct = Math.round((midN / qs.length) * 100);
+  const ch = (data.charts = data.charts || {});
+  ch.diff_low_pct = lowPct;
+  ch.diff_mid_pct = midPct;
+  ch.diff_high_pct = 100 - lowPct - midPct;
+  return data;
 }
 
 function diffBadge(d: string | undefined): string {
@@ -234,7 +288,11 @@ function buildPage1(data: PastExamReportData, school: string, academy: string, t
   const totalQ = bi.total_questions ?? '?';
   const objC = bi.obj_count;
   const subC = bi.sub_count;
-  const compStr = objC && subC ? `총 ${totalQ}문항 (선택형 ${objC}문항, 서술형 ${subC}문항)` : `총 ${totalQ}문항`;
+  const compStr = subC
+    ? `총 ${totalQ}문항 (선택형 ${objC}문항, 서술형 ${subC}문항)`
+    : totalQ !== '?' && totalQ !== ''
+      ? `총 ${totalQ}문항 (전 문항 선택형)`
+      : '총 ?문항';
   const tags = (bi.scope_tags || []).map((t) => `<span class="tag">${clean(t)}</span>`).join('');
   const summary = clean(tr.summary || '');
   const bullets = (tr.bullets || []).map((b) => `<li>${clean(b)}</li>`).join('');
@@ -261,17 +319,17 @@ function buildPage1(data: PastExamReportData, school: string, academy: string, t
 
   <div class="section-title">2. 전체 구성 및 출제 경향</div>
   <div class="trend-box">
-    <div class="trend-title">📊 출제 경향 요약</div>
+    <div class="trend-title">출제 경향 요약</div>
     <p style="margin-bottom:10px;">${summary}</p>
     <ul class="bullet-list">${bullets}</ul>
   </div>
   <table class="diff-table">
-    <tr><td>⚖ 전체 난이도</td><td><span class="diff-level">${diff}</span></td></tr>
+    <tr><td>전체 난이도</td><td><span class="diff-level">${diff}</span></td></tr>
     <tr><td>킬러 문항</td><td>${killer}</td></tr>
     <tr><td>변별력 요소</td><td>${variable}</td></tr>
   </table>
   <div class="trend-box">
-    <div class="trend-title">📌 문항 구성 비율</div>
+    <div class="trend-title">문항 구성 비율</div>
     <p style="font-size:12px;">${compDetail}</p>
   </div>
 </div>`;
@@ -332,7 +390,6 @@ function buildPage3(data: PastExamReportData): string {
     .slice(0, 3)
     .map((kq) => {
       const num = kq.num ?? '?';
-      const emoji = kq.emoji || '🔢';
       const title = clean(kq.title || '');
       const tc = kq.tag_class || 'tag-high';
       const tl = clean(kq.tag_label || '상');
@@ -342,25 +399,25 @@ function buildPage3(data: PastExamReportData): string {
       const concepts = (kq.concepts || []).map((c) => `<li>${clean(c)}</li>`).join('');
       const steps = (kq.steps || []).map((s) => `<li>${clean(s)}</li>`).join('');
       const mistakeBlock = mistake
-        ? `<div class="kq-subtitle" style="color:var(--red);margin-top:8px;">⚠️ 자주 하는 실수</div><p class="kq-text">${mistake}</p>`
+        ? `<div class="kq-subtitle" style="color:var(--red);margin-top:8px;">자주 하는 실수</div><p class="kq-text">${mistake}</p>`
         : '';
       return `  <div class="key-q">
     <div class="key-q-header">
-      <span class="key-q-title">${emoji} ${num}번 &nbsp; ${title}</span>
+      <span class="key-q-title">${num}번 &nbsp; ${title}</span>
       <span class="key-q-tag ${tc}">${tl}</span>
     </div>
     <div class="key-q-body">
       <div class="key-q-left">
-        <div class="kq-subtitle">💡 핵심 포인트</div>
+        <div class="kq-subtitle">핵심 포인트</div>
         <p class="kq-text">${point}</p>
-        <div class="kq-subtitle">🔎 왜 어려웠을까?</div>
+        <div class="kq-subtitle">왜 어려웠을까?</div>
         <p class="kq-text">${why}</p>
-        <div class="kq-subtitle">📚 필요 개념</div>
+        <div class="kq-subtitle">필요 개념</div>
         <ul class="bullet-list">${concepts}</ul>
         ${mistakeBlock}
       </div>
       <div class="key-q-right">
-        <div class="kq-subtitle">🚀 단계별 공략 솔루션</div>
+        <div class="kq-subtitle">단계별 공략 솔루션</div>
         <ol class="step-list">${steps}</ol>
       </div>
     </div>
@@ -390,6 +447,13 @@ function buildPage4(data: PastExamReportData): string {
   const subR = tr.sub_rate ?? 42;
   const barNote = clean(tr.type_bar_note || '');
 
+  const hasSub = Boolean(data.basic_info?.sub_count);
+  const subRow = hasSub
+    ? `<div class="bar-row">
+        <div class="bar-label">서술형</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${subR}%;background:var(--orange);"><span class="bar-pct">${subR}%</span></div></div>
+      </div>`
+    : '';
   const donut = svgDonut(dlow, dmid, dhigh);
   const hbar = svgHbar(dl, dr);
   const gcols = ['#1E3A8A', '#2563EB', '#60A5FA', '#93C5FD', '#BFDBFE'];
@@ -411,7 +475,7 @@ function buildPage4(data: PastExamReportData): string {
     .join('');
 
   return `<div class="page">
-  <div class="page-badge">5</div>
+  <div class="page-badge">4</div>
   <div class="section-title">5. 시험 분석 그래프</div>
   <div class="p4-charts">
     <div class="chart-card">
@@ -430,10 +494,7 @@ function buildPage4(data: PastExamReportData): string {
         <div class="bar-label">선택형</div>
         <div class="bar-track"><div class="bar-fill" style="width:${objR}%;background:var(--blue);"><span class="bar-pct">${objR}%</span></div></div>
       </div>
-      <div class="bar-row">
-        <div class="bar-label">서술형</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${subR}%;background:var(--orange);"><span class="bar-pct">${subR}%</span></div></div>
-      </div>
+      ${subRow}
       <p class="bar-note">${barNote}</p>
     </div>
     <div>
@@ -460,8 +521,6 @@ ${gradeRows}    </tbody>
 // ── 페이지 5: 등급별 전략 + 6주 플랜 + 학부모 조언 ───────────────────
 function buildPage5(data: PastExamReportData): string {
   const stData = data.strategy || {};
-  const weekly = data.weekly_plan || [];
-  const pa = data.parent_advice || {};
 
   const items = (lst: string[] | undefined, limit = 3) => (lst || []).slice(0, limit).map((i) => `<li>${clean(i)}</li>`).join('');
 
@@ -469,29 +528,22 @@ function buildPage5(data: PastExamReportData): string {
   const mid = `<ul class="bullet-list">${items(stData.mid)}</ul>`;
   const low = `<ul class="bullet-list">${items(stData.low)}</ul>`;
 
-  const weekRows = weekly
-    .slice(0, 6)
-    .map((wp) => {
-      const wk = wp.week ?? '?';
-      const goal = clean(wp.goal || '');
-      const content = (wp.content || '').replace(/\n/g, '<br>');
-      const qs = clean(wp.questions || '');
-      return `      <tr>
-        <td style="text-align:center;"><span class="week-badge">${wk}주차</span></td>
-        <td><div class="week-goal">${goal}</div></td>
-        <td class="week-items">${content}</td>
-        <td style="font-size:11px;color:var(--blue-dark);font-weight:600;">${qs}</td>
-      </tr>\n`;
+  const fr = data.final_review || {};
+  const frBlocks = (fr.blocks || [])
+    .slice(0, 4)
+    .map((blk) => {
+      const pts = (blk.points || []).slice(0, 3).map((x) => `<li>${kw(x)}</li>`).join('');
+      return `    <div class="fr-block">
+      <div class="fr-head">${clean(blk.heading || '')}</div>
+      <ul class="fr-list">${pts}</ul>
+    </div>
+`;
     })
     .join('');
-
-  const advTitle = clean(pa.title || '과정을 함께 점검해 주세요');
-  const advBody = clean(pa.body || '');
-  const summary = clean(pa.summary || '');
-  const tags = (pa.hashtags || []).map((h) => `<span class="hash-tag">${clean(h)}</span>`).join('');
+  const frTags = (fr.hashtags || []).map((h) => `<span class="hash-tag">${clean(h)}</span>`).join('');
 
   return `<div class="page">
-  <div class="page-badge">6</div>
+  <div class="page-badge">5</div>
   <div class="section-title">7. 등급별 맞춤 전략</div>
   <div class="strat-grid">
     <div class="strat-header">1~2등급 [최상위·상위권]</div>
@@ -502,32 +554,9 @@ function buildPage5(data: PastExamReportData): string {
     <div class="strat-body">${low}</div>
   </div>
 
-  <div class="section-title">8. 단기 6주 집중 학습 플랜</div>
-  <table class="plan-table">
-    <colgroup>
-      <col style="width:90px"><col style="width:130px"><col><col style="width:160px">
-    </colgroup>
-    <thead>
-      <tr>
-        <th style="background:var(--blue);color:#fff;text-align:center;">주차</th>
-        <th style="background:var(--blue);color:#fff;">학습 목표</th>
-        <th style="background:var(--blue);color:#fff;">핵심 학습 내용</th>
-        <th style="background:var(--blue);color:#fff;">이번 시험 연결 문항</th>
-      </tr>
-    </thead>
-    <tbody>
-${weekRows}    </tbody>
-  </table>
-
-  <div class="section-title">9. 학부모님께 드리는 제언</div>
-  <div class="advice-box">
-    <div class="advice-title">💡 ${advTitle}</div>
-    <p>${advBody}</p>
-  </div>
-  <div class="summary-box">
-    <div class="summary-title">📋 종합 총평</div>
-    <p>${summary}</p>
-    <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">${tags}</div>
+  <div class="section-title">8. 종합 총평 및 학부모님에게 드리는 말씀</div>
+  <div class="final-review">
+${frBlocks}    <div class="fr-tags">${frTags}</div>
   </div>
 </div>`;
 }
@@ -710,6 +739,21 @@ const REPORT_CSS = `
     border-radius:12px;font-size:11px;font-weight:700;
     display:inline-block;margin:3px 2px;}
 
+  .kq-subtitle{border-left:3px solid var(--blue);padding-left:7px;}
+  .trend-title{border-left:3px solid var(--blue);padding-left:8px;}
+  strong.kw{font-weight:800;color:var(--blue-dark);background:linear-gradient(transparent 62%,#FEF08A 62%);}
+  .final-review{border:1px solid var(--border);border-radius:8px;padding:6px 16px 12px;background:#fff;}
+  .fr-block{padding:9px 0 6px;border-bottom:1px dashed var(--border);}
+  .fr-block:last-of-type{border-bottom:none;}
+  .fr-head{font-weight:800;font-size:13px;color:#fff;background:var(--blue-dark);
+    display:inline-block;padding:2px 12px;border-radius:4px;margin-bottom:6px;}
+  .fr-list{list-style:none;padding:0;}
+  .fr-list li{position:relative;padding:3px 0 3px 14px;font-size:12px;line-height:1.65;color:#1F2937;}
+  .fr-list li::before{content:'';position:absolute;left:2px;top:11px;width:5px;height:5px;
+    background:var(--blue);border-radius:1px;}
+  .fr-tags{margin-top:6px;}
+  .fr-tags .hash-tag{background:var(--blue-light);color:var(--blue-dark);}
+
   svg text{font-family:'Noto Sans KR',sans-serif;}
 
   @page{size:A4 portrait;margin:0;}
@@ -763,10 +807,14 @@ ${p5}
 }
 
 // ── Edge Function 호출 + 전체 보고서 생성 ────────────────────────────
-export async function analyzePastExam(schoolName: string, examText: string): Promise<PastExamReportData> {
+export async function analyzePastExam(
+  schoolName: string,
+  examText: string,
+  scopeHint = '',
+): Promise<PastExamReportData> {
   const { data, error } = await supabase.functions.invoke<{ data?: PastExamReportData; error?: string }>(
     'generate-past-exam-report',
-    { body: { schoolName, examText } },
+    { body: { schoolName, examText, scopeHint } },
   );
   if (error) {
     throw error;
@@ -774,7 +822,7 @@ export async function analyzePastExam(schoolName: string, examText: string): Pro
   if (!data || data.error || !data.data) {
     throw new Error(data?.error || 'GPT 분석에 실패했습니다.');
   }
-  return data.data;
+  return normalizeReportData(data.data);
 }
 
 export function generatePastExamReportHtml(

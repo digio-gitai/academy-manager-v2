@@ -24,7 +24,7 @@ DATA_DIR      = os.path.join(_MODULE_DIR, "data")
 LOGO_PATH     = os.path.join(DATA_DIR, "academy_logo.png")
 DEFAULT_ACADEMY = "Math Management"
 GPT_MODEL       = "gpt-4o"
-GPT_MAX_TOKENS  = 4096
+GPT_MAX_TOKENS  = 6000
 PDF_TEXT_MAX    = 16000
 MAX_PAGES       = 10
 OCR_DPI         = 150
@@ -224,6 +224,22 @@ REPORT_CSS = """
     border-radius:12px;font-size:11px;font-weight:700;
     display:inline-block;margin:3px 2px;}
 
+  /* 아이콘 대신 색 포인트 */
+  .kq-subtitle{border-left:3px solid var(--blue);padding-left:7px;}
+  .trend-title{border-left:3px solid var(--blue);padding-left:8px;}
+  strong.kw{font-weight:800;color:var(--blue-dark);background:linear-gradient(transparent 62%,#FEF08A 62%);}
+  .final-review{border:1px solid var(--border);border-radius:8px;padding:6px 16px 12px;background:#fff;}
+  .fr-block{padding:9px 0 6px;border-bottom:1px dashed var(--border);}
+  .fr-block:last-of-type{border-bottom:none;}
+  .fr-head{font-weight:800;font-size:13px;color:#fff;background:var(--blue-dark);
+    display:inline-block;padding:2px 12px;border-radius:4px;margin-bottom:6px;}
+  .fr-list{list-style:none;padding:0;}
+  .fr-list li{position:relative;padding:3px 0 3px 14px;font-size:12px;line-height:1.65;color:#1F2937;}
+  .fr-list li::before{content:'';position:absolute;left:2px;top:11px;width:5px;height:5px;
+    background:var(--blue);border-radius:1px;}
+  .fr-tags{margin-top:6px;}
+  .fr-tags .hash-tag{background:var(--blue-light);color:var(--blue-dark);}
+
   /* SVG 차트 공통 */
   svg text{font-family:'Noto Sans KR',sans-serif;}
 
@@ -264,7 +280,7 @@ HTML·마크다운·설명 텍스트 없이 순수 JSON만 출력하세요.
     "obj_count": 19,
     "sub_count": 4,
     "total_score": 100,
-    "scope_tags": ["지수와 로그", "지수·로그함수", "삼각함수", "실생활 응용"]
+    "scope_tags": ["시험지에 명시된 단원1", "단원2"]
   },
   "trend": {
     "summary": "출제 경향 전체 요약 — 4~5문장, 구체적 단원명과 출제 방식 포함",
@@ -297,7 +313,6 @@ HTML·마크다운·설명 텍스트 없이 순수 JSON만 출력하세요.
   "key_questions": [
     {
       "num": "18",
-      "emoji": "🔢",
       "title": "로그 부등식 — 정수 x의 개수 조건",
       "tag_class": "tag-killer",
       "tag_label": "최상",
@@ -328,47 +343,34 @@ HTML·마크다운·설명 텍스트 없이 순수 JSON만 출력하세요.
     {"grade": 5, "badge_class": "g5", "range": "90~100%",    "cut": "38점 미만", "desc": "기초 개념 이해와 연산 훈련 부족. 교과서부터 재학습 필요"}
   ],
   "strategy": {
-    "top": [
-      "서술형 고난도 치환·판별식 연결 공식 반복 훈련",
-      "미지수 설정부터 최종 결론까지 감점 없이 작성 연습",
-      "계산이 긴 문제에서 중간 부호와 지수 값 실수 차단"
-    ],
-    "mid": [
-      "연산 공식과 그래프 성질을 바르게 풀 수 있도록 훈련",
-      "기본 그래프를 직접 그리며 점근선과 교점 찾는 연습",
-      "틀린 문제의 전형 유형 파악 후 유사 문제 3회 이상 풀기"
-    ],
-    "low": [
-      "교과서·기본서 예제·유제 반복으로 연산 두려움 제거",
-      "핵심 개념과 공식을 백지에 적어 연습",
-      "전반부 기본 문항 빠르게 답 내는 것을 목표로 설정"
-    ]
+    "top": ["이번 시험 상위 문항 유형에 맞춘 구체적 대비 1", "구체적 대비 2", "구체적 대비 3"],
+    "mid": ["이번 시험 중간 난이도 문항에 맞춘 구체적 대비 1", "구체적 대비 2", "구체적 대비 3"],
+    "low": ["이번 시험 기본 문항에 맞춘 구체적 대비 1", "구체적 대비 2", "구체적 대비 3"]
   },
-  "weekly_plan": [
-    {"week": 1, "goal": "핵심개념 완성", "content": "• 기본 공식·성질 집중 복습\\n• 교과서 예제 전수\\n• 개념 정리 노트 작성", "questions": "1~5번"},
-    {"week": 2, "goal": "유형 훈련",     "content": "• 기출 변형 풀이\\n• 유형별 분류 학습\\n• 취약 유형 집중", "questions": "6~12번"},
-    {"week": 3, "goal": "중난이도 공략", "content": "• 오답 유형 집중\\n• 풀이 과정 정리\\n• 개념 연결 훈련", "questions": "13~17번"},
-    {"week": 4, "goal": "고난도 진입",   "content": "• 서술형 완성\\n• 고난도 패턴 분석\\n• 시간 배분 연습", "questions": "18~서술형"},
-    {"week": 5, "goal": "실전 모의",     "content": "• 시간 제한 풀이\\n• 실전 감각 유지\\n• 최종 점검", "questions": "전체"},
-    {"week": 6, "goal": "최종 점검",     "content": "• 취약 단원 재확인\\n• 오답 전체 복습\\n• 핵심 공식 최종 정리", "questions": "오답 전체"}
-  ],
-  "parent_advice": {
-    "title": "이번 시험, 점수 이면의 '과정'을 칭찬해주세요.",
-    "body": "이번 시험은 단순 계산을 넘어 깊은 추론 능력을 요구했습니다. 단순히 몇 점을 맞았느냐보다 어느 단원에서 개념이 흔들렸는지 함께 분석하는 과정이 필요합니다. 규칙적인 학습 시간 확보와 오답 정리 습관을 지원해 주세요.",
-    "summary": "이번 시험은 수준 높은 변별력 시험이었습니다. 단계별 학습 계획을 꾸준히 실행하면 다음 시험에서 유의미한 성적 향상을 기대할 수 있습니다.",
-    "hashtags": ["#핵심단원_집중학습", "#오답노트_필수", "#서술형_과정점수", "#꾸준함이실력"]
+  "final_review": {
+    "blocks": [
+      {"heading": "시험 총평", "points": ["**핵심어**를 굵게 표시한 한 문장 (80자 내외)", "...", "..."]},
+      {"heading": "이번 시험이 보여준 학생 상태 진단", "points": ["...", "...", "..."]},
+      {"heading": "학부모님께 드리는 말씀", "points": ["...", "...", "..."]},
+      {"heading": "다음 시험 대비 핵심 방향", "points": ["...", "...", "..."]}
+    ],
+    "hashtags": ["#키워드1", "#키워드2", "#키워드3", "#키워드4"]
   }
 }
 
 ## 작성 규칙
-- 한국어, 전문적·구체적. 실제 시험지 내용 기반.
-- questions: 전체 문항 빠짐없이 (객관+서술 모두).
-- key_questions: 오답률 높고 등급 가르는 문항을 반드시 정확히 3개 선정. 2개도 4개도 아닌 정확히 3개.
-- charts.domain_labels: 반드시 실제 단원명 사용 (더미값 금지).
+- 한국어, 전문적·구체적. 실제 시험지 내용 기반. 시험지에 없는 단원·내용은 절대 만들어내지 말 것.
+- 문항 유형(type): 시험지에 "서술형/서답형/논술형" 표기나 풀이 과정 서술 요구, 단답 주관식 표기가 있는 문항만 "서술", 보기(①~⑤)가 있거나 표기가 불분명하면 "객관". 서술형 근거가 없으면 모든 문항을 "객관"으로 하고 sub_count는 0. 문항 번호와 유형은 시험지 그대로.
+- 단원 귀속: 각 문항은 시험 범위 안의 단원에 귀속시킬 것. 시험 범위 밖 개념명(예: 합동·닮음 같은 별도 단원)을 단원 분류나 범위 태그로 만들지 말 것. 직각삼각형의 합동 조건처럼 범위 단원 안에서 쓰이는 내용은 해당 단원(예: 삼각형의 성질)에 포함시키고, 단원별 비중 %와 charts도 시험 범위 단원 기준으로만 작성.
+- scope_tags / charts.domain_labels: 시험지에 명시된 시험 범위, 또는 실제 출제된 문항이 다루는 단원만 사용. 사용자가 시험 범위를 알려주면 그것을 그대로 따를 것. 합동 문항이 있다고 닮음 단원을 추가하지 말 것(단원 추론 금지).
+- questions: 시험지에 있는 모든 문항(1번부터 마지막 번호까지)을 하나도 빠뜨리지 말고 전부 나열. 예시는 1개만 보여준 것일 뿐이며, total_questions와 questions 개수는 반드시 일치해야 함.
+- key_questions: 오답률 높고 등급 가르는 문항을 반드시 정확히 3개 선정. emoji 필드는 만들지 말 것.
 - tag_class: "tag-killer"(최상) / "tag-high"(상) / "tag-midhigh"(중상) / "tag-mid"(중) 중 선택.
 - difficulty: "하"/"중하"/"중"/"중상"/"상"/"최상" 중 하나.
 - grade_dist 합계 = 100.
-- weekly_plan content 줄바꿈은 \\n으로.
+- 서술형이 없는 시험이면 어디에도 서술형·풀이과정 서술을 언급하지 말 것 (등급별 특징, 전략, 총평 포함). type_sub_pct, sub_rate는 0.
+- strategy: 예시 문구를 그대로 쓰지 말고 이번 시험의 실제 단원·유형에 맞게 작성.
+- final_review: 블록 4개, 블록마다 points 3개. 각 point는 1~2문장(100자 이내), 핵심 단어는 **굵게** 표시(한 문장에 1~3개). 학부모님께 드리는 말씀은 존댓말, 점수보다 과정·습관을 격려하는 따뜻한 어조.
 - composition_detail: 전반부/후반부 구성, 단원별 비중 포함하여 구체적으로.
 """
 
@@ -394,6 +396,35 @@ def _clean(text:str)->str:
     if not text: return ""
     text=re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ufffd]','',text)
     return html.escape(text.strip())
+
+def _kw(text:str)->str:
+    """**핵심어** 표시를 <strong class="kw">로 변환 (이스케이프 후 처리)."""
+    return re.sub(r"\*\*(.+?)\*\*",(lambda m:f'<strong class="kw">{m.group(1)}</strong>'),_clean(text))
+
+def _normalize(data:dict)->dict:
+    """GPT 응답 검증·보정: 문항을 일부만 받았으면 에러, 유형·개수·난이도 비율은 실제 문항 목록 기준으로 계산."""
+    qs=data.get("questions") or []
+    bi=data.setdefault("basic_info",{})
+    try: expected=int(bi.get("total_questions") or 0)
+    except (TypeError, ValueError): expected=0
+    if not qs or (expected>0 and len(qs)<expected*0.8) or (expected==0 and len(qs)<5):
+        raise ValueError(f"시험지에서 문항을 {len(qs)}개만 인식했습니다"
+                         +(f" (총 {expected}문항 중)" if expected else "")
+                         +". 선명한 파일로 다시 올려 주세요.")
+    for q in qs:
+        q["type"]="서술" if any(k in str(q.get("type","")) for k in ("서술","서답","논술","주관")) else "객관"
+    bi["total_questions"]=len(qs)
+    bi["sub_count"]=sum(1 for q in qs if q["type"]=="서술")
+    bi["obj_count"]=len(qs)-bi["sub_count"]
+    if not bi["sub_count"]:
+        tr=data.setdefault("trend",{}); tr["sub_rate"]=0; tr["type_sub_pct"]=0
+    low=sum(1 for q in qs if q.get("difficulty") in ("하","중하"))
+    mid=sum(1 for q in qs if q.get("difficulty")=="중")
+    ch=data.setdefault("charts",{})
+    ch["diff_low_pct"]=round(low/len(qs)*100)
+    ch["diff_mid_pct"]=round(mid/len(qs)*100)
+    ch["diff_high_pct"]=100-ch["diff_low_pct"]-ch["diff_mid_pct"]
+    return data
 
 def _diff_badge(d:str)->str:
     m={"하":"badge-low","중하":"badge-midlow","중":"badge-mid",
@@ -498,11 +529,12 @@ def extract_pdf_text(pdf_bytes:bytes)->tuple[str,str]:
 # ══════════════════════════════════════════════════════════════════
 # GPT JSON 추출
 # ══════════════════════════════════════════════════════════════════
-def _call_gpt(school_name:str,pdf_text:str)->dict:
+def _call_gpt(school_name:str,pdf_text:str,scope_hint:str="")->dict:
     api_key=resolve_api_key()
     if not api_key: raise RuntimeError("OpenAI API key가 없습니다.")
     client=_build_openai_client(api_key)
-    user=( f"학교명: {school_name}\n분석일: {date.today()}\n\n"
+    scope_line=f"시험 범위(사용자 확정, 이 범위만 사용): {scope_hint}\n" if scope_hint else ""
+    user=( f"학교명: {school_name}\n분석일: {date.today()}\n{scope_line}\n"
            "아래 시험지 텍스트를 분석해 지정 JSON 스키마로 반환하세요.\n"
            "JSON 외 텍스트는 절대 포함하지 마세요.\n\n"
            f"--- 시험지 ---\n{pdf_text[:PDF_TEXT_MAX]}" )
@@ -514,11 +546,11 @@ def _call_gpt(school_name:str,pdf_text:str)->dict:
     clean=_strip_fences(raw)
     clean=re.sub(r"^```[a-z]*\n?","",clean.strip(),flags=re.I)
     clean=re.sub(r"\n?```$","",clean.strip())
-    try: return json.loads(clean)
+    try: return _normalize(json.loads(clean))
     except:
         m=re.search(r"\{.*\}",clean,re.DOTALL)
         if m:
-            try: return json.loads(m.group(0))
+            try: return _normalize(json.loads(m.group(0)))
             except: pass
         raise ValueError(f"JSON 파싱 실패:\n{raw[:500]}")
 
@@ -538,8 +570,9 @@ def _build_page1(data:dict,school:str,academy:str,title:str,logo_uri:str)->str:
     exam_date=_clean(bi.get("exam_date") or date.today().strftime("%Y년 %m월"))
     total_q=bi.get("total_questions","?")
     obj_c=bi.get("obj_count",""); sub_c=bi.get("sub_count","")
-    comp_str=(f"총 {total_q}문항 (선택형 {obj_c}문항, 서술형 {sub_c}문항)"
-              if obj_c and sub_c else f"총 {total_q}문항")
+    comp_str=(f"총 {total_q}문항 (선택형 {obj_c}문항, 서술형 {sub_c}문항)" if sub_c
+              else f"총 {total_q}문항 (전 문항 선택형)" if total_q not in ("?","",None)
+              else "총 ?문항")
     tags="".join(f'<span class="tag">{_clean(t)}</span>'
                  for t in (bi.get("scope_tags") or []))
     summary=_clean(tr.get("summary",""))
@@ -567,17 +600,17 @@ def _build_page1(data:dict,school:str,academy:str,title:str,logo_uri:str)->str:
 
   <div class="section-title">2. 전체 구성 및 출제 경향</div>
   <div class="trend-box">
-    <div class="trend-title">📊 출제 경향 요약</div>
+    <div class="trend-title">출제 경향 요약</div>
     <p style="margin-bottom:10px;">{summary}</p>
     <ul class="bullet-list">{bullets}</ul>
   </div>
   <table class="diff-table">
-    <tr><td>⚖ 전체 난이도</td><td><span class="diff-level">{diff}</span></td></tr>
+    <tr><td>전체 난이도</td><td><span class="diff-level">{diff}</span></td></tr>
     <tr><td>킬러 문항</td><td>{killer}</td></tr>
     <tr><td>변별력 요소</td><td>{variable}</td></tr>
   </table>
   <div class="trend-box">
-    <div class="trend-title">📌 문항 구성 비율</div>
+    <div class="trend-title">문항 구성 비율</div>
     <p style="font-size:12px;">{comp_detail}</p>
   </div>
 </div>"""
@@ -628,7 +661,7 @@ def _build_page3(data:dict)->str:
     kqs=data.get("key_questions") or []
     blocks=""
     for kq in kqs[:3]:
-        num=kq.get("num","?"); emoji=kq.get("emoji","🔢")
+        num=kq.get("num","?")
         title=_clean(kq.get("title",""))
         tc=kq.get("tag_class","tag-high"); tl=_clean(kq.get("tag_label","상"))
         point=_clean(kq.get("point",""))
@@ -638,21 +671,21 @@ def _build_page3(data:dict)->str:
         steps="".join(f"<li>{_clean(s)}</li>" for s in (kq.get("steps") or []))
         blocks+=f"""  <div class="key-q">
     <div class="key-q-header">
-      <span class="key-q-title">{emoji} {num}번 &nbsp; {title}</span>
+      <span class="key-q-title">{num}번 &nbsp; {title}</span>
       <span class="key-q-tag {tc}">{tl}</span>
     </div>
     <div class="key-q-body">
       <div class="key-q-left">
-        <div class="kq-subtitle">💡 핵심 포인트</div>
+        <div class="kq-subtitle">핵심 포인트</div>
         <p class="kq-text">{point}</p>
-        <div class="kq-subtitle">🔎 왜 어려웠을까?</div>
+        <div class="kq-subtitle">왜 어려웠을까?</div>
         <p class="kq-text">{why}</p>
-        <div class="kq-subtitle">📚 필요 개념</div>
+        <div class="kq-subtitle">필요 개념</div>
         <ul class="bullet-list">{concepts}</ul>
-        {"" if not mistake else f'<div class="kq-subtitle" style="color:var(--red);margin-top:8px;">⚠️ 자주 하는 실수</div><p class="kq-text">{mistake}</p>'}
+        {"" if not mistake else f'<div class="kq-subtitle" style="color:var(--red);margin-top:8px;">자주 하는 실수</div><p class="kq-text">{mistake}</p>'}
       </div>
       <div class="key-q-right">
-        <div class="kq-subtitle">🚀 단계별 공략 솔루션</div>
+        <div class="kq-subtitle">단계별 공략 솔루션</div>
         <ol class="step-list">{steps}</ol>
       </div>
     </div>
@@ -678,6 +711,11 @@ def _build_page4(data:dict)->str:
     sub_r=tr.get("sub_rate") or 42
     bar_note=_clean(tr.get("type_bar_note",""))
 
+    has_sub=bool((data.get("basic_info") or {}).get("sub_count"))
+    sub_row=(f'''<div class="bar-row">
+        <div class="bar-label">서술형</div>
+        <div class="bar-track"><div class="bar-fill" style="width:{sub_r}%;background:var(--orange);"><span class="bar-pct">{sub_r}%</span></div></div>
+      </div>''' if has_sub else "")
     donut=_svg_donut(dlow,dmid,dhigh)
     hbar=_svg_hbar(dl,dr)
     gcols=["#1E3A8A","#2563EB","#60A5FA","#93C5FD","#BFDBFE"]
@@ -695,7 +733,7 @@ def _build_page4(data:dict)->str:
       </tr>\n"""
 
     return f"""<div class="page">
-  <div class="page-badge">5</div>
+  <div class="page-badge">4</div>
   <div class="section-title">5. 시험 분석 그래프</div>
   <div class="p4-charts">
     <div class="chart-card">
@@ -714,10 +752,7 @@ def _build_page4(data:dict)->str:
         <div class="bar-label">선택형</div>
         <div class="bar-track"><div class="bar-fill" style="width:{obj_r}%;background:var(--blue);"><span class="bar-pct">{obj_r}%</span></div></div>
       </div>
-      <div class="bar-row">
-        <div class="bar-label">서술형</div>
-        <div class="bar-track"><div class="bar-fill" style="width:{sub_r}%;background:var(--orange);"><span class="bar-pct">{sub_r}%</span></div></div>
-      </div>
+      {sub_row}
       <p class="bar-note">{bar_note}</p>
     </div>
     <div>
@@ -742,8 +777,6 @@ def _build_page4(data:dict)->str:
 
 def _build_page5(data:dict)->str:
     st_data=data.get("strategy") or {}
-    weekly=data.get("weekly_plan") or []
-    pa=data.get("parent_advice") or {}
 
     def _items(lst,limit=3):
         return "".join(f"<li>{_clean(i)}</li>" for i in (lst or [])[:limit])
@@ -752,26 +785,20 @@ def _build_page5(data:dict)->str:
     mid=f'<ul class="bullet-list">{_items(st_data.get("mid",[]))}</ul>'
     low=f'<ul class="bullet-list">{_items(st_data.get("low",[]))}</ul>'
 
-    week_rows=""
-    for wp in weekly[:6]:
-        wk=wp.get("week","?"); goal=_clean(wp.get("goal",""))
-        content=wp.get("content","").replace("\n","<br>")
-        qs=_clean(wp.get("questions",""))
-        week_rows+=f"""      <tr>
-        <td style="text-align:center;"><span class="week-badge">{wk}주차</span></td>
-        <td><div class="week-goal">{goal}</div></td>
-        <td class="week-items">{content}</td>
-        <td style="font-size:11px;color:var(--blue-dark);font-weight:600;">{qs}</td>
-      </tr>\n"""
-
-    adv_title=_clean(pa.get("title","과정을 함께 점검해 주세요"))
-    adv_body=_clean(pa.get("body",""))
-    summary=_clean(pa.get("summary",""))
+    fr=data.get("final_review") or {}
+    blocks=""
+    for blk in (fr.get("blocks") or [])[:4]:
+        pts="".join(f"<li>{_kw(x)}</li>" for x in (blk.get("points") or [])[:3])
+        blocks+=f'''    <div class="fr-block">
+      <div class="fr-head">{_clean(blk.get("heading",""))}</div>
+      <ul class="fr-list">{pts}</ul>
+    </div>
+'''
     tags="".join(f'<span class="hash-tag">{_clean(h)}</span>'
-                 for h in (pa.get("hashtags") or []))
+                 for h in (fr.get("hashtags") or []))
 
     return f"""<div class="page">
-  <div class="page-badge">6</div>
+  <div class="page-badge">5</div>
   <div class="section-title">7. 등급별 맞춤 전략</div>
   <div class="strat-grid">
     <div class="strat-header">1~2등급 [최상위·상위권]</div>
@@ -782,32 +809,9 @@ def _build_page5(data:dict)->str:
     <div class="strat-body">{low}</div>
   </div>
 
-  <div class="section-title">8. 단기 6주 집중 학습 플랜</div>
-  <table class="plan-table">
-    <colgroup>
-      <col style="width:90px"><col style="width:130px"><col><col style="width:160px">
-    </colgroup>
-    <thead>
-      <tr>
-        <th style="background:var(--blue);color:#fff;text-align:center;">주차</th>
-        <th style="background:var(--blue);color:#fff;">학습 목표</th>
-        <th style="background:var(--blue);color:#fff;">핵심 학습 내용</th>
-        <th style="background:var(--blue);color:#fff;">이번 시험 연결 문항</th>
-      </tr>
-    </thead>
-    <tbody>
-{week_rows}    </tbody>
-  </table>
-
-  <div class="section-title">9. 학부모님께 드리는 제언</div>
-  <div class="advice-box">
-    <div class="advice-title">💡 {adv_title}</div>
-    <p>{adv_body}</p>
-  </div>
-  <div class="summary-box">
-    <div class="summary-title">📋 종합 총평</div>
-    <p>{summary}</p>
-    <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">{tags}</div>
+  <div class="section-title">8. 종합 총평 및 학부모님에게 드리는 말씀</div>
+  <div class="final-review">
+{blocks}    <div class="fr-tags">{tags}</div>
   </div>
 </div>"""
 
@@ -926,17 +930,17 @@ DEMO_DATA={
     {"num":"서술4","type":"서술","concept":"삼각함수 부등식","summary":"x²+2xsinθ+1>0이 항상 성립하는 θ의 범위","difficulty":"최상","correct_rate":20}
   ],
   "key_questions":[
-    {"num":"18","emoji":"🔢","title":"로그 부등식 — 정수 x의 개수 조건","tag_class":"tag-killer","tag_label":"최상",
+    {"num":"18","title":"로그 부등식 — 정수 x의 개수 조건","tag_class":"tag-killer","tag_label":"최상",
      "point":"x²−x·log₃3n+log₃n≤0을 만족하는 정수 x의 개수가 정확히 3이 되도록 하는 자연수 n의 개수를 구하는 문제입니다. A=log₃n으로 치환 후 이차부등식의 근 사이 정수 개수를 분석해야 합니다.",
      "why_hard":"A=log₃n 치환 후 두 근 사이에 정수 x가 정확히 3개가 되는 A 범위를 설정하고, 이를 다시 n 범위로 역변환하는 이중 치환 과정이 복잡합니다.",
      "concepts":["이차부등식의 해 (두 근의 위치)","로그를 이용한 치환 (A=log₃n)","근과 계수의 관계 (근의 합·곱)"],
      "steps":["A=log₃n으로 치환 → x²−x(A+1)+A≤0 변환","인수분해: (x−1)(x−A)≤0 → 두 근은 1과 A","두 근 사이 정수가 3개인 A의 범위 탐색","A=log₃n의 범위를 n 범위로 역변환 후 자연수 n 개수 산출"]},
-    {"num":"서술3","emoji":"📐","title":"지수·로그함수 합성 최대최솟값","tag_class":"tag-high","tag_label":"상",
+    {"num":"서술3","title":"지수·로그함수 합성 최대최솟값","tag_class":"tag-high","tag_label":"상",
      "point":"10≤x≤100 범위에서 f(x)=2^(log₂x)²−4×2^(log₁₀₀x)의 최대·최솟값을 구하는 문제입니다. 로그를 치환하여 이차 형태로 변환하는 핵심 아이디어를 찾는 것이 관건입니다.",
      "why_hard":"단순 대입으로는 풀 수 없고, t=log₂x로 치환하여 이차함수 형태로 바꾸는 과정과 x의 범위를 t의 범위로 변환하는 논리적 연결이 어렵습니다.",
      "concepts":["지수·로그함수 합성","치환을 통한 이차함수 변환","범위 변환 (x → t)"],
      "steps":["t=log₂x 치환 → x:10~100이면 t 범위 설정","f를 t에 대한 이차식으로 변환","구간 내 최대·최솟값 탐색 (꼭짓점·경계값 비교)","M, m 도출 후 M+m 계산"]},
-    {"num":"서술4","emoji":"🔺","title":"삼각함수 부등식 — θ의 범위","tag_class":"tag-killer","tag_label":"최상",
+    {"num":"서술4","title":"삼각함수 부등식 — θ의 범위","tag_class":"tag-killer","tag_label":"최상",
      "point":"모든 실수 x에 대해 x²+2x·sinθ+1>0이 항상 성립하는 θ의 범위를 구하는 문제입니다. 이차부등식이 모든 실수에서 성립할 조건인 판별식 D<0을 이용합니다.",
      "why_hard":"이차부등식의 '항상 성립' 조건을 삼각함수와 연결하는 발상이 필요하며, D<0에서 sinθ의 범위, 단위원에서 θ의 범위로 변환하는 과정이 복잡합니다.",
      "concepts":["이차부등식의 항상 성립 조건 (D<0)","삼각함수 부등식 |sinθ|<1","삼각함수 범위 → θ 범위 변환"],
@@ -960,19 +964,14 @@ DEMO_DATA={
     "mid":["지수·로그 연산 공식과 그래프 성질을 바르게 풀 수 있도록 훈련합니다.","기본 그래프를 직접 그리며 점근선과 교점을 찾는 연습을 합니다.","틀린 문제의 전형 유형을 파악하고 동 유형의 유사 문제를 3회 이상 풀어 체화합니다."],
     "low":["교과서와 기본서의 예제·유제를 반복해서 풀어 연산의 두려움을 없애는 것이 1순위입니다.","거듭제곱근, 로그의 밑/진수 조건, 라디안 개념을 백지에 적어 연습합니다.","전반부 기본 개념 문항에 시간 낭비 없이 빠르게 답을 내는 것을 목표로 합니다."]
   },
-  "weekly_plan":[
-    {"week":1,"goal":"지수·로그 연산 완성","content":"• 지수법칙과 로그의 기본 성질 집중 복습\n• 거듭제곱근 정의와 실근 개수 판별\n• 상용로그 활용 계산 (log2, log3 암기)","questions":"1번, 2번, 10번, 11번"},
-    {"week":2,"goal":"지수·로그함수 그래프","content":"• y=aˣ, y=logₐx 기본 그래프 개형 완벽 이해\n• 평행이동·대칭이동 적용 후 그래프 변환\n• 3사분면 통과 조건, 수직점근선 파악","questions":"5번, 7번, 15번, 17번"},
-    {"week":3,"goal":"삼각함수 기초·동경","content":"• 호도법과 부채꼴 넓이 공식 완벽 암기\n• 동경 개념과 사분면 각도 판별 훈련\n• sin·cos·tan 값과 부호 사분면 정리","questions":"3번, 6번, 서술1"},
-    {"week":4,"goal":"삼각함수 방정식·부등식","content":"• 삼각 방정식 풀이 (일반해 → 범위 제한)\n• 삼각 부등식과 단위원 활용 범위 설정\n• 합성 삼각함수의 최대·최솟값 구하기","questions":"13번, 16번, 19번, 서술4"},
-    {"week":5,"goal":"복합·고난도 문항 공략","content":"• 역함수·합성함수 연계 문제 집중 훈련\n• 지수방정식의 치환(t=5ˣ) 기법 반복\n• 로그 부등식 + 정수 개수 조건 유형 연습","questions":"9번, 12번, 14번, 18번"},
-    {"week":6,"goal":"서술형 완성 + 실전 모의","content":"• 서술형3·4 유형 치환·판별식 반복 풀이\n• 실제 시험 시간(50분) 내 OMR 마킹 모의 훈련\n• 오답 노트 정리 및 핵심 공식 최종 점검","questions":"서술형 전체, 취약 문항 재풀이"}
-  ],
-  "parent_advice":{
-    "title":"이번 시험, 점수 이면의 '과정'을 칭찬해주세요.",
-    "body":"이번 대수 시험은 단순한 연산 능력을 넘어, 함수의 그래프를 직접 그리고 기하학적인 대칭성과 교점의 의미를 추론해야 하는 매우 까다로운 시험이었습니다. 복합적인 시각적 사고를 요구했으므로 체감 난이도가 상당히 높았을 것입니다. 단순히 몇 점을 맞았느냐보다는, 어느 단원에서 개념이 흔들렸는지, 시간이 부족했는지 함께 분석하는 과정이 필요합니다.",
-    "summary":"이번 1학기 중간고사는 대수 과목의 본질인 '식의 계산'과 '함수 그래프의 해석' 능력을 심도 있게 평가하는 수준 높은 시험이었습니다. 전체적으로 중상~상 난이도의 문항이 절반 이상 배치되어 변별력이 매우 컸습니다. 단계별 학습 계획을 꾸준히 실행하면 다음 시험에서 유의미한 성적 향상을 기대할 수 있습니다.",
-    "hashtags":["#고난도_그래프추론","#역함수_대칭성","#시간관리필수","#수능형기출대비"]
+  "final_review":{
+    "blocks":[
+      {"heading":"시험 총평","points":["**지수·로그 연산**과 **함수 그래프 해석**을 동시에 묻는 수준 높은 시험이었습니다.","중상~최상 문항이 절반 이상이라 **변별력**이 매우 컸습니다.","후반부 객관식과 서술형에서 **시간 배분**이 점수를 갈랐습니다."]},
+      {"heading":"이번 시험이 보여준 학생 상태 진단","points":["기본 연산 문항(1~5번)은 안정적이나 **그래프 추론 문항**에서 실점이 집중됩니다.","**치환·판별식** 연결 문제는 풀이 과정에서 막히는 학생이 많았습니다."]},
+      {"heading":"학부모님께 드리는 말씀","points":["점수보다 **어느 단원에서 개념이 흔들렸는지** 함께 확인해 주세요.","틀린 문제를 다시 풀어보는 **오답 정리 습관**을 칭찬해 주세요.","규칙적인 **학습 시간 확보**가 가장 큰 성적 향상 요인입니다."]},
+      {"heading":"다음 시험 대비 핵심 방향","points":["**지수·로그함수 그래프**와 **삼각함수 부등식**을 유형별로 완성합니다.","실전과 같은 **시간 제한 풀이**로 후반부 문항 대비를 합니다."]}
+    ],
+    "hashtags":["#고난도_그래프추론","#역함수_대칭성","#시간관리필수","#오답노트_필수"]
   }
 }
 
@@ -980,12 +979,12 @@ DEMO_DATA={
 # 메인 생성 함수
 # ══════════════════════════════════════════════════════════════════
 def generate_past_exam_report_html(*,school_name:str,academy_name:str,
-                                    report_title:str,logo_uri:str,pdf_text:str)->str:
+                                    report_title:str,logo_uri:str,pdf_text:str,scope_hint:str="")->str:
     title=(report_title or "").strip() or f"{school_name} 기출문제 분석 보고서"
     if not resolve_api_key():
         return _build_full_html(DEMO_DATA,school_name=school_name,
                                 academy_name=academy_name,report_title=title,logo_uri=logo_uri)
-    data=_call_gpt(school_name=school_name,pdf_text=pdf_text)
+    data=_call_gpt(school_name=school_name,pdf_text=pdf_text,scope_hint=scope_hint)
     return _build_full_html(data,school_name=school_name,
                             academy_name=academy_name,report_title=title,logo_uri=logo_uri)
 
@@ -1001,6 +1000,7 @@ def render_past_exam_analyzer_page()->None:
 
     school_name=st.text_input("학교명",placeholder="예: 장충고등학교 고2",key="pe_school")
     academy_name=st.text_input("학원명",value=DEFAULT_ACADEMY,key="pe_academy")
+    scope_hint=st.text_input("시험 범위 (선택, 입력하면 그대로 사용)",placeholder="예: 삼각형의 성질, 사각형의 성질",key="pe_scope")
     report_title=st.text_input("보고서 제목",placeholder="예: 2026학년도 장충고 고2 1학기 중간고사 분석보고서",key="pe_title")
 
     with st.expander("학원 로고",expanded=False):
@@ -1072,7 +1072,8 @@ def render_past_exam_analyzer_page()->None:
                         school_name=school_name.strip(),
                         academy_name=(academy_name or DEFAULT_ACADEMY).strip(),
                         report_title=report_title.strip(),
-                        logo_uri=logo_uri, pdf_text=pdf_text)
+                        logo_uri=logo_uri, pdf_text=pdf_text,
+                        scope_hint=(scope_hint or "").strip())
                 st.session_state["pe_html"]=html_report
                 st.session_state["pe_fname"]=(
                     f"기출분석_{_sanitize_filename(school_name)}_{date.today()}.html")
@@ -1116,4 +1117,4 @@ function openR(){{
 </script>
 <button onclick="openR()" style="background:#2563EB;color:#fff;border:none;
 border-radius:6px;padding:8px 14px;font-size:13px;font-weight:600;
-cursor:pointer;white-space:nowrap;">📊 새 탭에서 열기</button>""",height=50)
+cursor:pointer;white-space:nowrap;">새 탭에서 열기</button>""",height=50)
