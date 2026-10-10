@@ -527,19 +527,21 @@ export function BundleAnalysisPanel() {
             <p className={styles.caption}>선택한 시험지에 응시 기록이 있는 학생이 없습니다.</p>
           ) : (
             <>
-            <div className={styles.toolbar} style={{ marginTop: 0, marginBottom: 10 }}>
-              <button
-                type="button"
-                className={styles.btn}
-                disabled={bulkBusy || selected.size === 0}
-                onClick={sendSelected}
-              >
-                {bulkBusy ? '발송 중…' : `📱 선택 학생 문자 발송 (${selected.size}명)`}
-              </button>
-              <span className={styles.meta}>
-                AI 총평은 학생별로 「미리보기」에서 만들어 두면 발송 시 보고서에 함께 들어갑니다. 만들지 않은 학생은 AI 칸 없이 나갑니다.
-              </span>
-            </div>
+            {basis === 'test' && (
+              <div className={styles.toolbar} style={{ marginTop: 0, marginBottom: 10 }}>
+                <button
+                  type="button"
+                  className={styles.btn}
+                  disabled={bulkBusy || selected.size === 0}
+                  onClick={sendSelected}
+                >
+                  {bulkBusy ? '발송 중…' : `📱 선택 학생 문자 발송 (${selected.size}명)`}
+                </button>
+                <span className={styles.meta}>
+                  AI 총평은 학생별로 「미리보기」에서 만들어 두면 발송 시 보고서에 함께 들어갑니다. 만들지 않은 학생은 AI 칸 없이 나갑니다.
+                </span>
+              </div>
+            )}
             {bulkLog.length > 0 && (
               <ul style={{ margin: '0 0 10px', paddingLeft: 18, fontSize: 12.5 }}>
                 {bulkLog.map((l) => (
