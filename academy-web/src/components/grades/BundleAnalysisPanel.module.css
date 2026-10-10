@@ -1,0 +1,256 @@
+.card {
+  background: var(--color-white);
+  border: 1px solid rgba(31, 61, 43, 0.07);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(31, 61, 43, 0.05);
+  margin-bottom: 16px;
+}
+
+.cardTitle {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 4px;
+}
+
+.stepNo {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  background: var(--color-accent);
+  color: var(--color-primary);
+  border-radius: 50%;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.caption {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0 0 12px;
+}
+
+.errorText {
+  font-size: 12.5px;
+  color: #b3453c;
+  margin: 6px 0;
+}
+
+.okText {
+  font-size: 12px;
+  color: var(--color-primary);
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.chip {
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-white);
+  color: var(--color-primary);
+  border-radius: 99px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.chip[data-on='true'] {
+  background: var(--color-primary);
+  color: var(--color-tint);
+  border-color: var(--color-primary);
+}
+
+.examList {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.examRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.examRow:last-child {
+  border-bottom: none;
+}
+
+.nameInput {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.meta {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.select {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  background: var(--color-white);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.btn {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1.5px solid var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-tint);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btnGhost {
+  background: var(--color-white);
+  color: var(--color-primary);
+}
+
+.btnSmall {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.modes {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mode {
+  flex: 1;
+  min-width: 220px;
+  border: 2px solid var(--color-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--color-white);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--color-primary);
+}
+
+.mode[data-on='true'] {
+  border-color: var(--color-primary);
+  background: rgba(31, 61, 43, 0.04);
+}
+
+.mode:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mode b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.mode small {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.table th {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.table td.left {
+  text-align: left;
+}
+
+.warn {
+  font-size: 11px;
+  background: rgba(201, 169, 97, 0.2);
+  color: #7a5b00;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.preview {
+  width: 100%;
+  height: 900px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-white);
+}
+
+.pass {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.fail {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.numInput {
+  width: 72px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(31, 61, 43, 0.14);
+  font-size: 13px;
+  font-family: inherit;
+}

@@ -21,7 +21,7 @@ import { TestResultAssignPanel } from './TestResultAssignPanel';
 import { TestReportWritePanel } from './TestReportWritePanel';
 import styles from './AiTestOcrPanel.module.css';
 
-const TEST_TYPE_OPTIONS = ['일일테스트', '주간테스트', '월간테스트', '단원테스트', '기타'];
+const TEST_TYPE_OPTIONS = ['일일테스트', '주간테스트', '월간테스트', '단원테스트', '내신기출', '기타'];
 const QUESTION_TYPE_OPTIONS: QuestionType[] = ['객관식', '서술형'];
 const DIFFICULTY_OPTIONS: DifficultyLevel[] = ['A', 'B', 'C', 'D', 'E'];
 const COGNITIVE_OPTIONS: CognitiveDomain[] = ['계산', '이해', '추론', '해결'];

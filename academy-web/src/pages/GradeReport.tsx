@@ -4,6 +4,8 @@ import { SchoolGradeTab } from '../components/grades/SchoolGradeTab';
 import { MockGradeTab } from '../components/grades/MockGradeTab';
 import { ReportWritePanel } from '../components/grades/ReportWritePanel';
 import { AiTestOcrPanel } from '../components/grades/AiTestOcrPanel';
+import { BundleAnalysisPanel } from '../components/grades/BundleAnalysisPanel';
+import { RetestPanel } from '../components/grades/RetestPanel';
 import styles from './GradeReport.module.css';
 
 /**
@@ -29,6 +31,8 @@ export function GradeReport() {
           { key: 'mock', label: '모의고사 성적관리', content: <MockGradeTab /> },
           { key: 'aitest', label: '학원시험 AI분석', content: <AiTestOcrPanel /> },
           { key: 'report', label: '통합보고서 작성', content: <ReportWritePanel /> },
+          { key: 'bundle', label: '묶음 분석', content: <BundleAnalysisPanel /> },
+          { key: 'retest', label: '재시험 기록', content: <RetestPanel /> },
         ]}
       />
     </>
