@@ -102,6 +102,13 @@ export async function renameTest(testId: number, name: string): Promise<void> {
   if (error) throw new Error(describe(error));
 }
 
+/** 이 학생이 응시 기록(student_results)을 가진 시험 id 전체 — "학생 기준" 선택용. */
+export async function fetchStudentTestIds(studentId: number): Promise<Set<number>> {
+  const { data, error } = await supabase.from('student_results').select('test_id').eq('student_id', studentId);
+  if (error) throw new Error(describe(error));
+  return new Set(((data as { test_id: number }[] | null) ?? []).map((r) => r.test_id));
+}
+
 async function fetchResults(testIds: number[]): Promise<ResultRow[]> {
   if (testIds.length === 0) return [];
   const out: ResultRow[] = [];

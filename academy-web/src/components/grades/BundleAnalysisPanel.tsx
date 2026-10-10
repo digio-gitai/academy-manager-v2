@@ -7,6 +7,7 @@ import {
   computeBundle,
   fetchBundleTests,
   fetchRetestsForTests,
+  fetchStudentTestIds,
   loadRetestThreshold,
   renameTest,
   summarizeForAi,
@@ -39,6 +40,12 @@ export function BundleAnalysisPanel() {
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // 시작 방식: 'test' = 시험지를 체크 → 본 학생들 자동 나열 / 'student' = 학생 1명 선택 → 그 학생이 본 시험 중 체크
+  const [basis, setBasis] = useState<'test' | 'student'>('test');
+  const [studentId, setStudentId] = useState('');
+  const [studentTestIds, setStudentTestIds] = useState<Set<number>>(new Set());
+  const [studentLoading, setStudentLoading] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState(ALL);
   const [checked, setChecked] = useState<Set<number>>(new Set());
@@ -90,14 +97,58 @@ export function BundleAnalysisPanel() {
   }, []);
 
   const types = useMemo(() => [ALL, ...Array.from(new Set(tests.map((t) => t.testType)))], [tests]);
-  const visibleTests = useMemo(
-    () => (typeFilter === ALL ? tests : tests.filter((t) => t.testType === typeFilter)),
-    [tests, typeFilter],
+  const visibleTests = useMemo(() => {
+    const base = basis === 'student' ? tests.filter((t) => studentTestIds.has(t.id)) : tests;
+    return typeFilter === ALL ? base : base.filter((t) => t.testType === typeFilter);
+  }, [tests, typeFilter, basis, studentTestIds]);
+  const sortedStudents = useMemo(
+    () =>
+      [...students].sort(
+        (a, b) => (a.className || '').localeCompare(b.className || '', 'ko') || a.name.localeCompare(b.name, 'ko'),
+      ),
+    [students],
   );
   const grades = useMemo(
     () => Array.from(new Set(students.map((s) => s.grade).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko')),
     [students],
   );
+
+  const resetSelection = () => {
+    setChecked(new Set());
+    setResult(null);
+    setPreviewId(null);
+    setDrafts({});
+    setSelected(new Set());
+    setSentIds(new Set());
+    setBulkLog([]);
+  };
+
+  const switchBasis = (next: 'test' | 'student') => {
+    if (next === basis) return;
+    setBasis(next);
+    setStudentId('');
+    setStudentTestIds(new Set());
+    setTypeFilter(ALL);
+    resetSelection();
+  };
+
+  /** 학생 기준: 학생을 고르면 그 학생이 본 시험만 목록에 올리고, 대상 학년은 학생 본인 학년으로 자동 설정한다. */
+  const pickStudent = async (id: string) => {
+    setStudentId(id);
+    resetSelection();
+    setStudentTestIds(new Set());
+    if (!id) return;
+    const profile = students.find((s) => s.id === id);
+    if (profile?.grade) setGradeFilter(profile.grade);
+    setStudentLoading(true);
+    try {
+      setStudentTestIds(await fetchStudentTestIds(Number(id)));
+    } catch (e) {
+      setComputeError(e instanceof Error ? e.message : '학생의 시험 목록을 불러오지 못했습니다.');
+    } finally {
+      setStudentLoading(false);
+    }
+  };
 
   const toggle = (id: number) => {
     setChecked((prev) => {
@@ -156,7 +207,13 @@ export function BundleAnalysisPanel() {
         mode === 'trend' ? fetchRetestsForTests(picked.map((t) => t.id)) : Promise.resolve([] as RetestAttempt[]),
       ]);
       setRetests(retestRows);
-      setResult(bundle);
+      // 학생 기준이면 그 학생 1명만 남기고(평균·상위 비율은 위에서 전체 응시자 기준으로 이미 계산됨) 바로 미리보기를 연다.
+      const only =
+        basis === 'student' && studentId
+          ? bundle.students.filter((s) => String(s.studentId) === studentId)
+          : bundle.students;
+      setResult({ ...bundle, students: only });
+      if (basis === 'student' && only[0]) setPreviewId(only[0].studentId);
     } catch (e) {
       setResult(null);
       setComputeError(e instanceof Error ? e.message : '집계에 실패했습니다.');
@@ -301,13 +358,44 @@ export function BundleAnalysisPanel() {
   return (
     <div>
       <div className={styles.card}>
+        <h3 className={styles.cardTitle}>무엇을 기준으로 시작할까요?</h3>
+        <div className={styles.modes}>
+          <button type="button" className={styles.mode} data-on={basis === 'test'} onClick={() => switchBasis('test')}>
+            <b>시험지 기준</b>
+            <small>시험지를 체크하면 그 시험을 본 학생들이 자동으로 나열됩니다 (반 전체를 한 번에)</small>
+          </button>
+          <button type="button" className={styles.mode} data-on={basis === 'student'} onClick={() => switchBasis('student')}>
+            <b>학생 기준</b>
+            <small>학생 1명을 고르면 그 학생이 본 시험이 나열됩니다. 보낼 시험만 체크하세요</small>
+          </button>
+        </div>
+      </div>
+
+      <div className={styles.card}>
         <h3 className={styles.cardTitle}>
-          <span className={styles.stepNo}>1</span>분석할 시험지 체크
+          <span className={styles.stepNo}>1</span>{basis === 'student' ? '학생 선택 · 보낼 시험 체크' : '분석할 시험지 체크'}
         </h3>
         <p className={styles.caption}>
           학원에 저장된 시험지 전체 목록입니다. 체크한 시험지가 분석 대상입니다. 이름 칸을 고친 뒤 다른 곳을 누르면 저장됩니다
           (점수는 그대로).
         </p>
+        {basis === 'student' && (
+          <div className={styles.toolbar} style={{ marginTop: 0, marginBottom: 10 }}>
+            <label className={styles.meta}>
+              학생{' '}
+              <select className={styles.select} value={studentId} onChange={(e) => void pickStudent(e.target.value)}>
+                <option value="">학생을 선택하세요</option>
+                {sortedStudents.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({[s.className, s.grade].filter(Boolean).join(' · ') || '반 미지정'})
+                  </option>
+                ))}
+              </select>
+            </label>
+            {studentLoading && <span className={styles.meta}>시험 목록을 불러오는 중…</span>}
+            {studentId && !studentLoading && <span className={styles.meta}>응시한 시험 {studentTestIds.size}개</span>}
+          </div>
+        )}
         <div className={styles.chips}>
           {types.map((t) => (
             <button key={t} type="button" className={styles.chip} data-on={t === typeFilter} onClick={() => setTypeFilter(t)}>
@@ -316,7 +404,9 @@ export function BundleAnalysisPanel() {
           ))}
         </div>
         {visibleTests.length === 0 ? (
-          <p className={styles.caption}>표시할 시험지가 없습니다.</p>
+          <p className={styles.caption}>
+            {basis === 'student' && !studentId ? '학생을 먼저 선택해 주세요.' : '표시할 시험지가 없습니다.'}
+          </p>
         ) : (
           <div className={styles.examList}>
             {visibleTests.map((t) => (
@@ -428,7 +518,7 @@ export function BundleAnalysisPanel() {
       {result && (
         <div className={styles.card}>
           <h3 className={styles.cardTitle}>
-            <span className={styles.stepNo}>3</span>학생별 결과
+            <span className={styles.stepNo}>3</span>{basis === 'student' ? '선택한 학생 결과' : '학생별 결과'}
           </h3>
           <p className={styles.caption}>
             체크한 시험지를 1회 이상 본 학생이 반과 관계없이 나열됩니다. 평균·상위 비율은 그 회차를 실제로 본 학생끼리만 계산합니다.
