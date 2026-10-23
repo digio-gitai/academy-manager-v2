@@ -31,6 +31,20 @@ export function isManagerRole(role: string): boolean {
 }
 
 /**
+ * 기기 로그인(2026-10-23) — Supabase 계정(이메일+비밀번호) 1개로 "DB 문"을 연다.
+ * 이 로그인이 되어 있어야 supabase-js가 요청에 로그인 토큰을 붙이고, DB(RLS)는
+ * 그 토큰이 있는 요청만 강사 전용 테이블에 접근시킨다. 강사 개인을 구분하는
+ * 아래 "이름 + 4자리" 로그인(loginTeacher)과는 별개이며 그 앞에 한 번만 거친다.
+ * 세션은 supabase-js가 localStorage에 저장·자동 갱신하므로 기기마다 한 번만 하면 된다.
+ */
+export async function signInOwner(email: string, password: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  if (error) {
+    throw new Error('이메일 또는 비밀번호가 올바르지 않습니다.');
+  }
+}
+
+/**
  * 로그인 화면의 "이름 선택" 드롭다운용 — 이름만 조회(비밀번호는 절대 조회 안 함).
  * 운영 스트림릿 app.py의 get_all_teachers()와 동일하게, 이름에 "test"/"테스트"가
  * 들어간 계정(개발 중 테스트용으로 만들어둔 계정)은 로그인 목록에서 숨긴다.

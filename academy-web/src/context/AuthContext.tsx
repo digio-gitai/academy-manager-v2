@@ -1,8 +1,11 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { getStoredSession, clearSession, isManagerRole, type TeacherSession } from '../lib/auth';
+import { supabase } from '../lib/supabaseClient';
 
 interface AuthContextValue {
   session: TeacherSession | null;
+  /** 기기 로그인(Supabase 계정) 상태 — null이면 확인 중, false면 로그인 안 됨. */
+  ownerSignedIn: boolean | null;
   /** 관리자급(admin/vice/director)인지 — true면 전체 데이터 조회 가능. */
   isManager: boolean;
   /**
@@ -27,6 +30,26 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<TeacherSession | null>(() => getStoredSession());
+  const [ownerSignedIn, setOwnerSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!cancelled) setOwnerSignedIn(Boolean(data.session));
+      })
+      .catch(() => {
+        if (!cancelled) setOwnerSignedIn(false);
+      });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+      setOwnerSignedIn(Boolean(next));
+    });
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   function login(next: TeacherSession) {
     setSession(next);
@@ -43,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         session,
+        ownerSignedIn,
         isManager,
         scopeTeacherId: isManager ? null : (session?.id ?? null),
         login,

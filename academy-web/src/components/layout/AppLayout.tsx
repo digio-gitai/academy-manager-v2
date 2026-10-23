@@ -25,13 +25,19 @@ export function AppLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { session, logout } = useAuth();
+  const { session, ownerSignedIn, logout } = useAuth();
 
   useEffect(() => {
     setMobileNavOpen(false);
   }, [location.pathname]);
 
-  if (!session) {
+  // 기기 로그인(Supabase 계정) 상태를 확인하는 동안에는 아무것도 그리지 않는다 —
+  // 이 값이 정해지기 전에 화면 데이터를 불러오면 로그인 토큰 없이 요청이 나간다.
+  if (ownerSignedIn === null) {
+    return null;
+  }
+
+  if (!ownerSignedIn || !session) {
     return <Navigate to="/login" replace />;
   }
 

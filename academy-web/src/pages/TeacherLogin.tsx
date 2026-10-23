@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PasswordField } from '../components/login/PasswordField';
 import { useAuth } from '../context/AuthContext';
-import { fetchTeacherOptions, loginTeacher } from '../lib/auth';
+import { fetchTeacherOptions, loginTeacher, signInOwner } from '../lib/auth';
 import type { TeacherOption } from '../lib/auth';
 import styles from './TeacherLogin.module.css';
 
@@ -11,10 +11,19 @@ import styles from './TeacherLogin.module.css';
  * 대시보드로 넘어가는 mock이었는데, 실제 teachers 테이블과 연동함 —
  * 운영 스트림릿 app.py의 _nav_teacher_selectbox()와 같은 방식(이메일이
  * 아니라 "이름 선택 + 4자리 비밀번호").
+ *
+ * 2026-10-23: 그 앞에 "기기 로그인"(Supabase 이메일+비밀번호) 단계를 추가함.
+ * DB가 강사 전용 테이블을 로그인한 요청에만 열도록 잠그기 위한 문 열쇠다.
+ * 기기에 한 번만 하면 브라우저가 기억하고, 그 뒤에는 기존처럼 이름+4자리만 쓴다.
  */
 export function TeacherLogin() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, ownerSignedIn } = useAuth();
+
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [ownerPassword, setOwnerPassword] = useState('');
+  const [ownerError, setOwnerError] = useState('');
+  const [ownerSigningIn, setOwnerSigningIn] = useState(false);
 
   const [teachers, setTeachers] = useState<TeacherOption[]>([]);
   const [loadError, setLoadError] = useState('');
@@ -25,6 +34,7 @@ export function TeacherLogin() {
   const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
+    if (!ownerSignedIn) return;
     let cancelled = false;
     fetchTeacherOptions()
       .then((list) => {
@@ -40,7 +50,25 @@ export function TeacherLogin() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [ownerSignedIn]);
+
+  async function handleOwnerSubmit(e: FormEvent) {
+    e.preventDefault();
+    setOwnerError('');
+    if (!ownerEmail.trim() || !ownerPassword) {
+      setOwnerError('이메일과 비밀번호를 입력해 주세요.');
+      return;
+    }
+    setOwnerSigningIn(true);
+    try {
+      await signInOwner(ownerEmail, ownerPassword);
+      setOwnerPassword('');
+    } catch (err) {
+      setOwnerError(err instanceof Error ? err.message : '로그인에 실패했습니다.');
+    } finally {
+      setOwnerSigningIn(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -80,6 +108,49 @@ export function TeacherLogin() {
           </div>
 
           <div className={styles.card}>
+            {ownerSignedIn === null && <p className={styles.subtitle}>확인 중...</p>}
+
+            {ownerSignedIn === false && (
+              <>
+                <h1 className={styles.title}>기기 로그인</h1>
+                <p className={styles.subtitle}>이 기기에서 처음 한 번만 입력하면 됩니다</p>
+                <form className={styles.form} onSubmit={handleOwnerSubmit}>
+                  <div>
+                    <label className={styles.label} htmlFor="owner-email">
+                      이메일
+                    </label>
+                    <input
+                      id="owner-email"
+                      type="email"
+                      autoComplete="username"
+                      value={ownerEmail}
+                      onChange={(e) => setOwnerEmail(e.target.value)}
+                      className={styles.input}
+                    />
+                  </div>
+                  <div>
+                    <label className={styles.label} htmlFor="owner-password">
+                      비밀번호
+                    </label>
+                    <input
+                      id="owner-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={ownerPassword}
+                      onChange={(e) => setOwnerPassword(e.target.value)}
+                      className={styles.input}
+                    />
+                  </div>
+                  {ownerError && <p className={styles.errorText}>{ownerError}</p>}
+                  <button type="submit" className={styles.submitButton} disabled={ownerSigningIn}>
+                    {ownerSigningIn ? '로그인 중...' : '기기 로그인'}
+                  </button>
+                </form>
+              </>
+            )}
+
+            {ownerSignedIn === true && (
+              <>
             <h1 className={styles.title}>선생님 로그인</h1>
             <p className={styles.subtitle}>등록된 계정으로 접속해주세요</p>
 
@@ -119,6 +190,8 @@ export function TeacherLogin() {
                 {signingIn ? '로그인 중...' : '로그인'}
               </button>
             </form>
+              </>
+            )}
           </div>
 
           <p className={styles.footerTagline}>J MATH — 한 사람이 책임지는 수학</p>
