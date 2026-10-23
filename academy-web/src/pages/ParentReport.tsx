@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { fetchReportByToken, markReportViewed, type ReportLinkMeta } from '../lib/reportLinks';
+import {
+  fetchPastReports,
+  fetchReportByToken,
+  markReportViewed,
+  type PastReportItem,
+  type ReportLinkMeta,
+} from '../lib/reportLinks';
 import styles from './ParentReport.module.css';
 
 /**
@@ -18,6 +24,7 @@ export function ParentReport() {
   const token = searchParams.get('token') ?? '';
 
   const [report, setReport] = useState<ReportLinkMeta | null>(null);
+  const [pastReports, setPastReports] = useState<PastReportItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -39,6 +46,12 @@ export function ParentReport() {
           markReportViewed(token).catch(() => {
             // 열람 기록 실패는 화면 표시와 무관 — 조용히 무시.
           });
+          // 지난 보고서 목록은 부가 기능 — 실패해도 현재 보고서 표시에는 영향이 없다.
+          fetchPastReports(token)
+            .then((list) => {
+              if (!cancelled) setPastReports(list);
+            })
+            .catch(() => {});
         }
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
@@ -70,6 +83,21 @@ export function ParentReport() {
 
   return (
     <div className={styles.page}>
+      {pastReports.length > 0 && (
+        <details className={styles.pastBox}>
+          <summary className={styles.pastSummary}>지난 보고서 {pastReports.length}건 보기</summary>
+          <ul className={styles.pastList}>
+            {pastReports.map((r) => (
+              <li key={r.token}>
+                <a className={styles.pastLink} href={`/parent-report?token=${encodeURIComponent(r.token)}`}>
+                  {r.testDate && <span className={styles.pastDate}>{r.testDate}</span>}
+                  {r.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <iframe title="성적 리포트" srcDoc={report.htmlContent} className={styles.reportIframe} />
     </div>
   );

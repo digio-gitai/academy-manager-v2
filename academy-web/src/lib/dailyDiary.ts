@@ -378,12 +378,8 @@ export async function fetchPublicDiary(token: string): Promise<PublicDiary | nul
 
   // 오늘 이 학생의 테스트 보고서(report_links) — 보고서를 Diary 발송보다 나중에 만들어도 열 때 자동으로 붙는다.
   const [reportsRes, pastRes] = await Promise.all([
-    supabase
-      .from('report_links')
-      .select('token, test_type, test_name')
-      .eq('student_id', row.student_id)
-      .eq('test_date', dd.diary_date)
-      .order('created_at', { ascending: true }),
+    // [2026-10-23] report_links를 직접 읽지 않고 DB 함수로 — 이 Diary 토큰의 학생·날짜와 일치하는 보고서만 돌려준다.
+    supabase.rpc('list_diary_reports', { p_token: token }),
     supabase
       .from('daily_diary_entries')
       .select('token, progress, daily_diaries ( diary_date, common_progress )')

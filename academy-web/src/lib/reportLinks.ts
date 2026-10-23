@@ -74,16 +74,18 @@ export async function markReportSent(token: string): Promise<void> {
   if (error) throw new Error(`발송 기록에 실패했습니다: ${describeError(error)}`);
 }
 
-/** 토큰으로 보고서 HTML + 메타정보 조회 — get_report_link_meta() 대응. */
+/**
+ * 토큰으로 보고서 HTML + 메타정보 조회 — get_report_link_meta() 대응.
+ * [2026-10-23] report_links 테이블을 직접 읽지 않고 DB 함수(get_report_by_token)를
+ * 부른다 — 테이블은 로그인한 강사 계정만 읽도록 잠기고, 학부모 링크는 이 함수로
+ * "토큰이 맞는 보고서 1건"만 받는다.
+ */
 export async function fetchReportByToken(token: string): Promise<ReportLinkMeta | null> {
-  const { data, error } = await supabase
-    .from('report_links')
-    .select('html_content, student_name, student_id, test_type, test_date, test_name, viewed_at')
-    .eq('token', token)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('get_report_by_token', { p_token: token });
   if (error) throw new Error(`보고서를 불러오지 못했습니다: ${describeError(error)}`);
-  if (!data) return null;
-  const row = data as {
+  const first = Array.isArray(data) ? data[0] : data;
+  if (!first) return null;
+  const row = first as {
     html_content: string;
     student_name: string | null;
     student_id: number | null;
@@ -105,9 +107,33 @@ export async function fetchReportByToken(token: string): Promise<ReportLinkMeta 
 
 /** 학부모가 링크를 열었을 때 최초 1회만 열람 시각 기록 — mark_report_link_viewed() 대응. */
 export async function markReportViewed(token: string): Promise<void> {
-  const { data } = await supabase.from('report_links').select('viewed_at').eq('token', token).maybeSingle();
-  if ((data as { viewed_at: string | null } | null)?.viewed_at) return;
-  await supabase.from('report_links').update({ viewed_at: nowStr() }).eq('token', token);
+  // 최초 1회만 기록하는 규칙은 DB 함수(mark_report_viewed) 안에서 처리한다.
+  await supabase.rpc('mark_report_viewed', { p_token: token });
+}
+
+export interface PastReportItem {
+  token: string;
+  testDate: string;
+  label: string;
+}
+
+/**
+ * [2026-10-23] 학부모 보고서 화면의 "지난 보고서" 목록 — 같은 학생의 다른 보고서를
+ * 최근 순으로 최대 10건. 학부모에게 문자로 보냈거나 Diary에 붙어 보인 보고서만
+ * 나오고(DB 함수 list_past_reports가 거른다), 보고서 본문은 클릭할 때 토큰으로 따로 연다.
+ */
+export async function fetchPastReports(token: string): Promise<PastReportItem[]> {
+  const { data, error } = await supabase.rpc('list_past_reports', { p_token: token });
+  if (error) throw new Error(`지난 보고서를 불러오지 못했습니다: ${describeError(error)}`);
+  const rows = (data as { token: string; test_type: string | null; test_name: string | null; test_date: string | null }[]) ?? [];
+  return rows.map((r) => {
+    const base = (r.test_name || r.test_type || '').trim();
+    return {
+      token: r.token,
+      testDate: r.test_date ?? '',
+      label: base ? (/보고서|리포트/.test(base) ? base : `${base} 보고서`) : '성적 보고서',
+    };
+  });
 }
 
 /** 학부모에게 보낼 리포트 링크 문자 문구. */
