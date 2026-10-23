@@ -127,6 +127,7 @@ def _students_with_due_tomorrow(target_date: str) -> list[dict]:
         LEFT JOIN classes c ON c.id = a.class_id
         WHERE a.due_date = ?
           AND COALESCE(st.is_paused, FALSE) = FALSE
+          AND COALESCE(st.withdrawn_at, '') = ''
         """,
         (target_date,),
     ).fetchall()
@@ -180,16 +181,11 @@ def main() -> None:
     target_date, day_kr = _tomorrow_kor_day()
     print(f"내일({target_date}, {day_kr}요일) 대상을 찾습니다...\n")
 
-    # [트리거 A] 시간표 기반 — student_id -> {class_name, name, parent_phone}
-    classes = _classes_meeting_on(day_kr)
+    # [트리거 A] 시간표 기반 — 꺼둠(2026-10-23): 마감일이 있는 과제만 문자를 보낸다.
+    # 다시 켜려면 아래 두 줄을 지우고 이 주석 아래에 있던 반복문을 되살리면 된다
+    # (git 기록: classes = _classes_meeting_on(day_kr) 부터 시작하는 블록).
+    classes: list[dict] = []
     schedule_targets: dict[int, dict] = {}
-    for cls in classes:
-        for stu in _students_with_phone(cls["id"]):
-            schedule_targets[stu["id"]] = {
-                "class_name": cls["name"],
-                "name": stu["name"],
-                "parent_phone": stu["parent_phone"],
-            }
 
     # [트리거 B] 마감일 기반 — student_id -> due_row(구체적 과제 정보 포함)
     due_targets: dict[int, dict] = {
