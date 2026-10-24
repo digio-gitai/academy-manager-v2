@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PasswordField } from '../components/login/PasswordField';
 import { useAuth } from '../context/AuthContext';
-import { fetchTeacherOptions, loginTeacher, signInOwner } from '../lib/auth';
+import { fetchTeacherOptions, loginTeacher, requestOwnerPasswordReset, signInOwner } from '../lib/auth';
 import type { TeacherOption } from '../lib/auth';
 import styles from './TeacherLogin.module.css';
 
@@ -24,6 +24,8 @@ export function TeacherLogin() {
   const [ownerPassword, setOwnerPassword] = useState('');
   const [ownerError, setOwnerError] = useState('');
   const [ownerSigningIn, setOwnerSigningIn] = useState(false);
+  const [resetNotice, setResetNotice] = useState('');
+  const [resetSending, setResetSending] = useState(false);
 
   const [teachers, setTeachers] = useState<TeacherOption[]>([]);
   const [loadError, setLoadError] = useState('');
@@ -67,6 +69,24 @@ export function TeacherLogin() {
       setOwnerError(err instanceof Error ? err.message : '로그인에 실패했습니다.');
     } finally {
       setOwnerSigningIn(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    setOwnerError('');
+    setResetNotice('');
+    if (!ownerEmail.trim()) {
+      setOwnerError('위 이메일 칸에 이메일을 먼저 입력해 주세요.');
+      return;
+    }
+    setResetSending(true);
+    try {
+      await requestOwnerPasswordReset(ownerEmail);
+      setResetNotice('입력한 이메일로 재설정 메일을 보냈습니다. 메일함(스팸함 포함)을 확인해 주세요.');
+    } catch (err) {
+      setOwnerError(err instanceof Error ? err.message : '메일을 보내지 못했습니다.');
+    } finally {
+      setResetSending(false);
     }
   }
 
@@ -142,8 +162,17 @@ export function TeacherLogin() {
                     />
                   </div>
                   {ownerError && <p className={styles.errorText}>{ownerError}</p>}
+                  {resetNotice && <p className={styles.subtitle}>{resetNotice}</p>}
                   <button type="submit" className={styles.submitButton} disabled={ownerSigningIn}>
                     {ownerSigningIn ? '로그인 중...' : '기기 로그인'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={resetSending}
+                    style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, cursor: 'pointer', textDecoration: 'underline', color: 'inherit', fontSize: 13 }}
+                  >
+                    {resetSending ? '메일 보내는 중...' : '비밀번호를 잊으셨나요?'}
                   </button>
                 </form>
               </>

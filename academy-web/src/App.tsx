@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AssignmentUpload } from './pages/AssignmentUpload';
 import { ParentReport } from './pages/ParentReport';
 import { TeacherLogin } from './pages/TeacherLogin';
+import { ResetPassword } from './pages/ResetPassword';
 import { TeacherDashboard } from './pages/TeacherDashboard';
 import { StudentRoster } from './pages/StudentRoster';
 import { ClassManagement } from './pages/ClassManagement';
@@ -37,6 +38,7 @@ function App() {
       <Route path="/parent-report" element={<ParentReport />} />
       <Route path="/diary" element={<ParentDiary />} />
       <Route path="/login" element={<TeacherLogin />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       {/* teacher 전용 화면 — 여기 안에 새 메뉴 화면을 추가하면 자동으로
           같은 사이드바(AppLayout)를 공유하게 됨. 실제 화면이 완성되면

@@ -45,6 +45,29 @@ export async function signInOwner(email: string, password: string): Promise<void
 }
 
 /**
+ * 기기 로그인 비밀번호 재설정 메일 요청(2026-10-24). 메일 안 링크는 /reset-password로
+ * 돌아오며, Supabase 대시보드의 Authentication → URL Configuration에 이 주소
+ * (Site URL / Redirect URLs)가 등록돼 있어야 한다. 이메일이 없는 계정이어도
+ * Supabase는 성공처럼 응답하므로(계정 존재 여부를 숨김) 화면 문구도 단정하지 않는다.
+ */
+export async function requestOwnerPasswordReset(email: string): Promise<void> {
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+  if (error) {
+    throw new Error('메일을 보내지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+  }
+}
+
+/** 재설정 링크로 들어와 생긴 임시 로그인 상태에서 새 비밀번호를 저장한다. */
+export async function updateOwnerPassword(newPassword: string): Promise<void> {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) {
+    throw new Error(error.message || '비밀번호를 바꾸지 못했습니다.');
+  }
+}
+
+/**
  * 로그인 화면의 "이름 선택" 드롭다운용 — 이름만 조회(비밀번호는 절대 조회 안 함).
  * 운영 스트림릿 app.py의 get_all_teachers()와 동일하게, 이름에 "test"/"테스트"가
  * 들어간 계정(개발 중 테스트용으로 만들어둔 계정)은 로그인 목록에서 숨긴다.
