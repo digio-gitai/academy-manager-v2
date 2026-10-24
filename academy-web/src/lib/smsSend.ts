@@ -93,6 +93,22 @@ export async function sendBulkSms(recipients: SmsRecipient[], text: string, kind
 }
 
 /**
+ * 학생이 과제를 제출한 직후 원장님께 가는 알림 — 학생 화면(AssignmentUpload)에서 부른다.
+ * [2026-10-24] 예전에는 학생 화면이 sendBulkSms(send-sms)를 로그인 없이 불러서 공개 키만 있으면 누구나
+ * 같은 경로로 문자를 보낼 수 있었다. send-sms는 이제 로그인한 열쇠 계정만 받으므로, 학생 화면은
+ * 업로드 토큰만 보내는 전용 함수(hw-upload-notify)를 부른다 — 받는 사람(원장님 번호 고정)과 문자 내용은
+ * 서버가 정하고, 같은 내용은 10분에 한 번, 전체는 한 시간 40통까지만 나간다. 실패해도 예외를 던지지 않는다.
+ * Edge Function 코드: academy-web/supabase/functions/hw-upload-notify/index.ts
+ */
+export async function notifyUploadSubmitted(uploadToken: string): Promise<void> {
+  try {
+    await supabase.functions.invoke('hw-upload-notify', { body: { token: uploadToken } });
+  } catch {
+    // 원장님 알림은 부가 기능 — 실패해도 학생 제출에는 영향이 없다.
+  }
+}
+
+/**
  * "발송 내역" 화면용 — 최근 발송 기록을 최신순으로 가져온다.
  *
  * 2026-09-11: 원래 여기서 anon 키로 직접 select했는데, 운영 프로젝트에서는

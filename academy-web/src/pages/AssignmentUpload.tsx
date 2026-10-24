@@ -16,7 +16,7 @@ import {
 } from '../lib/hwUpload';
 import { StepHeader } from '../components/StepHeader';
 import { UploadItemCard } from '../components/homework-upload/UploadItemCard';
-import { sendBulkSms, TEACHER_NOTIFY_PHONE } from '../lib/smsSend';
+import { notifyUploadSubmitted } from '../lib/smsSend';
 import styles from './AssignmentUpload.module.css';
 
 const STATUS_LABELS: Record<string, string> = { pending: '⏳ 미완료', partial: '🟡 일부완료', done: '✅ 완료' };
@@ -167,14 +167,8 @@ export function AssignmentUpload() {
       setItems(its);
       setRawInputs({});
 
-      try {
-        const notifyText = `[과제인증] ${meta.studentName} 학생이 업로드했습니다.\n반: ${meta.className}${
-          meta.title ? ` · ${meta.title}` : ''
-        }\n항목 ${res.doneCount}/${res.total} 완료`;
-        await sendBulkSms([{ name: meta.studentName, phone: TEACHER_NOTIFY_PHONE }], notifyText);
-      } catch {
-        // 원장님 알림 문자는 부가 기능 — 실패해도 학생 제출 결과에는 영향 없음.
-      }
+      // 원장님 알림 문자는 부가 기능 — 서버(hw-upload-notify)가 내용·받는 사람을 정하고, 실패해도 학생 제출 결과에는 영향 없음.
+      await notifyUploadSubmitted(meta.uploadToken);
     } catch (err) {
       setSubmitErrors([err instanceof Error ? err.message : String(err)]);
     } finally {

@@ -124,9 +124,35 @@ async function buildAuthorizationHeader(apiKey: string, apiSecret: string): Prom
   return `HMAC-SHA256 ApiKey=${apiKey}, Date=${date}, salt=${salt}, signature=${signature}`;
 }
 
+// [2026-10-24] 호출한 사람이 누구인지 확인한다 — 웹앱의 공개 키(anon)만으로는 문자를 못 보내게 막는다.
+// 허용하는 호출자:
+//   ① 서버 전용 키(service role)로 부르는 다른 Edge Function(hw-nightly-sms, hw-upload-notify)
+//   ② 열쇠 계정 — app_owner 명단에 있는 로그인 사용자(웹앱 강사 화면은 로그인한 상태로 부른다)
+async function isAllowedCaller(req: Request): Promise<boolean> {
+  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (!bearer) return false;
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceKey) return false;
+  if (bearer === serviceKey) return true;
+  try {
+    const admin = createClient(url, serviceKey);
+    const { data, error } = await admin.auth.getUser(bearer);
+    if (error || !data?.user) return false;
+    const { data: owner } = await admin.from('app_owner').select('user_id').eq('user_id', data.user.id).maybeSingle();
+    return !!owner;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
+
+  if (!(await isAllowedCaller(req))) {
+    return jsonResponse({ error: '로그인이 필요합니다.' }, 401);
   }
 
   try {
