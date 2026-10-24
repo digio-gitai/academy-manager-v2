@@ -31,9 +31,12 @@ function describeStorageError(err: unknown): string {
  * `${submissionId}/${itemId}/${Date.now()}_${file.name}`).
  */
 export async function uploadHwPhoto(file: File | Blob, path: string): Promise<string> {
+  // [2026-10-24] upsert를 끔 — 저장소 규칙을 "로그인 안 한 사람은 올리기(INSERT)만"으로
+  // 줄이는 준비. 경로에 Date.now()가 들어가 매번 새 파일이라 덮어쓸 일이 없고,
+  // 덮어쓰기(upsert)는 수정 권한이 있어야 해서 외부인에게 허용하지 않는다.
   const { error } = await supabase.storage.from(HW_PHOTO_BUCKET).upload(path, file, {
     cacheControl: '3600',
-    upsert: true,
+    upsert: false,
     contentType: file instanceof File ? file.type || 'image/jpeg' : 'image/jpeg',
   });
   if (error) {
