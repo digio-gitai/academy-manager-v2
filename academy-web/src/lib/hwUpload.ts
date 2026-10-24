@@ -1,6 +1,11 @@
 import { supabase } from './supabaseClient';
 import { uploadHwPhoto, compressPhotoForUpload } from './hwStorage';
-import { fetchReferenceMaterials, getReferencePageImages, type ReferenceMaterial } from './hwReference';
+import {
+  fetchReferenceMaterials,
+  fetchReferenceMaterialsByToken,
+  getReferencePageImages,
+  type ReferenceMaterial,
+} from './hwReference';
 import type { HwItemType } from '../types/homework';
 
 // [2026-08-31] 학생용 과제 업로드 화면(3단계) 데이터/로직 레이어.
@@ -19,6 +24,8 @@ import type { HwItemType } from '../types/homework';
 export type HwUploadStatus = 'pending' | 'partial' | 'done';
 
 export interface HwUploadMeta {
+  /** 링크의 업로드 토큰 — 공개 화면은 테이블을 직접 읽지 않고 이 토큰으로 DB 함수를 부른다. */
+  uploadToken: string;
   submissionId: string;
   assignmentId: string;
   studentId: string;
@@ -82,12 +89,6 @@ export interface HwUploadResult {
   total: number;
 }
 
-function nowStr(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 function describeError(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err && typeof err === 'object') {
@@ -145,19 +146,13 @@ export function getSolvablePages(pageStart: number, pageEnd: number, excludedPag
   return pages;
 }
 
-/** 업로드 토큰으로 과제·학생·반 정보를 조회 — hw_upload.py get_submission_by_token() 대응. */
+/**
+ * 업로드 토큰으로 과제·학생·반 정보를 조회 — hw_upload.py get_submission_by_token() 대응.
+ * [2026-10-24] 테이블을 직접 읽지 않고 DB 함수(hw_upload_meta)로 조회한다 — 학생·과제 테이블은
+ * 로그인한 강사 계정만 읽도록 잠그고, 학생 링크는 "토큰이 맞는 제출 1건"만 받는다.
+ */
 export async function fetchUploadMeta(token: string): Promise<HwUploadMeta | null> {
-  const { data, error } = await supabase
-    .from('hw_submissions')
-    .select(
-      `
-        id, assignment_id, student_id, status, viewed_at,
-        hw_assignments ( title, due_date, assigned_date, class_id, classes ( name ) ),
-        students ( name )
-      `,
-    )
-    .eq('upload_token', token)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('hw_upload_meta', { p_token: token });
   if (error) throw new Error(`과제 정보를 불러오지 못했습니다: ${describeError(error)}`);
   if (!data) return null;
 
@@ -166,14 +161,8 @@ export async function fetchUploadMeta(token: string): Promise<HwUploadMeta | nul
   const assignment = row.hw_assignments;
   const student = row.students;
 
-  const { data: targetRow } = await supabase
-    .from('hw_assignment_targets')
-    .select('include_common')
-    .eq('assignment_id', row.assignment_id)
-    .eq('student_id', row.student_id)
-    .maybeSingle();
-
   return {
+    uploadToken: token,
     submissionId: String(row.id),
     assignmentId: String(row.assignment_id),
     studentId: String(row.student_id),
@@ -185,53 +174,34 @@ export async function fetchUploadMeta(token: string): Promise<HwUploadMeta | nul
     className: assignment?.classes?.name ?? '',
     studentName: student?.name ?? '',
     viewedAt: row.viewed_at,
-    includeCommon: (targetRow as { include_common: boolean | null } | null)?.include_common ?? true,
+    includeCommon: (row.include_common as boolean | null) ?? true,
   };
 }
 
-/** 학생이 링크를 열었을 때 최초 1회만 열람 시각 기록 — hw_upload.py mark_viewed() 대응. */
-export async function markViewed(submissionId: string): Promise<void> {
-  const { data } = await supabase
-    .from('hw_submissions')
-    .select('viewed_at')
-    .eq('id', Number(submissionId))
-    .maybeSingle();
-  if ((data as { viewed_at: string | null } | null)?.viewed_at) return;
-  await supabase.from('hw_submissions').update({ viewed_at: nowStr() }).eq('id', Number(submissionId));
+/** 학생이 링크를 열었을 때 최초 1회만 열람 시각 기록 — hw_upload.py mark_viewed() 대응(규칙은 DB 함수 안). */
+export async function markViewed(token: string): Promise<void> {
+  await supabase.rpc('hw_upload_mark_viewed', { p_token: token });
 }
 
 /** 이 학생에게 보여줄 과제 항목 + 이전 제출 상태 — hw_upload.py get_items_with_state() 대응. */
 export async function fetchUploadItems(meta: HwUploadMeta): Promise<HwUploadItem[]> {
-  const assignmentId = Number(meta.assignmentId);
-  const studentId = Number(meta.studentId);
-  const submissionId = Number(meta.submissionId);
-
-  const { data: itemRows, error: itemErr } = await supabase
-    .from('hw_items')
-    .select('id, item_type, material_name, page_start, page_end, excluded_pages, description, student_id, sort_order')
-    .eq('assignment_id', assignmentId)
-    .or(`student_id.is.null,student_id.eq.${studentId}`)
-    .order('sort_order', { ascending: true });
-  if (itemErr) throw new Error(`과제 항목을 불러오지 못했습니다: ${describeError(itemErr)}`);
+  // [2026-10-24] 항목 + 이전 제출 상태(사진 개수 포함)를 DB 함수(hw_upload_items) 한 번으로 받는다.
+  const { data, error } = await supabase.rpc('hw_upload_items', { p_token: meta.uploadToken });
+  if (error) throw new Error(`과제 항목을 불러오지 못했습니다: ${describeError(error)}`);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let items = (itemRows as any[]) ?? [];
+  let items = ((data as any[]) ?? []).slice();
   if (!meta.includeCommon) {
     items = items.filter((it) => it.student_id != null);
   }
 
-  const { data: subRows, error: subErr } = await supabase
-    .from('hw_item_submissions')
-    .select('id, item_id, status, completed_pages, student_note, hw_photos ( id )')
-    .eq('submission_id', submissionId);
-  if (subErr) throw new Error(`제출 이력을 불러오지 못했습니다: ${describeError(subErr)}`);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const subByItemId = new Map<number, any>();
-  ((subRows as any[]) ?? []).forEach((r) => subByItemId.set(r.item_id, r));
-
   return items.map((it) => {
-    const sub = subByItemId.get(it.id);
+    const sub = it.sub as {
+      status: string | null;
+      completed_pages: string | null;
+      student_note: string | null;
+      photo_count: number | null;
+    } | null;
     return {
       itemId: String(it.id),
       itemType: it.item_type as HwItemType,
@@ -243,7 +213,7 @@ export async function fetchUploadItems(meta: HwUploadMeta): Promise<HwUploadItem
       prevCompletedPages: parseCompletedPages(sub?.completed_pages),
       prevDone: sub?.status === 'done',
       prevNote: sub?.student_note || '',
-      existingPhotoCount: ((sub?.hw_photos as unknown[] | null) ?? []).length,
+      existingPhotoCount: Number(sub?.photo_count ?? 0),
     };
   });
 }
@@ -354,12 +324,18 @@ export async function runPageVerification(
   materialName: string,
   pageStart: number,
   pageEnd: number,
-  referenceMaterials?: ReferenceMaterial[]
+  referenceMaterials?: ReferenceMaterial[],
+  /** 학생 링크에서 부를 때의 업로드 토큰 — 있으면 테이블을 직접 읽고 쓰지 않고 DB 함수로 처리한다. */
+  uploadToken?: string
 ): Promise<{ guess: string | null; flag: string | null }> {
   let materials = referenceMaterials;
   if (!materials) {
     try {
-      materials = classId ? await fetchReferenceMaterials(classId) : [];
+      materials = uploadToken
+        ? await fetchReferenceMaterialsByToken(uploadToken)
+        : classId
+          ? await fetchReferenceMaterials(classId)
+          : [];
     } catch {
       materials = [];
     }
@@ -387,7 +363,11 @@ export async function runPageVerification(
     if (error || !data || data.error) return { guess: null, flag: null };
     const guess = data.guess ?? null;
     const flag = data.flag ?? null;
-    await supabase.from('hw_photos').update({ ai_page_guess: guess, ai_flag: flag }).eq('id', photoId);
+    if (uploadToken) {
+      await supabase.rpc('hw_upload_set_ai', { p_token: uploadToken, p_photo_id: photoId, p_guess: guess, p_flag: flag });
+    } else {
+      await supabase.from('hw_photos').update({ ai_page_guess: guess, ai_flag: flag }).eq('id', photoId);
+    }
     return { guess, flag };
   } catch {
     return { guess: null, flag: null };
@@ -409,13 +389,16 @@ export async function runPageVerification(
  * "최선을 다하되 실패해도 무방한" 부가 기능으로 다룬다.
  */
 export async function submitUpload(
-  submissionId: string,
+  meta: HwUploadMeta,
   items: HwUploadItemPayload[],
-  itemsMeta: HwUploadItem[],
-  classId: string
+  itemsMeta: HwUploadItem[]
 ): Promise<HwUploadResult> {
-  const submissionIdNum = Number(submissionId);
-  const now = nowStr();
+  // [2026-10-24] 테이블을 직접 쓰지 않고 DB 함수(hw_upload_*)로 저장한다 — 함수가 토큰으로 이
+  // 제출에 속한 항목·사진인지 확인하므로 다른 학생의 기록은 건드릴 수 없다. 저장 순서와
+  // 사진 업로드·AI 확인 흐름은 이전과 같다.
+  const token = meta.uploadToken;
+  const classId = meta.classId;
+  const submissionIdNum = Number(meta.submissionId);
   let doneCount = 0;
   let anyDone = false;
   let allDone = true;
@@ -426,12 +409,10 @@ export async function submitUpload(
   // 조회하지 않음). 조회 자체가 실패해도(예: 네트워크 문제) 참고용 기능이니
   // 빈 목록으로 취급해서 전체가 텍스트 인식 방식으로 자연스럽게 폴백되게 함.
   let referenceMaterials: ReferenceMaterial[] = [];
-  if (classId) {
-    try {
-      referenceMaterials = await fetchReferenceMaterials(classId);
-    } catch {
-      referenceMaterials = [];
-    }
+  try {
+    referenceMaterials = await fetchReferenceMaterialsByToken(token);
+  } catch {
+    referenceMaterials = [];
   }
 
   for (const it of items) {
@@ -446,51 +427,47 @@ export async function submitUpload(
       .sort((a, b) => a - b)
       .join(',');
 
-    const { data: upserted, error: upsertErr } = await supabase
-      .from('hw_item_submissions')
-      .upsert(
-        {
-          submission_id: submissionIdNum,
-          item_id: Number(it.itemId),
-          status,
-          completed_pages: completedPagesStr,
-          student_note: it.note.trim(),
-          updated_at: now,
-        },
-        { onConflict: 'submission_id,item_id' },
-      )
-      .select('id')
-      .single();
+    const { data: savedId, error: upsertErr } = await supabase.rpc('hw_upload_save_item', {
+      p_token: token,
+      p_item_id: Number(it.itemId),
+      p_status: status,
+      p_completed_pages: completedPagesStr,
+      p_note: it.note.trim(),
+    });
     if (upsertErr) throw new Error(`저장에 실패했습니다: ${describeError(upsertErr)}`);
-    const itemSubmissionId = (upserted as { id: number }).id;
+    const itemSubmissionId = Number(savedId);
 
-    const meta = metaById.get(it.itemId);
+    const itemMeta = metaById.get(it.itemId);
     const isPageRange =
-      meta?.itemType === 'page_range' && meta.pageStart != null && meta.pageEnd != null && meta.pageStart <= meta.pageEnd;
+      itemMeta?.itemType === 'page_range' &&
+      itemMeta.pageStart != null &&
+      itemMeta.pageEnd != null &&
+      itemMeta.pageStart <= itemMeta.pageEnd;
 
     for (let i = 0; i < it.newPhotos.length; i++) {
       const file = it.newPhotos[i];
       const blob = await compressPhotoForUpload(file);
       const path = `${submissionIdNum}/${it.itemId}/${Date.now()}_${i}.jpg`;
       const photoUrl = await uploadHwPhoto(blob, path);
-      const { data: insertedPhoto, error: photoErr } = await supabase
-        .from('hw_photos')
-        .insert({ item_submission_id: itemSubmissionId, photo_url: photoUrl, uploaded_at: now })
-        .select('id')
-        .single();
+      const { data: insertedPhotoId, error: photoErr } = await supabase.rpc('hw_upload_add_photo', {
+        p_token: token,
+        p_item_submission_id: itemSubmissionId,
+        p_photo_url: photoUrl,
+      });
       if (photoErr) throw new Error(`사진 저장에 실패했습니다: ${describeError(photoErr)}`);
 
       if (isPageRange) {
-        const photoId = (insertedPhoto as { id: number }).id;
+        const photoId = Number(insertedPhotoId);
         try {
           await runPageVerification(
             photoId,
             photoUrl,
             classId,
-            meta!.materialName,
-            meta!.pageStart!,
-            meta!.pageEnd!,
-            referenceMaterials
+            itemMeta!.materialName,
+            itemMeta!.pageStart!,
+            itemMeta!.pageEnd!,
+            referenceMaterials,
+            token
           );
         } catch {
           // AI 1차 검증은 참고용일 뿐이라 실패해도 제출 자체는 계속 진행.
@@ -500,10 +477,7 @@ export async function submitUpload(
   }
 
   const overall: HwUploadStatus = items.length === 0 ? 'pending' : allDone ? 'done' : anyDone ? 'partial' : 'pending';
-  const { error: subErr } = await supabase
-    .from('hw_submissions')
-    .update({ status: overall, submitted_at: now })
-    .eq('id', submissionIdNum);
+  const { error: subErr } = await supabase.rpc('hw_upload_finish', { p_token: token, p_status: overall });
   if (subErr) throw new Error(`제출 상태 갱신에 실패했습니다: ${describeError(subErr)}`);
 
   return { overall, doneCount, total: items.length };

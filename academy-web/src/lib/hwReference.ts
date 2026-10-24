@@ -180,6 +180,16 @@ export async function fetchReferenceMaterials(classId: string): Promise<Referenc
   return (data ?? []).map(mapRow);
 }
 
+/**
+ * [2026-10-24] 학생 업로드 링크에서 쓰는 참조 자료 목록 — hw_reference_materials를 직접 읽지 않고
+ * 업로드 토큰으로 DB 함수(hw_upload_reference)를 불러 "이 제출이 속한 반"의 자료만 받는다.
+ */
+export async function fetchReferenceMaterialsByToken(token: string): Promise<ReferenceMaterial[]> {
+  const { data, error } = await supabase.rpc('hw_upload_reference', { p_token: token });
+  if (error) throw new Error(`참조 자료 목록을 불러오지 못했습니다: ${describeError(error)}`);
+  return ((data as unknown[]) ?? []).map(mapRow);
+}
+
 async function getPdfPageCount(file: File): Promise<number> {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;

@@ -364,13 +364,9 @@ function reportLabel(testType: string, testName: string): string {
 }
 
 export async function fetchPublicDiary(token: string): Promise<PublicDiary | null> {
-  const { data, error } = await supabase
-    .from('daily_diary_entries')
-    .select(
-      'id, student_id, token, included, student_name, school_grade, attendance_status, hw_performance, course, textbook, progress, homework, message, sent_at, daily_diaries ( id, diary_date, academy_name, teacher_name, course, textbook, common_progress, common_homework, common_message, classes ( name ) )',
-    )
-    .eq('token', token)
-    .maybeSingle();
+  // [2026-10-24] 다이어리 테이블을 직접 읽지 않고 DB 함수(diary_public_get)로 — 토큰이 맞는 1건만 받는다.
+  // 함수가 이전 쿼리와 같은 모양(학생 항목 + daily_diaries + classes(name))의 JSON을 돌려준다.
+  const { data, error } = await supabase.rpc('diary_public_get', { p_token: token });
   if (error) throw error;
   const row = data as unknown as PublicEntryRow | null;
   const dd = row?.daily_diaries;
@@ -380,12 +376,8 @@ export async function fetchPublicDiary(token: string): Promise<PublicDiary | nul
   const [reportsRes, pastRes] = await Promise.all([
     // [2026-10-23] report_links를 직접 읽지 않고 DB 함수로 — 이 Diary 토큰의 학생·날짜와 일치하는 보고서만 돌려준다.
     supabase.rpc('list_diary_reports', { p_token: token }),
-    supabase
-      .from('daily_diary_entries')
-      .select('token, progress, daily_diaries ( diary_date, common_progress )')
-      .eq('student_id', row.student_id)
-      .not('sent_at', 'is', null)
-      .neq('token', token),
+    // 같은 학생의 지난 다이어리(발송된 것만, 현재 토큰 제외) — 아래에서 날짜 비교·정렬·10건 제한은 그대로 한다.
+    supabase.rpc('diary_public_past', { p_token: token }),
   ]);
 
   const reports = ((reportsRes.data as { token: string; test_type: string | null; test_name: string | null }[]) ?? []).map(
@@ -429,5 +421,5 @@ export async function fetchPublicDiary(token: string): Promise<PublicDiary | nul
 
 /** 최초 열람 시각만 기록(이미 있으면 그대로). */
 export async function markDiaryViewed(token: string): Promise<void> {
-  await supabase.from('daily_diary_entries').update({ viewed_at: nowStr() }).eq('token', token).is('viewed_at', null);
+  await supabase.rpc('diary_mark_viewed', { p_token: token });
 }

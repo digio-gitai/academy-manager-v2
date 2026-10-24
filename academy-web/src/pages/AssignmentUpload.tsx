@@ -91,7 +91,7 @@ export function AssignmentUpload() {
           if (!cancelled) setLoadError('링크를 찾을 수 없거나 잘못된 링크입니다. 학원으로 문의해 주세요.');
           return;
         }
-        await markViewed(m.submissionId);
+        await markViewed(m.uploadToken);
         const its = await fetchUploadItems(m);
         if (cancelled) return;
         setMeta(m);
@@ -161,7 +161,7 @@ export function AssignmentUpload() {
     setSubmitErrors([]);
     setSubmitting(true);
     try {
-      const res = await submitUpload(meta.submissionId, payload, items, meta.classId);
+      const res = await submitUpload(meta, payload, items);
       setResult(res);
       const its = await fetchUploadItems(meta);
       setItems(its);
