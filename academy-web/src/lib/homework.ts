@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { signHwPhotoUrls } from './hwStorage';
 import { getSolvablePages } from './hwUpload';
 import type {
   HwAssignment,
@@ -692,6 +693,8 @@ export async function fetchSubmissionPhotoDetails(submissionId: string): Promise
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (data as any[]) ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const signed = await signHwPhotoUrls(rows.flatMap((r) => ((r.hw_photos as any[] | null) ?? []).map((p) => String(p.photo_url))));
   return rows.map((row) => {
     const item = row.hw_items;
     const photos = ((row.hw_photos as unknown[] | null) ?? [])
@@ -699,6 +702,7 @@ export async function fetchSubmissionPhotoDetails(submissionId: string): Promise
       .map((p: any) => ({
         id: String(p.id),
         photoUrl: p.photo_url,
+        displayUrl: signed.get(String(p.photo_url)) ?? p.photo_url,
         uploadedAt: p.uploaded_at ?? '',
         aiPageGuess: p.ai_page_guess ?? null,
         aiFlag: p.ai_flag ?? null,

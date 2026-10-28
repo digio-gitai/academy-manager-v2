@@ -47,6 +47,25 @@ export async function uploadHwPhoto(file: File | Blob, path: string): Promise<st
 }
 
 /**
+ * [2026-10-28] hw-photos 버킷은 비공개라 저장된 공개 주소로는 열리지 않는다 — 로그인한 선생님 화면에서
+ * 사진을 보여줄 때 저장된 주소를 1시간짜리 서명 주소로 바꿔서 쓴다. 이 버킷 주소가 아니거나(예전 base64 등)
+ * 서명에 실패하면 원래 주소를 그대로 돌려준다.
+ */
+export async function signHwPhotoUrls(urls: string[]): Promise<Map<string, string>> {
+  const marker = `/${HW_PHOTO_BUCKET}/`;
+  const out = new Map<string, string>(urls.map((u) => [u, u]));
+  const targets = urls.filter((u) => u.startsWith('http') && u.includes(marker));
+  if (targets.length === 0) return out;
+  const paths = targets.map((u) => decodeURIComponent(u.split(marker)[1].split('?')[0]));
+  const { data, error } = await supabase.storage.from(HW_PHOTO_BUCKET).createSignedUrls(paths, 3600);
+  if (error || !data) return out;
+  data.forEach((row, i) => {
+    if (row.signedUrl) out.set(targets[i], row.signedUrl);
+  });
+  return out;
+}
+
+/**
  * 선생님이 올린 참조 PDF(문제집/프린트 원본)를 hw-reference-pdfs 버킷에 업로드하고,
  * 공개 URL을 반환한다. path는 `{classId}/{materialName}.pdf` 형태 권장(스트림릿의
  * `{class_id}_{safe_material_name}.pdf` 파일명 규칙과 같은 의도 — 반+자료명으로

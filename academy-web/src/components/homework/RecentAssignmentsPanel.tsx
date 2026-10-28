@@ -345,10 +345,10 @@ export function RecentAssignmentsPanel({
                                         <button
                                           type="button"
                                           className={styles.photoImgButton}
-                                          onClick={() => setZoomedPhotoUrl(photo.photoUrl)}
+                                          onClick={() => setZoomedPhotoUrl(photo.displayUrl)}
                                           aria-label="사진 확대 보기"
                                         >
-                                          <img src={photo.photoUrl} alt="제출 사진" className={styles.photoImg} />
+                                          <img src={photo.displayUrl} alt="제출 사진" className={styles.photoImg} />
                                         </button>
                                         {photo.aiFlag ? (
                                           <p className={styles.aiNote}>

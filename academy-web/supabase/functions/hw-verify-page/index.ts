@@ -148,19 +148,29 @@ Deno.serve(async (req: Request) => {
 
     const method: 'reference' | 'text' = referencePages.length > 0 ? 'reference' : 'text';
 
+    // hw-photos 버킷은 비공개 — OpenAI가 읽을 수 있게 5분짜리 서명 주소로 바꿔서 넘긴다(다른 주소는 그대로).
+    let imageUrl = photoUrl;
+    const marker = '/hw-photos/';
+    if (photoUrl.startsWith('http') && photoUrl.includes(marker)) {
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+      const path = decodeURIComponent(photoUrl.split(marker)[1].split('?')[0]);
+      const { data: signed } = await admin.storage.from('hw-photos').createSignedUrl(path, 300);
+      if (signed?.signedUrl) imageUrl = signed.signedUrl;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const content: any[] = [];
     if (method === 'reference') {
       content.push({ type: 'text', text: REFERENCE_MATCH_INTRO });
       content.push({ type: 'text', text: '학생이 올린 사진:' });
-      content.push({ type: 'image_url', image_url: { url: photoUrl, detail: 'high' } });
+      content.push({ type: 'image_url', image_url: { url: imageUrl, detail: 'high' } });
       for (const rp of referencePages) {
         content.push({ type: 'text', text: `페이지 ${rp.page}:` });
         content.push({ type: 'image_url', image_url: { url: toImageUrl(rp.image), detail: 'low' } });
       }
     } else {
       content.push({ type: 'text', text: PAGE_CHECK_PROMPT_TEXT });
-      content.push({ type: 'image_url', image_url: { url: photoUrl, detail: 'high' } });
+      content.push({ type: 'image_url', image_url: { url: imageUrl, detail: 'high' } });
     }
 
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {

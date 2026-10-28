@@ -44,6 +44,8 @@ export type HwSubmissionStatus = 'not_viewed' | 'viewed' | 'done';
 export interface HwPhotoDetail {
   id: string;
   photoUrl: string;
+  /** 화면 표시용 서명 주소(비공개 버킷). photoUrl은 DB에 저장된 원래 주소 — AI 재확인 등 서버 호출에는 이쪽을 쓴다. */
+  displayUrl: string;
   uploadedAt: string;
   aiPageGuess: string | null;
   aiFlag: string | null;
