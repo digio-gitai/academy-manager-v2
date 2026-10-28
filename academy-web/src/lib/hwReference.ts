@@ -68,7 +68,17 @@ async function invokeDetectOffset(images: string[]): Promise<{ offset: number | 
     detail?: string;
     error?: string;
   }>('hw-detect-page-offset', { body: { images } });
-  if (error) throw new Error(describeError(error));
+  if (error) {
+    // 서버가 돌려준 오류 문구(예: 401/502 본문)가 있으면 같이 보여준다.
+    let detail = '';
+    try {
+      const ctx = (error as { context?: Response }).context;
+      if (ctx) detail = ' — ' + (ctx.status + ' ' + (await ctx.text())).slice(0, 300);
+    } catch {
+      // 본문을 못 읽어도 기본 문구만 보여준다.
+    }
+    throw new Error(describeError(error) + detail);
+  }
   if (!data) throw new Error('자동 감지 응답이 비어 있습니다.');
   if (data.error) throw new Error(data.error);
   return { offset: data.offset ?? null, detail: data.detail || '' };
