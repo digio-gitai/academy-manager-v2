@@ -62,7 +62,8 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    // 끝에 줄바꿈/공백이 붙은 키는 Authorization 헤더에서 "failed to parse header value"를 일으킴.
+    const apiKey = (Deno.env.get('OPENAI_API_KEY') || '').trim();
     if (!apiKey) {
       return new Response(
         JSON.stringify({ error: 'OpenAI API 키가 설정되지 않았습니다. Supabase 대시보드에서 Secrets를 확인해 주세요.' }),
