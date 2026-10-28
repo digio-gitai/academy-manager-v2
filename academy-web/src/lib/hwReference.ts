@@ -25,11 +25,11 @@ async function resolveReferenceDownloadUrl(material: ReferenceMaterial, uploadTo
     const { data, error } = await supabase.functions.invoke<{ url?: string | null }>('hw-reference-url', {
       body: { token: uploadToken, filePath: material.filePath },
     });
-    if (error || !data?.url) throw new Error('PDF 주소를 받지 못했습니다.');
+    if (error || !data?.url) throw new Error(`PDF 주소를 받지 못했습니다: ${error ? describeError(error) : '서버가 주소를 주지 않음'}`);
     return data.url;
   }
   const { data, error } = await supabase.storage.from('hw-reference-pdfs').createSignedUrl(material.filePath, 600);
-  if (error || !data?.signedUrl) throw new Error('PDF 주소를 받지 못했습니다.');
+  if (error || !data?.signedUrl) throw new Error(`PDF 주소를 받지 못했습니다: ${error ? describeError(error) : '주소 없음'}`);
   return data.signedUrl;
 }
 
