@@ -358,7 +358,7 @@ export async function runPageVerification(
       message?: string;
       error?: string;
     }>('hw-verify-page', {
-      body: { photoUrl, pageStart, pageEnd, referencePages },
+      body: { photoUrl, pageStart, pageEnd, referencePages, uploadToken, photoId },
     });
     if (error || !data || data.error) return { guess: null, flag: null };
     const guess = data.guess ?? null;

@@ -44,6 +44,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 interface ReferencePage {
   page: number;
   image: string;
@@ -54,6 +56,9 @@ interface RequestBody {
   pageStart: number;
   pageEnd: number;
   referencePages?: ReferencePage[];
+  /** 학생 화면 전용 — 업로드 토큰과 방금 올린 사진 번호(hw_photos.id). 로그인한 원장님 호출에는 필요 없음. */
+  uploadToken?: string;
+  photoId?: number;
 }
 
 const PAGE_CHECK_PROMPT_TEXT =
@@ -73,13 +78,55 @@ function toImageUrl(image: string): string {
   return image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
 }
 
+// [2026-10-28] 공개 호출 차단 — 로그인한 원장님 계정(선생님 화면 "다시 확인") 또는, 학생 화면에서는
+// 업로드 토큰 + 그 제출에 속한 사진 번호가 맞을 때만 받는다. 그 외에는 OpenAI 비용이 나가지 않게 401.
+function unauthorized(): Response {
+  return new Response(JSON.stringify({ error: '로그인이 필요합니다.' }), {
+    status: 401,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+async function isAllowedCaller(req: Request, body: any): Promise<boolean> {
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceKey) return false;
+  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (bearer === serviceKey) return true;
+  const admin = createClient(url, serviceKey);
+  try {
+    if (bearer) {
+      const { data } = await admin.auth.getUser(bearer);
+      if (data?.user) {
+        const { data: owner } = await admin.from('app_owner').select('user_id').eq('user_id', data.user.id).maybeSingle();
+        if (owner) return true;
+      }
+    }
+    // 학생 경로: 업로드 토큰 + 사진 번호 + 사진 주소가 모두 그 제출의 것이어야 한다.
+    const token = typeof body?.uploadToken === 'string' ? body.uploadToken.trim() : '';
+    const photoId = Number(body?.photoId);
+    if (!token || token.length > 64 || !Number.isInteger(photoId) || !body?.photoUrl) return false;
+    const { data: photo } = await admin.from('hw_photos').select('photo_url, item_submission_id').eq('id', photoId).maybeSingle();
+    if (!photo || photo.photo_url !== body.photoUrl) return false;
+    const { data: its } = await admin.from('hw_item_submissions').select('submission_id').eq('id', photo.item_submission_id).maybeSingle();
+    if (!its) return false;
+    const { data: sub } = await admin.from('hw_submissions').select('upload_token').eq('id', its.submission_id).maybeSingle();
+    return !!sub && sub.upload_token === token;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    const body = (await req.json()) as RequestBody;
+    if (!(await isAllowedCaller(req, body))) return unauthorized();
+
+    const apiKey = Deno.env.get('OPENAI_API_KEY')?.trim();
     if (!apiKey) {
       return new Response(
         JSON.stringify({ guess: null, flag: 'no_api_key', message: 'OpenAI API 키가 설정되지 않았습니다.', method: 'text' }),
@@ -87,7 +134,6 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const body = (await req.json()) as RequestBody;
     const photoUrl = body.photoUrl;
     const pageStart = Number(body.pageStart);
     const pageEnd = Number(body.pageEnd);
