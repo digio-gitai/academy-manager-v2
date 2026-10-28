@@ -28,9 +28,35 @@ function jsonResponse(obj: unknown, status = 200): Response {
   });
 }
 
+// [2026-10-28] 공개 호출 차단 — 서버 전용 키(예약 실행) 또는 로그인한 원장님 계정만 받는다. 그 외에는 401.
+async function isOwnerCaller(req: Request): Promise<boolean> {
+  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (!bearer) return false;
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceKey) return false;
+  if (bearer === serviceKey) return true;
+  try {
+    const admin = createClient(url, serviceKey);
+    const { data, error } = await admin.auth.getUser(bearer);
+    if (error || !data?.user) return false;
+    const { data: owner } = await admin.from('app_owner').select('user_id').eq('user_id', data.user.id).maybeSingle();
+    return !!owner;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
+
+  if (!(await isOwnerCaller(req))) {
+    return new Response(JSON.stringify({ error: '로그인이 필요합니다.' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 
   try {
