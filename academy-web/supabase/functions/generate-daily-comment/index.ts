@@ -50,7 +50,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    const apiKey = Deno.env.get('OPENAI_API_KEY')?.trim();
     if (!apiKey) return json({ error: 'OpenAI API 키가 설정되지 않았습니다. Supabase Secrets를 확인해 주세요.' }, 500);
 
     const body = await req.json();

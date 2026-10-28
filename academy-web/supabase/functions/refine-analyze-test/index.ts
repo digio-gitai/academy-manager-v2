@@ -262,7 +262,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    const apiKey = Deno.env.get('OPENAI_API_KEY')?.trim();
     if (!apiKey) {
       return new Response(
         JSON.stringify({ error: 'OpenAI API 키가 설정되지 않았습니다. Supabase 대시보드에서 Secrets를 확인해 주세요.' }),
