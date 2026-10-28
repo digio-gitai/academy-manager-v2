@@ -84,13 +84,30 @@ export async function filesToPageImages(files: File[]): Promise<string[]> {
  * Edge Function 코드: academy-web/supabase/functions/vision-ocr/index.ts
  * (Supabase 대시보드에서 별도로 배포해야 실제로 동작함).
  */
+// supabase-js는 Edge Function이 non-2xx를 돌려주면 본문을 숨기고 "Edge Function returned a
+// non-2xx status code"만 던짐 — 실제 원인(함수가 보낸 { error })을 꺼내서 에러로 다시 던짐.
+export async function throwFunctionError(error: unknown, fnName: string): Promise<never> {
+  const res = (error as { context?: Response })?.context;
+  if (res && typeof res.text === 'function') {
+    const raw = await res.text().catch(() => '');
+    let msg = raw;
+    try {
+      msg = (JSON.parse(raw) as { error?: string; message?: string }).error || (JSON.parse(raw) as { message?: string }).message || raw;
+    } catch {
+      // JSON이 아니면 원문 그대로.
+    }
+    throw new Error(`${fnName} 실패 (${res.status}): ${msg.slice(0, 300)}`);
+  }
+  throw error;
+}
+
 export async function extractTextFromPageImages(images: string[]): Promise<OcrPage[]> {
   const { data, error } = await supabase.functions.invoke<{ pages?: OcrPage[]; error?: string }>('vision-ocr', {
     body: { images },
   });
 
   if (error) {
-    throw error;
+    await throwFunctionError(error, 'vision-ocr');
   }
   if (!data || data.error || !data.pages) {
     throw new Error(data?.error || 'OCR 텍스트 추출에 실패했습니다.');

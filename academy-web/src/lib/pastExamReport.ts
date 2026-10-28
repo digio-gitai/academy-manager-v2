@@ -10,6 +10,7 @@
 // 않음 — Edge Function은 항상 실제 키로 호출되므로 불필요.
 
 import { supabase } from './supabaseClient';
+import { throwFunctionError } from './visionOcr';
 
 export interface PastExamBasicInfo {
   school?: string;
@@ -817,7 +818,7 @@ export async function analyzePastExam(
     { body: { schoolName, examText, scopeHint } },
   );
   if (error) {
-    throw error;
+    await throwFunctionError(error, 'generate-past-exam-report');
   }
   if (!data || data.error || !data.data) {
     throw new Error(data?.error || 'GPT 분석에 실패했습니다.');
