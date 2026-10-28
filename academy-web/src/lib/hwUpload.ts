@@ -345,7 +345,7 @@ export async function runPageVerification(
   let referencePages: { page: number; image: string }[] = [];
   if (material) {
     try {
-      referencePages = await getReferencePageImages(material, pageStart, pageEnd);
+      referencePages = await getReferencePageImages(material, pageStart, pageEnd, undefined, uploadToken);
     } catch {
       referencePages = [];
     }

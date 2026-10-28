@@ -3,7 +3,7 @@ import type { ReferenceMaterial } from '../../lib/hwReference';
 import {
   deleteReferenceMaterial,
   detectPageOffsetFromFile,
-  detectPageOffsetFromUrl,
+  detectPageOffsetFromMaterial,
   fetchReferenceMaterials,
   saveReferenceMaterial,
   updateReferenceMaterialOffset,
@@ -143,7 +143,7 @@ export function ReferenceUploadSection({ classId }: ReferenceUploadSectionProps)
     setDetectMessages((prev) => ({ ...prev, [material.id]: '' }));
     setDetectingId(material.id);
     try {
-      const result = await detectPageOffsetFromUrl(material.fileUrl);
+      const result = await detectPageOffsetFromMaterial(material);
       if (result.offset !== null) {
         setOffsetInputs((prev) => ({ ...prev, [material.id]: String(result.offset! + 1) }));
         setDetectMessages((prev) => ({ ...prev, [material.id]: `✅ 자동 감지 완료 — ${result.detail}` }));

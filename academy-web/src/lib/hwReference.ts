@@ -18,13 +18,29 @@ import { uploadReferencePdf, deleteReferencePdf } from './hwStorage';
 // 바뀌므로(safeStorageFileName의 해시) 자동으로 새로 받아온다.
 const _pdfBufferCache = new Map<string, ArrayBuffer>();
 
-async function fetchPdfBufferCached(url: string): Promise<ArrayBuffer> {
-  const cached = _pdfBufferCache.get(url);
+// [2026-10-29] hw-reference-pdfs 버킷이 비공개라 저장된 공개 주소로는 안 열린다 — 로그인한 원장님 화면은
+// 브라우저에서 직접, 학생 링크 화면은 업로드 토큰으로 서버(hw-reference-url)에서 짧은 서명 주소를 받아 쓴다.
+async function resolveReferenceDownloadUrl(material: ReferenceMaterial, uploadToken?: string): Promise<string> {
+  if (uploadToken) {
+    const { data, error } = await supabase.functions.invoke<{ url?: string | null }>('hw-reference-url', {
+      body: { token: uploadToken, filePath: material.filePath },
+    });
+    if (error || !data?.url) throw new Error('PDF 주소를 받지 못했습니다.');
+    return data.url;
+  }
+  const { data, error } = await supabase.storage.from('hw-reference-pdfs').createSignedUrl(material.filePath, 600);
+  if (error || !data?.signedUrl) throw new Error('PDF 주소를 받지 못했습니다.');
+  return data.signedUrl;
+}
+
+async function fetchPdfBufferCached(material: ReferenceMaterial, uploadToken?: string): Promise<ArrayBuffer> {
+  const cacheKey = material.fileUrl;
+  const cached = _pdfBufferCache.get(cacheKey);
   if (cached) return cached;
-  const resp = await fetch(url);
+  const resp = await fetch(await resolveReferenceDownloadUrl(material, uploadToken));
   if (!resp.ok) throw new Error('PDF 파일을 불러오지 못했습니다.');
   const buffer = await resp.arrayBuffer();
-  _pdfBufferCache.set(url, buffer);
+  _pdfBufferCache.set(cacheKey, buffer);
   return buffer;
 }
 
@@ -65,9 +81,9 @@ export async function detectPageOffsetFromFile(file: File): Promise<{ offset: nu
   return invokeDetectOffset(images);
 }
 
-/** 이미 등록된 참조 자료(공개 URL)의 페이지 오프셋을 다시 감지한다("자동 재감지"). */
-export async function detectPageOffsetFromUrl(fileUrl: string): Promise<{ offset: number | null; detail: string }> {
-  const buffer = await fetchPdfBufferCached(fileUrl);
+/** 이미 등록된 참조 자료의 페이지 오프셋을 다시 감지한다("자동 재감지"). */
+export async function detectPageOffsetFromMaterial(material: ReferenceMaterial): Promise<{ offset: number | null; detail: string }> {
+  const buffer = await fetchPdfBufferCached(material);
   const images = await renderPdfPagesToImages(buffer.slice(0), 15, 1.3);
   return invokeDetectOffset(images);
 }
@@ -252,7 +268,9 @@ export async function getReferencePageImages(
   material: ReferenceMaterial,
   pageStart: number,
   pageEnd: number,
-  maxCandidatePages = 15
+  maxCandidatePages = 15,
+  /** 학생 링크 화면에서 부를 때의 업로드 토큰 — 있으면 서버(hw-reference-url)에서 PDF 서명 주소를 받는다. */
+  uploadToken?: string
 ): Promise<{ page: number; image: string }[]> {
   const start = Math.max(1, Math.floor(pageStart));
   const end = Math.max(start, Math.floor(pageEnd));
@@ -260,7 +278,7 @@ export async function getReferencePageImages(
 
   let buffer: ArrayBuffer;
   try {
-    buffer = await fetchPdfBufferCached(material.fileUrl);
+    buffer = await fetchPdfBufferCached(material, uploadToken);
   } catch {
     return [];
   }
