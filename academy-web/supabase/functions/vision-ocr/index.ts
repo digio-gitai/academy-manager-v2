@@ -84,7 +84,35 @@ async function ocrOneImage(base64Content: string, apiKey: string): Promise<{ tex
   return { text };
 }
 
+// [2026-10-28 보안 3-B2] 이 함수는 AI 비용이 드는 열쇠 계정 전용 기능 — 로그인 안 한 호출(공개 키만 가진 사람)은 막는다.
+// 허용: app_owner 명단에 있는 로그인 사용자, 또는 서버 전용 키(service role)로 부르는 다른 Edge Function.
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+async function isOwnerCaller(req: Request): Promise<boolean> {
+  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (!bearer) return false;
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceKey) return false;
+  if (bearer === serviceKey) return true;
+  try {
+    const admin = createClient(url, serviceKey);
+    const { data, error } = await admin.auth.getUser(bearer);
+    if (error || !data?.user) return false;
+    const { data: owner } = await admin.from('app_owner').select('user_id').eq('user_id', data.user.id).maybeSingle();
+    return !!owner;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req: Request) => {
+  if (req.method !== 'OPTIONS' && !(await isOwnerCaller(req))) {
+    return new Response(JSON.stringify({ error: '로그인이 필요합니다.' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
