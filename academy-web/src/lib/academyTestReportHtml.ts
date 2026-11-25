@@ -836,7 +836,7 @@ export function buildAcademyTestReportHtml(p: AcademyTestReportInput): string {
   }
 
   const normalDistHtml =
-    p.allScores.length >= 2 && !isLite
+    p.allScores.length >= 2 && !isLite && (p.showClassAvg || p.showClassRank)
       ? buildNormalDist({ allScores: p.allScores, score: p.score, rank, totalStudents })
       : '';
 
