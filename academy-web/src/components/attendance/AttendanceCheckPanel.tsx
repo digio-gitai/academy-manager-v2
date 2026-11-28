@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ClassInfo } from '../../types/classManagement';
 import type { AttendanceRecord, AttendanceStatus } from '../../types/attendance';
-import { fetchAttendanceForSession, saveAttendanceSession } from '../../lib/attendance';
+import { fetchAttendanceForSession, saveAttendanceSession, deleteAttendanceSession } from '../../lib/attendance';
 import {
   fetchTodayHomeworkSummary,
   fetchHomeworkPerformanceForSession,
@@ -284,6 +284,30 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
     }
   }
 
+  /** 이 반+날짜 기록 전부 삭제 — 잘못된 날짜에 저장했을 때 초기화용. */
+  async function handleDeleteSession() {
+    if (!selectedClass) return;
+    const ok = window.confirm(
+      `${selectedClass.name} ${sessionDate}(${weekdayLabel})의 출석·과제 수행도 기록을 전부 삭제합니다.\n` +
+        `되돌릴 수 없습니다. 계속하시겠습니까?`,
+    );
+    if (!ok) return;
+    setSaving(true);
+    setSaveMessage('');
+    try {
+      await deleteAttendanceSession(classId, sessionDate);
+      setSavedRecords([]);
+      setRecords({});
+      setPerfSaved({});
+      setPerfEdits({});
+      setSaveMessage(`${sessionDate} 기록을 삭제했습니다.`);
+    } catch (err) {
+      setSaveMessage(err instanceof Error ? `삭제 실패: ${err.message}` : '삭제에 실패했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <div className={styles.card}>
@@ -410,6 +434,16 @@ export function AttendanceCheckPanel({ classes }: AttendanceCheckPanelProps) {
               <button type="button" className={styles.saveButton} onClick={handleSave} disabled={saving}>
                 {saving ? '저장 중...' : alreadySaved ? '출석 수정' : '출석 저장'}
               </button>
+              {alreadySaved && (
+                <button
+                  type="button"
+                  className={styles.cancelClassButton}
+                  onClick={handleDeleteSession}
+                  disabled={saving}
+                >
+                  이 날짜 기록 전체 삭제
+                </button>
+              )}
               {saveMessage && <p className={styles.successText}>{saveMessage}</p>}
             </>
           )

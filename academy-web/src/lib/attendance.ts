@@ -62,6 +62,21 @@ export async function saveAttendanceSession(
   }
 }
 
+/**
+ * 반+날짜의 출석 기록과 과제 수행도 기록을 통째로 삭제(초기화).
+ * 잘못된 날짜에 저장했을 때 쓴다 — 삭제 후엔 "저장 안 된 날"과 동일해짐.
+ */
+export async function deleteAttendanceSession(classId: string, sessionDate: string): Promise<void> {
+  for (const table of ['attendance', 'student_homework_performance']) {
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq('class_id', Number(classId))
+      .eq('session_date', sessionDate);
+    if (error) throw error;
+  }
+}
+
 interface AttendanceEntry {
   studentId: string;
   studentName: string;
